@@ -579,25 +579,44 @@
     if (updateElement && data.status === "success") {
       const element = document.getElementById(updateElement);
       if (element) {
+        let displayContent = "";
+
         if (typeof data.result === "object") {
-          element.innerHTML = `<pre class="bg-light p-2">${JSON.stringify(
-            data.result,
-            null,
-            2
-          )}</pre>`;
+          // FORMAT RESPONSE BERDASARKAN ELEMENT
+          if (updateElement === "ufwStatusContent") {
+            // Untuk UFW status - tampilkan hanya output
+            displayContent =
+              data.result.output ||
+              data.result.status ||
+              JSON.stringify(data.result, null, 2);
+          } else if (updateElement === "firewalldStatusContent") {
+            // Untuk Firewalld status - tampilkan hanya output
+            displayContent =
+              data.result.output ||
+              data.result.status ||
+              JSON.stringify(data.result, null, 2);
+          } else if (updateElement === "natStatusContent") {
+            // Untuk NAT status - format khusus
+            if (data.result.ufw && data.result.nat_rules) {
+              displayContent = `UFW Status: ${data.result.ufw}\n\nNAT Rules:\n${data.result.nat_rules}`;
+            } else {
+              displayContent = JSON.stringify(data.result, null, 2);
+            }
+          } else {
+            // Default - tampilkan JSON
+            displayContent = JSON.stringify(data.result, null, 2);
+          }
         } else {
-          element.innerHTML = `<pre class="bg-light p-2">${
-            data.result || "Operation completed successfully"
-          }</pre>`;
+          // Jika bukan object, tampilkan langsung
+          displayContent = data.result || "Operation completed successfully";
         }
+
+        element.innerHTML = `<pre class="bg-light p-2">${displayContent}</pre>`;
       }
 
       if (callback) {
         callback(data.result);
       }
-
-      // HAPUS AUTO-REFRESH SEPENUHNYA
-      // User bisa manual refresh jika perlu
     } else if (updateElement && data.status === "failed") {
       document.getElementById(
         updateElement
