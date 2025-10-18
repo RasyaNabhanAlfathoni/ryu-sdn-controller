@@ -1,11 +1,19 @@
-### Flow system
-# Browser → Dashboard (5000) → Ryu Controller (8080) → ServerAPI → Agent API (8080) → Agent Execution
-#     ↓           ↓                   ↓           ↓           ↓           ↓
-#   Web     192.168.221.133    192.168.221.133  HTTP   192.168.221.163  ip.py/firewall.py
+### Flow System Overview 
+## 1) Fase Registrasi
+# Agent Node → Ryu Controller (Device Registration)
+#     ↓               ↓
+# agent_register.py → controller.py (/devices POST)
+
+## 2) Fase manajemen
+# Web Dashboard → Ryu Controller → Agent Node (Command Execution)
+#       ↓               ↓               ↓
+#    Browser → controller.py → server_api.py → agent_api.py → Local Commands
 
 # Infrastruktur
-# - VM Ryu manager
-# - VM Ryu agent
+# - VM Ryu manager (ryu_manager and dashboard)
+# - VM Ryu agent (ryu_agent and ryu_agent_api)
+
+# ---------------------------------------------------------------------------------------------
 
 # 1 — Prasyarat & instalasi dependency (Ubuntu 20.04/22.04)
 # Maksimal versi python 3.9  
@@ -35,11 +43,6 @@
 
 ## check-version
 # ryu-manager --version
-
-### Install requirement for agent and test agent API
-# pip3 install flask psutil requests
-# curl http://192.168.221.163:8080/health
-# curl http://192.168.221.163:8080/api/network/interfaces
 
 ### 3 - Install Requirement for Drivers Server
 # 1) pip install ryu psutil paramiko netifaces fastapi uvicorn jinja2 SQLAlchemy psycopg2-binar
@@ -95,7 +98,12 @@
 # note: jadi topologinya itu |VM RYU agent| -> |run agent register| -> |VM RYU Manager| 
 # 1) python3 agent_register.py
 
-### 7 - Inisialisasi dashboard
+### 7- Install requirement for agent and test agent API
+# pip3 install flask psutil requests
+# curl http://192.168.221.163:8080/health
+# curl http://192.168.221.163:8080/api/network/interfaces
+
+### 8 - Inisialisasi dashboard
 # 1) pip3 install flask requests
 # 2) cd ~/ryu-sdn/app/dashboard
 # 3) python3 app.py
