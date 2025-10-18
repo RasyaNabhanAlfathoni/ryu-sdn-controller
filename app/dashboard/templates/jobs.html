@@ -1,0 +1,207 @@
+{% extends "base.html" %} {% block content %}
+<h1>Job Monitor</h1>
+<p class="lead">Monitor and track job executions</p>
+
+<div class="row mt-4">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5>Quick Actions</h5>
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-4">
+            <div class="d-grid gap-2">
+              <button
+                class="btn btn-primary"
+                onclick="runQuickAction('server.monitor')"
+              >
+                System Monitor
+              </button>
+              <small class="text-muted">Check CPU, Memory, Disk usage</small>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="d-grid gap-2">
+              <button
+                class="btn btn-success"
+                onclick="runQuickAction('server.ip.show_all')"
+              >
+                Network Info
+              </button>
+              <small class="text-muted">Show all network interfaces</small>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="d-grid gap-2">
+              <button
+                class="btn btn-warning"
+                onclick="runQuickAction('server.firewall.ufw_status')"
+              >
+                Firewall Status
+              </button>
+              <small class="text-muted">Check firewall status</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row mt-4">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5>Manual Job Creation</h5>
+      </div>
+      <div class="card-body">
+        <form id="jobForm">
+          <div class="row">
+            <div class="col-md-4">
+              <label class="form-label">Device</label>
+              <select class="form-select" id="deviceSelect" required>
+                <option value="">Loading devices...</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Action</label>
+              <select class="form-select" id="actionSelect" required>
+                <option value="">Select action...</option>
+                <option value="server.monitor">System Monitor</option>
+                <option value="server.ip.show_all">Network Info</option>
+                <option value="server.firewall.ufw_status">
+                  Firewall Status
+                </option>
+                <option value="server.firewall.ufw_enable">
+                  Enable Firewall
+                </option>
+                <option value="server.firewall.ufw_disable">
+                  Disable Firewall
+                </option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">&nbsp;</label>
+              <div class="d-grid">
+                <button type="submit" class="btn btn-primary">Run Job</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Result Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Job Result</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <pre id="resultContent" class="bg-light p-3"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %} {% block scripts %}
+<script>
+  // Load devices on page load
+  document.addEventListener("DOMContentLoaded", function () {
+    fetch("/api/devices")
+      .then((response) => response.json())
+      .then((devices) => {
+        const select = document.getElementById("deviceSelect");
+        select.innerHTML = '<option value="">Select device...</option>';
+
+        devices.forEach((device) => {
+          const option = document.createElement("option");
+          option.value = device.id;
+          option.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+          select.appendChild(option);
+        });
+      });
+  });
+
+  // Quick actions
+  function runQuickAction(action) {
+    const deviceSelect = document.getElementById("deviceSelect");
+    const deviceId = deviceSelect.value;
+
+    if (!deviceId) {
+      alert("Please select a device first");
+      return;
+    }
+
+    runJob(deviceId, action);
+  }
+
+  // Manual job form
+  document.getElementById("jobForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+
+    const deviceId = document.getElementById("deviceSelect").value;
+    const action = document.getElementById("actionSelect").value;
+
+    if (!deviceId || !action) {
+      alert("Please select both device and action");
+      return;
+    }
+
+    runJob(deviceId, action);
+  });
+
+  function runJob(deviceId, action) {
+    fetch("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId, action: action }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.job_id) {
+          pollJobResult(data.job_id);
+        } else {
+          alert("Error: " + (data.error || "Unknown error"));
+        }
+      })
+      .catch((error) => {
+        alert("Error: " + error);
+      });
+  }
+
+  function pollJobResult(jobId) {
+    const modal = new bootstrap.Modal(document.getElementById("resultModal"));
+    const resultContent = document.getElementById("resultContent");
+
+    resultContent.textContent = "Waiting for job to complete...";
+    modal.show();
+
+    const pollInterval = setInterval(() => {
+      fetch("/api/jobs/" + jobId)
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.status === "success" || data.status === "failed") {
+            clearInterval(pollInterval);
+            resultContent.textContent = JSON.stringify(data, null, 2);
+          } else if (data.status === "running") {
+            resultContent.textContent =
+              "Job is running...\nLogs:\n" + data.logs.join("\n");
+          }
+        })
+        .catch((error) => {
+          clearInterval(pollInterval);
+          resultContent.textContent = "Error: " + error;
+        });
+    }, 1000);
+  }
+</script>
+{% endblock %}

@@ -97,7 +97,7 @@ class Orchestrator(app_manager.RyuApp):
         try:
             srv = ServerAPI(dev)
             info = srv.get_basic_info()
-            info["southbound"] = "server_local"
+            info["southbound"] = "server_api"
             info["vendor"] = "GenericServer"
             info["connected"] = True
             return info
@@ -139,7 +139,7 @@ class Orchestrator(app_manager.RyuApp):
         sb = dev.get("southbound", "")
         if sb == "routeros_api":
             return RouterOSApiDriver(dev)
-        elif sb == "server_local":
+        elif sb == "server_api":
             return ServerAPI(dev)
         else:
             raise ValueError(f"Unknown southbound driver: {sb}")
@@ -281,6 +281,18 @@ class NorthboundApi(ControllerBase):
         clean_devices.append(clean_dev)
         
         body = json.dumps(clean_devices)
+        return self._resp(req, body)
+    
+    # Panggil device berdasarkan ID
+    @route('devices', '/devices/{device_id}', methods=['GET'])
+    def get_device(self, req, device_id, **kwargs):
+        """Get specific device by ID"""
+        try:
+            device = self.core.devices.get(device_id)
+            body = json.dumps(device)
+        except KeyError:
+            body = json.dumps({"error": "Device not found"})
+        
         return self._resp(req, body)
 
     @route('devices', '/devices', methods=['POST'])

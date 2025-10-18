@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center">
+    <h1>Network Devices</h1>
+    <button class="btn btn-primary" onclick="refreshDevices()">Refresh</button>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>All Devices</h5>
+            </div>
+            <div class="card-body">
+                {% if devices %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Hostname</th>
+                                <th>IP Address</th>
+                                <th>Role</th>
+                                <th>OS</th>
+                                <th>Last Seen</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for device in devices %}
+                            <tr>
+                                <td><code>{{ device.id }}</code></td>
+                                <td>{{ device.hostname }}</td>
+                                <td>{{ device.ip }}</td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if device.role == 'manager' else 'info' }}">
+                                        {{ device.role }}
+                                    </span>
+                                </td>
+                                <td>{{ device.os }}</td>
+                                <td>
+                                    {% if device.last_seen %}
+                                    <span class="last-seen" data-timestamp="{{ device.last_seen }}">
+                                        {{ device.last_seen }}
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if device.connected else 'danger' }}">
+                                        {{ 'Connected' if device.connected else 'Disconnected' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-outline-primary" 
+                                                onclick="runAction('{{ device.id }}', 'server.monitor')">
+                                            Monitor
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                                onclick="runAction('{{ device.id }}', 'server.ip.show_all')">
+                                            Network Info
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info"
+                                                onclick="runAction('{{ device.id }}', 'server.firewall.ufw_status')">
+                                            Firewall
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No devices found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Result Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Job Result</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="resultContent" class="bg-light p-3"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function refreshDevices() {
+    location.reload();
+}
+
+function runAction(deviceId, action) {
+    fetch('/api/jobs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({device_id: deviceId, action: action})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.job_id) {
+            pollJobResult(data.job_id);
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        alert('Error: ' + error);
+    });
+}
+
+function pollJobResult(jobId) {
+    const modal = new bootstrap.Modal(document.getElementById('resultModal'));
+    const resultContent = document.getElementById('resultContent');
+    
+    resultContent.textContent = 'Waiting for job to complete...';
+    modal.show();
+    
+    const pollInterval = setInterval(() => {
+        fetch('/api/jobs/' + jobId)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success' || data.status === 'failed') {
+                clearInterval(pollInterval);
+                resultContent.textContent = JSON.stringify(data, null, 2);
+            } else if (data.status === 'running') {
+                resultContent.textContent = 'Job is running...\nLogs:\n' + 
+                    data.logs.join('\n');
+            }
+        })
+        .catch(error => {
+            clearInterval(pollInterval);
+            resultContent.textContent = 'Error: ' + error;
+        });
+    }, 1000);
+}
+
+// Format last seen timestamps
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.last-seen').forEach(element => {
+        const timestamp = parseFloat(element.getAttribute('data-timestamp'));
+        if (timestamp) {
+            const date = new Date(timestamp * 1000);
+            element.textContent = date.toLocaleString();
+        }
+    });
+});
+</script>
+{% endblock %}

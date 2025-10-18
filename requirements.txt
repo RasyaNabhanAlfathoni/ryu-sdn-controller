@@ -57,7 +57,7 @@
 # 1) pip install ryu psutil paramiko netifaces fastapi uvicorn jinja2 SQLAlchemy psycopg2-binar
 # 2) sudo apt install postgresql postgresql-contrib libpq-dev -y
 
-### 4 - Inisialisasi Database
+### 4 - Inisialisasi Database ( opsional )
 # sudo -u postgres psql
 # CREATE DATABASE sdn_controller;
 # CREATE USER sdn_user WITH PASSWORD 'sdnpass';
@@ -91,8 +91,7 @@
 #   }
 # ]
 
-
-## Test Get Data 
+### Test Get Data 
 # 1) curl -X POST http://192.168.221.133:8080/jobs -H "Content-Type: application/json" -d '{"device_id": "r43199a56", "action": "server.firewall.status_all"}'
 # nanti akan muncul output seperti ini:
 # {"job_id": "1760707616-7eab5906", "status": "queued"}
@@ -103,3 +102,12 @@
 ## Test disable interface
 # 1) curl -X POST http://192.168.221.133:8080/jobs -H "Content-Type: application/json" -d '{"device_id": "r43199a56", "action": "server.ip.disable_interface", "params": {"iface": "ens33"}}'
 # 2) curl http://192.168.221.133:8080/jobs/<job_id> | jq
+
+### 6 - Inisialisasi agent_register.py ( untuk daftar agent )
+# note: jadi topologinya itu |VM RYU agent| -> |run agent register| -> |VM RYU Manager| 
+# 1) python3 agent_register.py
+
+### 7 - Inisialisasi dashboard
+# 1) pip3 install flask requests
+# 2) cd ~/ryu-sdn/app/dashboard
+# 3) python3 app.py

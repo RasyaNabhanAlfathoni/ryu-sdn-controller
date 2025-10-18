@@ -12,6 +12,7 @@ import threading
 import getpass
 import uuid
 import platform
+import subprocess
 
 CONTROLLER_URL = os.environ.get("RYU_CONTROLLER_URL", "http://192.168.221.133:8080")
 API_KEY = os.environ.get("RYU_API_KEY", "agent-secret-token-1")
@@ -21,6 +22,33 @@ AGENT_IP = os.environ.get("AGENT_IP")
 RETRY_INTERVAL = 5
 MAX_RETRIES = 12
 HEARTBEAT_INTERVAL = 10
+
+# Test apakah ada process ryu manager
+def is_ryu_controller_running():
+    """Check if Ryu controller is running on this machine"""
+    try:
+        # Cek process Ryu
+        result = subprocess.run(['pgrep', '-f', 'ryu-manager'],
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            return True
+
+        # Cek port 8080 (Ryu API)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex(('localhost', 8080))
+        sock.close()
+        return result == 0
+
+    except Exception:
+        return False
+
+# Jika ada process ryu manager, maka role adalah "manager" jika tidak "agent"
+def detect_role():
+    """Auto-detect role: manager or agent"""
+    if is_ryu_controller_running():
+        return "manager"
+    else:
+        return "agent"
 
 def get_connected_ip(controller_url):
     # Dapatkan IP yang sebenarnya digunakan untuk koneksi ke controller
@@ -114,10 +142,10 @@ def build_payload(controller_url):
     print(f"[AGENT] Using IP: {ip} for registration")
 
     payload = {
-        "role": "agent", # biar tau kalau ini agent
+        "role": detect_role(), # panggil fungsi deteksi role otomatis
         "ip": ip, # info IP
         "username": getpass.getuser(), # info user
-        "southbound": "agent_http",  # lebih deskriptif
+        "southbound": "server_api",  # lebih deskriptif
         "os": get_os_info(),         # info OS
         "meta": {
             "hostname": hostname, # info Hostname server
