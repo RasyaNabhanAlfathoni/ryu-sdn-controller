@@ -9,6 +9,20 @@
   </div>
 </div>
 
+<!-- Current Device Info -->
+<div class="row mt-3" id="currentDeviceInfo" style="display: none">
+  <div class="col-md-12">
+    <div class="card bg-light">
+      <div class="card-body py-2">
+        <small>
+          <strong>Currently Managing:</strong>
+          <span id="currentDeviceText">None</span>
+        </small>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Device Selector -->
 <div class="row mt-4">
   <div class="col-md-12">
@@ -308,11 +322,23 @@
   });
 
   function loadDevices() {
+    console.log("Loading devices for firewall...");
+
     fetch("/api/devices")
       .then((response) => response.json())
       .then((devices) => {
+        console.log("Devices loaded:", devices);
+
         const select = document.getElementById("deviceSelect");
         select.innerHTML = '<option value="">Select device...</option>';
+
+        if (!devices || devices.length === 0) {
+          select.innerHTML = '<option value="">No devices registered</option>';
+          return;
+        }
+
+        // CLEAR current device ID first
+        currentDeviceId = "";
 
         devices.forEach((device) => {
           const option = document.createElement("option");
@@ -320,16 +346,62 @@
           option.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
           select.appendChild(option);
         });
+
+        // AUTO-SELECT AGENT
+        const agentDevice = devices.find((device) => device.role === "agent");
+        if (agentDevice) {
+          console.log("Found agent device:", agentDevice.id, agentDevice.ip);
+          select.value = agentDevice.id;
+          currentDeviceId = agentDevice.id;
+          updateCurrentDeviceInfo(agentDevice);
+
+          // Load firewall info immediately
+          setTimeout(() => {
+            loadFirewallInfo();
+          }, 100);
+        }
+      })
+      .catch((error) => {
+        console.error("Error loading devices:", error);
+        document.getElementById("deviceSelect").innerHTML =
+          '<option value="">Error loading devices</option>';
       });
+  }
+
+  function updateCurrentDeviceInfo(device) {
+    const deviceInfo = document.getElementById("currentDeviceInfo");
+    const deviceText = document.getElementById("currentDeviceText");
+
+    if (device) {
+      deviceText.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+      deviceInfo.style.display = "block";
+    } else {
+      deviceInfo.style.display = "none";
+    }
   }
 
   function loadFirewallInfo() {
     const deviceSelect = document.getElementById("deviceSelect");
     currentDeviceId = deviceSelect.value;
+    const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
 
     if (!currentDeviceId) {
+      document.getElementById("firewallTypeContent").innerHTML =
+        '<p class="text-muted">Select a device to detect firewall system</p>';
+      document.getElementById("currentDeviceInfo").style.display = "none";
       return;
     }
+
+    // Update device info
+    updateCurrentDeviceInfo({
+      hostname: selectedOption.text.split(" ")[0],
+      ip: selectedOption.text.match(/\((.*?)\)/)[1],
+      role: selectedOption.text.includes("agent") ? "agent" : "manager",
+    });
+
+    // Show loading
+    document.getElementById("firewallTypeContent").innerHTML =
+      '<div class="text-center"><div class="spinner-border spinner-border-sm"></div> Detecting firewall system...</div>';
 
     // Detect firewall type
     runFirewallAction(
@@ -345,6 +417,8 @@
   }
 
   function showFirewallSections(firewallType) {
+    console.log("Firewall type detected:", firewallType);
+
     // Hide all sections first
     document.getElementById("ufwSection").style.display = "none";
     document.getElementById("firewalldSection").style.display = "none";
@@ -420,6 +494,12 @@
       return;
     }
 
+    // Show loading for updateElement
+    if (updateElement) {
+      document.getElementById(updateElement).innerHTML =
+        '<div class="text-center"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+    }
+
     fetch("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -429,69 +509,113 @@
         params: params,
       }),
     })
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
       .then((data) => {
         if (data.job_id) {
           pollFirewallJobResult(data.job_id, updateElement, callback);
         } else {
-          alert("Error: " + (data.error || "Unknown error"));
+          throw new Error(data.error || "Unknown error creating job");
         }
       })
       .catch((error) => {
-        alert("Error: " + error);
+        console.error("Error running firewall action:", error);
+        alert("Error: " + error.message);
+        if (updateElement) {
+          document.getElementById(updateElement).innerHTML =
+            '<p class="text-danger">Error: ' + error.message + "</p>";
+        }
       });
   }
 
   function pollFirewallJobResult(jobId, updateElement = null, callback = null) {
-    const modal = new bootstrap.Modal(document.getElementById("resultModal"));
-    const resultContent = document.getElementById("resultContent");
-
-    if (!updateElement) {
-      resultContent.textContent = "Waiting for operation to complete...";
-      modal.show();
-    }
+    let pollCount = 0;
+    const maxPolls = 30;
 
     const pollInterval = setInterval(() => {
+      pollCount++;
+
+      if (pollCount > maxPolls) {
+        clearInterval(pollInterval);
+        handlePollingError(
+          "Job timeout - took too long to complete",
+          updateElement
+        );
+        return;
+      }
+
       fetch("/api/jobs/" + jobId)
-        .then((response) => response.json())
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          return response.json();
+        })
         .then((data) => {
           if (data.status === "success" || data.status === "failed") {
             clearInterval(pollInterval);
-
-            if (updateElement) {
-              const element = document.getElementById(updateElement);
-              if (element) {
-                if (data.status === "success") {
-                  element.innerHTML = `<pre class="bg-light p-2">${
-                    data.result || "Operation completed successfully"
-                  }</pre>`;
-                } else {
-                  element.innerHTML = `<p class="text-danger">Error: ${
-                    data.result || "Unknown error"
-                  }</p>`;
-                }
-              }
-
-              if (callback) {
-                callback(data.result);
-              }
-
-              // Refresh relevant sections after operation
-              if (currentDeviceId) {
-                loadFirewallInfo();
-              }
-            } else {
-              resultContent.textContent = JSON.stringify(data, null, 2);
-            }
+            handleFirewallJobComplete(data, updateElement, callback);
           }
+          // If still running, continue polling
         })
         .catch((error) => {
-          clearInterval(pollInterval);
-          if (!updateElement) {
-            resultContent.textContent = "Error: " + error;
+          console.error("Polling error:", error);
+          if (pollCount >= 3) {
+            clearInterval(pollInterval);
+            handlePollingError(
+              "Connection error: " + error.message,
+              updateElement
+            );
           }
         });
     }, 1000);
+  }
+
+  function handleFirewallJobComplete(data, updateElement, callback) {
+    if (updateElement && data.status === "success") {
+      const element = document.getElementById(updateElement);
+      if (element) {
+        if (typeof data.result === "object") {
+          element.innerHTML = `<pre class="bg-light p-2">${JSON.stringify(
+            data.result,
+            null,
+            2
+          )}</pre>`;
+        } else {
+          element.innerHTML = `<pre class="bg-light p-2">${
+            data.result || "Operation completed successfully"
+          }</pre>`;
+        }
+      }
+
+      if (callback) {
+        callback(data.result);
+      }
+
+      // HAPUS AUTO-REFRESH SEPENUHNYA
+      // User bisa manual refresh jika perlu
+    } else if (updateElement && data.status === "failed") {
+      document.getElementById(
+        updateElement
+      ).innerHTML = `<p class="text-danger">Error: ${
+        data.result || "Unknown error"
+      }</p>`;
+    }
+  }
+
+  function handlePollingError(errorMessage, updateElement) {
+    console.error("Polling failed:", errorMessage);
+
+    if (updateElement) {
+      document.getElementById(updateElement).innerHTML =
+        '<p class="text-danger">Error: ' + errorMessage + "</p>";
+    } else {
+      alert("Error: " + errorMessage);
+    }
   }
 
   function refreshFirewall() {

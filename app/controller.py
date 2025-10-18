@@ -212,7 +212,8 @@ class Orchestrator(app_manager.RyuApp):
             "server.firewall.firewalld_disable_masquerade": lambda p, logger: d.firewall_disable_masquerade(logger=logger),
             "server.firewall.firewalld_list_ports": lambda p, logger: d.firewall_cmd("--list-ports", logger=logger),
             "server.firewall.firewalld_list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
-
+            "server.firewall.firewalld_command": lambda p, logger: d.firewall_cmd(p.get("args"), logger=logger),
+            
             # Firewall Management - NAT & General
             "server.firewall.nat.add": lambda p, logger: d.setup_nat(p.get("interface"), logger=logger),
             "server.firewall.nat.clear": lambda p, logger: d.clear_nat(logger=logger),

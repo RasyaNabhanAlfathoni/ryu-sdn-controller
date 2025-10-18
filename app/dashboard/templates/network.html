@@ -156,24 +156,37 @@
 </div>
 
 <!-- Result Modal -->
-<div class="modal fade" id="resultModal" tabindex="-1">
+<div
+  class="modal fade"
+  id="resultModal"
+  tabindex="-1"
+  aria-labelledby="resultModalLabel"
+  aria-hidden="true"
+>
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Operation Result</h5>
+        <h5 class="modal-title" id="resultModalLabel">Operation Result</h5>
         <button
           type="button"
           class="btn-close"
           data-bs-dismiss="modal"
+          aria-label="Close"
         ></button>
       </div>
       <div class="modal-body">
         <pre id="resultContent" class="bg-light p-3"></pre>
       </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Close
+        </button>
+      </div>
     </div>
   </div>
 </div>
 {% endblock %} {% block scripts %}
+
 <script>
   let currentDeviceId = "";
   let currentInterfaces = [];
@@ -610,9 +623,21 @@
   }
 
   function showResultModal(data) {
-    const modal = new bootstrap.Modal(document.getElementById("resultModal"));
+    const modalElement = document.getElementById("resultModal");
     const resultContent = document.getElementById("resultContent");
 
+    // Pastikan modal dalam state bersih
+    modalElement.classList.remove("show");
+    modalElement.style.display = "none";
+    document.body.classList.remove("modal-open");
+
+    // Hapus backdrop jika ada
+    const existingBackdrop = document.querySelector(".modal-backdrop");
+    if (existingBackdrop) {
+      existingBackdrop.remove();
+    }
+
+    // Set content
     let content = "";
     if (typeof data === "object") {
       content = JSON.stringify(data, null, 2);
@@ -621,7 +646,18 @@
     }
 
     resultContent.textContent = content;
+
+    // Show modal dengan Bootstrap
+    const modal = new bootstrap.Modal(modalElement);
     modal.show();
+
+    // Event listener untuk cleanup ketika modal ditutup
+    modalElement.addEventListener("hidden.bs.modal", function () {
+      // Pastikan semua state direset
+      document.body.classList.remove("modal-open");
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    });
   }
 </script>
 {% endblock %}

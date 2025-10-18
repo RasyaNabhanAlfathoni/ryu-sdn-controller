@@ -33,7 +33,7 @@ def interfaces_detail():
     """Get detailed interface information"""
     try:
         log_message("GET /api/network/interfaces/detail")
-        result = ip_driver.show_all()
+        result = ip_driver.get_interface_details()
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in interfaces_detail: {e}")
@@ -247,6 +247,29 @@ def firewall_status():
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_status: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+# Tambahkan di agent_api.py
+@app.route('/api/firewall/firewalld/list-services', methods=['GET'])
+def firewalld_list_services():
+    """List firewalld services"""
+    try:
+        log_message("GET /api/firewall/firewalld/list-services")
+        result = firewall_driver.firewall_cmd("--list-services")
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewalld_list_services: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/firewall/firewalld/list-ports', methods=['GET'])
+def firewalld_list_ports():
+    """List firewalld ports"""
+    try:
+        log_message("GET /api/firewall/firewalld/list-ports")
+        result = firewall_driver.firewall_cmd("--list-ports")
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewalld_list_ports: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/firewall/firewalld/reload', methods=['POST'])

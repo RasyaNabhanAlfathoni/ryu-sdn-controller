@@ -168,6 +168,14 @@ class ServerAPI:
     def firewall_status(self, logger=None):
         """Get firewalld status from agent"""
         return self._call_agent("/api/firewall/firewalld/status", logger=logger)
+
+    def firewalld_list_services(self, logger=None):
+        """List firewalld services from agent"""
+        return self._call_agent("/api/firewall/firewalld/list-services", logger=logger)
+
+    def firewalld_list_ports(self, logger=None):
+        """List firewalld ports from agent"""
+        return self._call_agent("/api/firewall/firewalld/list-ports", logger=logger)
     
     def firewall_reload(self, logger=None):
         """Reload firewalld on agent"""
