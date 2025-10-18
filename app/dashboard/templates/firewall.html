@@ -1,0 +1,505 @@
+{% extends "base.html" %} {% block content %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Firewall Management</h1>
+  <div>
+    <button class="btn btn-primary" onclick="refreshFirewall()">Refresh</button>
+    <a href="{{ url_for('devices') }}" class="btn btn-outline-secondary"
+      >Back to Devices</a
+    >
+  </div>
+</div>
+
+<!-- Device Selector -->
+<div class="row mt-4">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5>Select Device</h5>
+      </div>
+      <div class="card-body">
+        <select
+          class="form-select"
+          id="deviceSelect"
+          onchange="loadFirewallInfo()"
+        >
+          <option value="">Loading devices...</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firewall Detection -->
+<div class="row mt-4">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5>Firewall System</h5>
+      </div>
+      <div class="card-body">
+        <div id="firewallTypeContent">
+          <p class="text-muted">Select a device to detect firewall system</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- UFW Management -->
+<div class="row mt-4" id="ufwSection" style="display: none">
+  <div class="col-md-12">
+    <div class="card">
+      <div
+        class="card-header d-flex justify-content-between align-items-center"
+      >
+        <h5>UFW Firewall Management</h5>
+        <div>
+          <button
+            class="btn btn-sm btn-success"
+            onclick="runFirewallAction('server.firewall.ufw_enable')"
+          >
+            Enable
+          </button>
+          <button
+            class="btn btn-sm btn-warning"
+            onclick="runFirewallAction('server.firewall.ufw_disable')"
+          >
+            Disable
+          </button>
+          <button
+            class="btn btn-sm btn-primary"
+            onclick="runFirewallAction('server.firewall.ufw_reload')"
+          >
+            Reload
+          </button>
+          <button
+            class="btn btn-sm btn-danger"
+            onclick="runFirewallAction('server.firewall.ufw_reset')"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div id="ufwStatusContent">
+          <p class="text-muted">UFW status will appear here</p>
+        </div>
+
+        <!-- UFW Rule Management -->
+        <div class="row mt-4">
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h6>Add Rule</h6>
+              </div>
+              <div class="card-body">
+                <form id="ufwAddRuleForm">
+                  <div class="mb-3">
+                    <label class="form-label">Port/Protocol</label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      placeholder="e.g., 80/tcp or 22"
+                      id="ufwPortProto"
+                      required
+                    />
+                  </div>
+                  <div class="d-grid gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-success"
+                      onclick="addUfwRule('allow')"
+                    >
+                      Allow
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-danger"
+                      onclick="addUfwRule('deny')"
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h6>Delete Rule</h6>
+              </div>
+              <div class="card-body">
+                <form id="ufwDeleteRuleForm">
+                  <div class="mb-3">
+                    <label class="form-label">Rule to Delete</label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      placeholder="e.g., 80/tcp or rule number"
+                      id="ufwDeleteRule"
+                      required
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-warning"
+                    onclick="deleteUfwRule()"
+                  >
+                    Delete Rule
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firewalld Management -->
+<div class="row mt-4" id="firewalldSection" style="display: none">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5>Firewalld Management</h5>
+      </div>
+      <div class="card-body">
+        <div id="firewalldStatusContent">
+          <p class="text-muted">Firewalld status will appear here</p>
+        </div>
+
+        <!-- Firewalld Port Management -->
+        <div class="row mt-4">
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h6>Port Management</h6>
+              </div>
+              <div class="card-body">
+                <form id="firewalldPortForm">
+                  <div class="mb-3">
+                    <label class="form-label">Port/Protocol</label>
+                    <input
+                      type="text"
+                      class="form-control"
+                      placeholder="e.g., 80/tcp"
+                      id="firewalldPortProto"
+                      required
+                    />
+                  </div>
+                  <div class="d-grid gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-success"
+                      onclick="manageFirewalldPort('add')"
+                    >
+                      Add Port
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-danger"
+                      onclick="manageFirewalldPort('remove')"
+                    >
+                      Remove Port
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header">
+                <h6>Services & NAT</h6>
+              </div>
+              <div class="card-body">
+                <div class="d-grid gap-2">
+                  <button
+                    class="btn btn-outline-primary"
+                    onclick="runFirewallAction('server.firewall.firewalld_list_services')"
+                  >
+                    List Services
+                  </button>
+                  <button
+                    class="btn btn-outline-primary"
+                    onclick="runFirewallAction('server.firewall.firewalld_list_ports')"
+                  >
+                    List Ports
+                  </button>
+                  <button
+                    class="btn btn-outline-success"
+                    onclick="runFirewallAction('server.firewall.firewalld_enable_masquerade')"
+                  >
+                    Enable NAT
+                  </button>
+                  <button
+                    class="btn btn-outline-warning"
+                    onclick="runFirewallAction('server.firewall.firewalld_disable_masquerade')"
+                  >
+                    Disable NAT
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NAT Management -->
+<div class="row mt-4">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5>NAT & Advanced Firewall</h5>
+      </div>
+      <div class="card-body">
+        <div class="d-grid gap-2 d-md-flex">
+          <button
+            class="btn btn-info"
+            onclick="runFirewallAction('server.firewall.status_all')"
+          >
+            Full Status
+          </button>
+          <button
+            class="btn btn-warning"
+            onclick="runFirewallAction('server.firewall.nat.clear')"
+          >
+            Clear NAT
+          </button>
+        </div>
+        <div id="natStatusContent" class="mt-3">
+          <p class="text-muted">NAT status will appear here</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Result Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Firewall Operation Result</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <pre id="resultContent" class="bg-light p-3"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %} {% block scripts %}
+<script>
+  let currentDeviceId = "";
+
+  // Load devices on page load
+  document.addEventListener("DOMContentLoaded", function () {
+    loadDevices();
+  });
+
+  function loadDevices() {
+    fetch("/api/devices")
+      .then((response) => response.json())
+      .then((devices) => {
+        const select = document.getElementById("deviceSelect");
+        select.innerHTML = '<option value="">Select device...</option>';
+
+        devices.forEach((device) => {
+          const option = document.createElement("option");
+          option.value = device.id;
+          option.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+          select.appendChild(option);
+        });
+      });
+  }
+
+  function loadFirewallInfo() {
+    const deviceSelect = document.getElementById("deviceSelect");
+    currentDeviceId = deviceSelect.value;
+
+    if (!currentDeviceId) {
+      return;
+    }
+
+    // Detect firewall type
+    runFirewallAction(
+      "server.firewall.detect_type",
+      "firewallTypeContent",
+      function (result) {
+        showFirewallSections(result);
+      }
+    );
+
+    // Load full status
+    runFirewallAction("server.firewall.status_all", "natStatusContent");
+  }
+
+  function showFirewallSections(firewallType) {
+    // Hide all sections first
+    document.getElementById("ufwSection").style.display = "none";
+    document.getElementById("firewalldSection").style.display = "none";
+
+    // Show detected sections
+    if (firewallType === "ufw") {
+      document.getElementById("ufwSection").style.display = "block";
+      runFirewallAction("server.firewall.ufw_status", "ufwStatusContent");
+    } else if (firewallType === "firewalld") {
+      document.getElementById("firewalldSection").style.display = "block";
+      runFirewallAction(
+        "server.firewall.firewalld_status",
+        "firewalldStatusContent"
+      );
+    }
+
+    // Update firewall type display
+    const typeContent = document.getElementById("firewallTypeContent");
+    const badgeClass = firewallType ? "success" : "warning";
+    typeContent.innerHTML = `<span class="badge bg-${badgeClass}">Detected: ${
+      firewallType || "No firewall detected"
+    }</span>`;
+  }
+
+  // UFW Functions
+  function addUfwRule(action) {
+    const portProto = document.getElementById("ufwPortProto").value;
+    if (!portProto) {
+      alert("Please enter port/protocol");
+      return;
+    }
+
+    const actionCmd =
+      action === "allow"
+        ? "server.firewall.ufw_allow"
+        : "server.firewall.ufw_deny";
+    runFirewallAction(actionCmd, null, null, { port_proto: portProto });
+  }
+
+  function deleteUfwRule() {
+    const rule = document.getElementById("ufwDeleteRule").value;
+    if (!rule) {
+      alert("Please enter rule to delete");
+      return;
+    }
+    runFirewallAction("server.firewall.ufw_delete", null, null, { rule: rule });
+  }
+
+  // Firewalld Functions
+  function manageFirewalldPort(action) {
+    const portProto = document.getElementById("firewalldPortProto").value;
+    if (!portProto) {
+      alert("Please enter port/protocol");
+      return;
+    }
+
+    const actionCmd =
+      action === "add"
+        ? "server.firewall.firewalld_add_port"
+        : "server.firewall.firewalld_remove_port";
+    runFirewallAction(actionCmd, null, null, { port_proto: portProto });
+  }
+
+  // Generic firewall action runner
+  function runFirewallAction(
+    action,
+    updateElement = null,
+    callback = null,
+    params = {}
+  ) {
+    if (!currentDeviceId) {
+      alert("Please select a device first");
+      return;
+    }
+
+    fetch("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: currentDeviceId,
+        action: action,
+        params: params,
+      }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.job_id) {
+          pollFirewallJobResult(data.job_id, updateElement, callback);
+        } else {
+          alert("Error: " + (data.error || "Unknown error"));
+        }
+      })
+      .catch((error) => {
+        alert("Error: " + error);
+      });
+  }
+
+  function pollFirewallJobResult(jobId, updateElement = null, callback = null) {
+    const modal = new bootstrap.Modal(document.getElementById("resultModal"));
+    const resultContent = document.getElementById("resultContent");
+
+    if (!updateElement) {
+      resultContent.textContent = "Waiting for operation to complete...";
+      modal.show();
+    }
+
+    const pollInterval = setInterval(() => {
+      fetch("/api/jobs/" + jobId)
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.status === "success" || data.status === "failed") {
+            clearInterval(pollInterval);
+
+            if (updateElement) {
+              const element = document.getElementById(updateElement);
+              if (element) {
+                if (data.status === "success") {
+                  element.innerHTML = `<pre class="bg-light p-2">${
+                    data.result || "Operation completed successfully"
+                  }</pre>`;
+                } else {
+                  element.innerHTML = `<p class="text-danger">Error: ${
+                    data.result || "Unknown error"
+                  }</p>`;
+                }
+              }
+
+              if (callback) {
+                callback(data.result);
+              }
+
+              // Refresh relevant sections after operation
+              if (currentDeviceId) {
+                loadFirewallInfo();
+              }
+            } else {
+              resultContent.textContent = JSON.stringify(data, null, 2);
+            }
+          }
+        })
+        .catch((error) => {
+          clearInterval(pollInterval);
+          if (!updateElement) {
+            resultContent.textContent = "Error: " + error;
+          }
+        });
+    }, 1000);
+  }
+
+  function refreshFirewall() {
+    if (currentDeviceId) {
+      loadFirewallInfo();
+    } else {
+      loadDevices();
+    }
+  }
+</script>
+{% endblock %}

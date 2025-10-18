@@ -98,6 +98,8 @@ def api_create_job():
     device_id = data.get('device_id')
     action = data.get('action')
     params = data.get('params', {})
+
+    print(f"DEBUG: Creating job - device_id: {device_id}, action: {action}")
     
     result = create_job(device_id, action, params)
     return jsonify(result)
@@ -131,6 +133,17 @@ def server_info(device_id):
         flash(f"Error: {job_result.get('error', 'Unknown error')}", "error")
     
     return redirect(url_for('devices'))
+
+@app.route('/network')
+def network_management():
+    """Network management page"""
+    return render_template('network.html')
+
+@app.route('/firewall')
+def firewall_management():
+    """Firewall management page"""
+    return render_template('firewall.html')
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

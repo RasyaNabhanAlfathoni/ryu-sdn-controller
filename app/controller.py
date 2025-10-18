@@ -185,6 +185,9 @@ class Orchestrator(app_manager.RyuApp):
             "server.ip.remove": lambda p, logger: ServerIpDriver(logger).del_ip(p.get("iface"), p.get("ip_cidr")),
             "server.ip.enable_interface": lambda p, logger: ServerIpDriver(logger).enable_iface(p.get("iface")),
             "server.ip.disable_interface": lambda p, logger: ServerIpDriver(logger).disable_iface(p.get("iface")),
+            "server.ip.get_single_interface": lambda p, logger: ServerIpDriver(logger).get_ip_info(p.get("iface")),
+            "server.ip.get_interface_ips": lambda p, logger: ServerIpDriver(logger).get_interface_ips(p.get("iface")),
+            "server.ip.get_interface_status": lambda p, logger: ServerIpDriver(logger).get_interface_status(p.get("iface")),
 
             # Firewall Management - UFW
             "server.firewall.ufw_status": lambda p, logger: FirewallDriver(logger).ufw_status(),
@@ -195,7 +198,11 @@ class Orchestrator(app_manager.RyuApp):
             "server.firewall.ufw_allow": lambda p, logger: FirewallDriver(logger).ufw_allow(p.get("port_proto")),
             "server.firewall.ufw_deny": lambda p, logger: FirewallDriver(logger).ufw_deny(p.get("port_proto")),
             "server.firewall.ufw_delete": lambda p, logger: FirewallDriver(logger).ufw_delete(p.get("rule")),
-
+            "server.firewall.ufw_allow_in": lambda p, logger: FirewallDriver(logger).ufw("allow", "in", p.get("port_proto")),
+            "server.firewall.ufw_allow_out": lambda p, logger: FirewallDriver(logger).ufw("allow", "out", p.get("port_proto")),
+            "server.firewall.ufw_deny_in": lambda p, logger: FirewallDriver(logger).ufw("deny", "in", p.get("port_proto")),
+            "server.firewall.ufw_deny_out": lambda p, logger: FirewallDriver(logger).ufw("deny", "out", p.get("port_proto")),
+            
             # Firewall Management - Firewalld
             "server.firewall.firewalld_status": lambda p, logger: FirewallDriver(logger).firewall_status(),
             "server.firewall.firewalld_reload": lambda p, logger: FirewallDriver(logger).firewall_reload(),
@@ -203,11 +210,14 @@ class Orchestrator(app_manager.RyuApp):
             "server.firewall.firewalld_remove_port": lambda p, logger: FirewallDriver(logger).firewall_remove_port(p.get("port_proto")),
             "server.firewall.firewalld_enable_masquerade": lambda p, logger: FirewallDriver(logger).firewall_enable_masquerade(),
             "server.firewall.firewalld_disable_masquerade": lambda p, logger: FirewallDriver(logger).firewall_disable_masquerade(),
+            "server.firewall.firewalld_list_ports": lambda p, logger: FirewallDriver(logger).firewall_cmd("--list-ports"),
+            "server.firewall.firewalld_list_services": lambda p, logger: FirewallDriver(logger).firewall_cmd("--list-services"),
 
             # Firewall Management - NAT & General
             "server.firewall.nat.add": lambda p, logger: FirewallDriver(logger).setup_nat(p.get("interface")),
             "server.firewall.nat.clear": lambda p, logger: FirewallDriver(logger).clear_nat(),
             "server.firewall.status_all": lambda p, logger: FirewallDriver(logger).status_all(),
+            "server.firewall.detect_type": lambda p, logger: FirewallDriver(logger).detect_firewall(),
 
             # Monitor (existing)
             "server.monitor": lambda p, logger: ServerAPI({}).get_utilization(logger=logger),
