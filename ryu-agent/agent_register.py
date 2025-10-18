@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Script untuk automasi registrasi agent devices server pada Ryu Controller 
+"""
+Agent auto-register script for Ryu Controller northbound /devices.
+"""
 
 import os
 import time
@@ -12,7 +14,6 @@ import threading
 import getpass
 import uuid
 import platform
-import subprocess
 
 CONTROLLER_URL = os.environ.get("RYU_CONTROLLER_URL", "http://192.168.221.133:8080")
 API_KEY = os.environ.get("RYU_API_KEY", "agent-secret-token-1")
@@ -23,7 +24,6 @@ RETRY_INTERVAL = 5
 MAX_RETRIES = 12
 HEARTBEAT_INTERVAL = 10
 
-# Test apakah ada process ryu manager
 def is_ryu_controller_running():
     """Check if Ryu controller is running on this machine"""
     try:
@@ -42,7 +42,6 @@ def is_ryu_controller_running():
     except Exception:
         return False
 
-# Jika ada process ryu manager, maka role adalah "manager" jika tidak "agent"
 def detect_role():
     """Auto-detect role: manager or agent"""
     if is_ryu_controller_running():
@@ -51,7 +50,9 @@ def detect_role():
         return "agent"
 
 def get_connected_ip(controller_url):
-    # Dapatkan IP yang sebenarnya digunakan untuk koneksi ke controller
+    """
+    Dapatkan IP yang sebenarnya digunakan untuk koneksi ke controller
+    """
     try:
         # Extract hostname dari controller URL
         from urllib.parse import urlparse
@@ -75,7 +76,9 @@ def get_connected_ip(controller_url):
     return find_best_ip(controller_host)
 
 def find_best_ip(controller_host):
-    # Cari IP terbaik berdasarkan routing ke controller
+    """
+    Cari IP terbaik berdasarkan routing ke controller
+    """
     try:
         # Resolve controller IP untuk mengetahui network destination
         controller_ip = socket.gethostbyname(controller_host)
@@ -107,7 +110,7 @@ def find_best_ip(controller_host):
     return "127.0.0.1"  # Ultimate fallback
 
 def get_mac_address():
-    # Get physical MAC address
+    """Get physical MAC address"""
     macs = {}
     for iface in netifaces.interfaces():
         addrs = netifaces.ifaddresses(iface)
@@ -117,7 +120,7 @@ def get_mac_address():
     return macs
 
 def get_os_info():
-    # Get operating system info
+    """Get operating system info"""
     try:
         # Coba baca dari /etc/os-release
         with open("/etc/os-release") as f:
@@ -136,13 +139,13 @@ def get_os_info():
 def build_payload(controller_url):
     hostname = socket.gethostname()
 
-    # Gunakan IP yang terhubung ke controller, bukan interface pertama
+    # FIX: Gunakan IP yang terhubung ke controller, bukan interface pertama
     ip = get_connected_ip(controller_url)
 
     print(f"[AGENT] Using IP: {ip} for registration")
 
     payload = {
-        "role": detect_role(), # panggil fungsi deteksi role otomatis
+        "role": detect_role(), # biar tau kalau ini agent
         "ip": ip, # info IP
         "username": getpass.getuser(), # info user
         "southbound": "server_api",  # lebih deskriptif
@@ -157,7 +160,7 @@ def build_payload(controller_url):
     return payload
 
 def get_interface_details():
-    # Get detailed interface information including MAC addresses
+    """Get detailed interface information including MAC addresses"""
     interface_details = {}
 
     for iface in netifaces.interfaces():
@@ -198,7 +201,7 @@ def get_interface_details():
     return interface_details
 
 def get_all_ips():
-    # Get all IP addresses for debugging
+    """Get all IP addresses for debugging"""
     ips = {}
     for iface in netifaces.interfaces():
         addrs = netifaces.ifaddresses(iface)

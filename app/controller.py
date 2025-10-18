@@ -177,50 +177,50 @@ class Orchestrator(app_manager.RyuApp):
             # "raw.run": d.run_raw,
 
             # === Server Commands ===
-            # IP Management
-            "server.ip.list_interfaces": lambda p, logger: ServerIpDriver(logger).list_interfaces(),
-            "server.ip.get_interface_details": lambda p, logger: ServerIpDriver(logger).get_interface_details(),
-            "server.ip.show_all": lambda p, logger: ServerIpDriver(logger).show_all(),
-            "server.ip.add": lambda p, logger: ServerIpDriver(logger).add_ip(p.get("iface"), p.get("ip_cidr")),
-            "server.ip.remove": lambda p, logger: ServerIpDriver(logger).del_ip(p.get("iface"), p.get("ip_cidr")),
-            "server.ip.enable_interface": lambda p, logger: ServerIpDriver(logger).enable_iface(p.get("iface")),
-            "server.ip.disable_interface": lambda p, logger: ServerIpDriver(logger).disable_iface(p.get("iface")),
-            "server.ip.get_single_interface": lambda p, logger: ServerIpDriver(logger).get_ip_info(p.get("iface")),
-            "server.ip.get_interface_ips": lambda p, logger: ServerIpDriver(logger).get_interface_ips(p.get("iface")),
-            "server.ip.get_interface_status": lambda p, logger: ServerIpDriver(logger).get_interface_status(p.get("iface")),
+            # IP Management - SEKARANG PAKAI INSTANCE METHODS
+            "server.ip.list_interfaces": lambda p, logger: d.list_interfaces(logger=logger),
+            "server.ip.get_interface_details": lambda p, logger: d.get_interface_details(logger=logger),
+            "server.ip.show_all": lambda p, logger: d.show_all(logger=logger),
+            "server.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+            "server.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+            "server.ip.enable_interface": lambda p, logger: d.enable_iface(p.get("iface"), logger=logger),
+            "server.ip.disable_interface": lambda p, logger: d.disable_iface(p.get("iface"), logger=logger),
+            "server.ip.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
+            "server.ip.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
+            "server.ip.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
 
             # Firewall Management - UFW
-            "server.firewall.ufw_status": lambda p, logger: FirewallDriver(logger).ufw_status(),
-            "server.firewall.ufw_enable": lambda p, logger: FirewallDriver(logger).ufw_enable(),
-            "server.firewall.ufw_disable": lambda p, logger: FirewallDriver(logger).ufw_disable(),
-            "server.firewall.ufw_reload": lambda p, logger: FirewallDriver(logger).ufw_reload(),
-            "server.firewall.ufw_reset": lambda p, logger: FirewallDriver(logger).ufw_reset(),
-            "server.firewall.ufw_allow": lambda p, logger: FirewallDriver(logger).ufw_allow(p.get("port_proto")),
-            "server.firewall.ufw_deny": lambda p, logger: FirewallDriver(logger).ufw_deny(p.get("port_proto")),
-            "server.firewall.ufw_delete": lambda p, logger: FirewallDriver(logger).ufw_delete(p.get("rule")),
-            "server.firewall.ufw_allow_in": lambda p, logger: FirewallDriver(logger).ufw("allow", "in", p.get("port_proto")),
-            "server.firewall.ufw_allow_out": lambda p, logger: FirewallDriver(logger).ufw("allow", "out", p.get("port_proto")),
-            "server.firewall.ufw_deny_in": lambda p, logger: FirewallDriver(logger).ufw("deny", "in", p.get("port_proto")),
-            "server.firewall.ufw_deny_out": lambda p, logger: FirewallDriver(logger).ufw("deny", "out", p.get("port_proto")),
+            "server.firewall.ufw_status": lambda p, logger: d.ufw_status(logger=logger),
+            "server.firewall.ufw_enable": lambda p, logger: d.ufw_enable(logger=logger),
+            "server.firewall.ufw_disable": lambda p, logger: d.ufw_disable(logger=logger),
+            "server.firewall.ufw_reload": lambda p, logger: d.ufw_reload(logger=logger),
+            "server.firewall.ufw_reset": lambda p, logger: d.ufw_reset(logger=logger),
+            "server.firewall.ufw_allow": lambda p, logger: d.ufw_allow(p.get("port_proto"), logger=logger),
+            "server.firewall.ufw_deny": lambda p, logger: d.ufw_deny(p.get("port_proto"), logger=logger),
+            "server.firewall.ufw_delete": lambda p, logger: d.ufw_delete(p.get("rule"), logger=logger),
+            "server.firewall.ufw_allow_in": lambda p, logger: d.ufw("allow", "in", p.get("port_proto"), logger=logger),
+            "server.firewall.ufw_allow_out": lambda p, logger: d.ufw("allow", "out", p.get("port_proto"), logger=logger),
+            "server.firewall.ufw_deny_in": lambda p, logger: d.ufw("deny", "in", p.get("port_proto"), logger=logger),
+            "server.firewall.ufw_deny_out": lambda p, logger: d.ufw("deny", "out", p.get("port_proto"), logger=logger),
             
             # Firewall Management - Firewalld
-            "server.firewall.firewalld_status": lambda p, logger: FirewallDriver(logger).firewall_status(),
-            "server.firewall.firewalld_reload": lambda p, logger: FirewallDriver(logger).firewall_reload(),
-            "server.firewall.firewalld_add_port": lambda p, logger: FirewallDriver(logger).firewall_add_port(p.get("port_proto")),
-            "server.firewall.firewalld_remove_port": lambda p, logger: FirewallDriver(logger).firewall_remove_port(p.get("port_proto")),
-            "server.firewall.firewalld_enable_masquerade": lambda p, logger: FirewallDriver(logger).firewall_enable_masquerade(),
-            "server.firewall.firewalld_disable_masquerade": lambda p, logger: FirewallDriver(logger).firewall_disable_masquerade(),
-            "server.firewall.firewalld_list_ports": lambda p, logger: FirewallDriver(logger).firewall_cmd("--list-ports"),
-            "server.firewall.firewalld_list_services": lambda p, logger: FirewallDriver(logger).firewall_cmd("--list-services"),
+            "server.firewall.firewalld_status": lambda p, logger: d.firewall_status(logger=logger),
+            "server.firewall.firewalld_reload": lambda p, logger: d.firewall_reload(logger=logger),
+            "server.firewall.firewalld_add_port": lambda p, logger: d.firewall_add_port(p.get("port_proto"), logger=logger),
+            "server.firewall.firewalld_remove_port": lambda p, logger: d.firewall_remove_port(p.get("port_proto"), logger=logger),
+            "server.firewall.firewalld_enable_masquerade": lambda p, logger: d.firewall_enable_masquerade(logger=logger),
+            "server.firewall.firewalld_disable_masquerade": lambda p, logger: d.firewall_disable_masquerade(logger=logger),
+            "server.firewall.firewalld_list_ports": lambda p, logger: d.firewall_cmd("--list-ports", logger=logger),
+            "server.firewall.firewalld_list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
 
             # Firewall Management - NAT & General
-            "server.firewall.nat.add": lambda p, logger: FirewallDriver(logger).setup_nat(p.get("interface")),
-            "server.firewall.nat.clear": lambda p, logger: FirewallDriver(logger).clear_nat(),
-            "server.firewall.status_all": lambda p, logger: FirewallDriver(logger).status_all(),
-            "server.firewall.detect_type": lambda p, logger: FirewallDriver(logger).detect_firewall(),
+            "server.firewall.nat.add": lambda p, logger: d.setup_nat(p.get("interface"), logger=logger),
+            "server.firewall.nat.clear": lambda p, logger: d.clear_nat(logger=logger),
+            "server.firewall.status_all": lambda p, logger: d.status_all(logger=logger),
+            "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
 
-            # Monitor (existing)
-            "server.monitor": lambda p, logger: ServerAPI({}).get_utilization(logger=logger),
+            # Monitor - TETAP STATIC KARENA SUDAH @staticmethod
+            "server.monitor": lambda p, logger: d.get_utilization(logger=logger),
 
         }
 
