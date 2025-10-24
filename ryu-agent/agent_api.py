@@ -12,14 +12,15 @@ ip_driver = ServerIpDriver()
 firewall_driver = FirewallDriver()
 
 def log_message(message):
-    """Helper untuk logging"""
+    # Helper untuk logging (Menampilkan IP dari sisi Agent)
     print(f"[AGENT-API] {message}")
+
 
 # === NETWORK ENDPOINTS ===
 
 @app.route('/api/network/interfaces', methods=['GET'])
 def list_interfaces():
-    """Get list of network interfaces"""
+    # Get list network interfaces
     try:
         log_message("GET /api/network/interfaces")
         result = ip_driver.list_interfaces()
@@ -30,7 +31,7 @@ def list_interfaces():
 
 @app.route('/api/network/interfaces/detail', methods=['GET'])
 def interfaces_detail():
-    """Get detailed interface information"""
+    # Get detailed network interfaces
     try:
         log_message("GET /api/network/interfaces/detail")
         result = ip_driver.get_interface_details()
@@ -41,7 +42,7 @@ def interfaces_detail():
 
 @app.route('/api/network/ip/add', methods=['POST'])
 def add_ip():
-    """Add IP address to interface"""
+    # Add IP address to interface
     try:
         data = request.json
         log_message(f"POST /api/network/ip/add - {data}")
@@ -53,7 +54,7 @@ def add_ip():
 
 @app.route('/api/network/ip/remove', methods=['POST'])
 def remove_ip():
-    """Remove IP address from interface"""
+    # Remove IP address from interface
     try:
         data = request.json
         log_message(f"POST /api/network/ip/remove - {data}")
@@ -65,7 +66,7 @@ def remove_ip():
 
 @app.route('/api/network/interface/enable', methods=['POST'])
 def enable_interface():
-    """Enable network interface"""
+    # Enable network interface
     try:
         data = request.json
         log_message(f"POST /api/network/interface/enable - {data}")
@@ -77,7 +78,7 @@ def enable_interface():
 
 @app.route('/api/network/interface/disable', methods=['POST'])
 def disable_interface():
-    """Disable network interface"""
+    # Disable network interface
     try:
         data = request.json
         log_message(f"POST /api/network/interface/disable - {data}")
@@ -89,7 +90,7 @@ def disable_interface():
 
 @app.route('/api/network/interface/<iface>/ips', methods=['GET'])
 def get_interface_ips(iface):
-    """Get IP addresses for specific interface"""
+    # Get IP addresses for specific interface
     try:
         log_message(f"GET /api/network/interface/{iface}/ips")
         result = ip_driver.get_interface_ips(iface)
@@ -100,7 +101,7 @@ def get_interface_ips(iface):
 
 @app.route('/api/network/interface/<iface>/info', methods=['GET'])
 def get_ip_info(iface):
-    """Get IP info for specific interface"""
+    # Get IP info for specific interface
     try:
         log_message(f"GET /api/network/interface/{iface}/info")
         result = ip_driver.get_ip_info(iface)
@@ -111,7 +112,7 @@ def get_ip_info(iface):
 
 @app.route('/api/network/interface/<iface>/status', methods=['GET'])
 def get_interface_status(iface):
-    """Get interface status"""
+    # Get interface status
     try:
         log_message(f"GET /api/network/interface/{iface}/status")
         result = ip_driver.get_interface_status(iface)
@@ -120,11 +121,12 @@ def get_interface_status(iface):
         log_message(f"Error in get_interface_status: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === FIREWALL ENDPOINTS ===
+
+# === UFW FIREWALL ENDPOINTS ===
 
 @app.route('/api/firewall/ufw/status', methods=['GET'])
 def ufw_status():
-    """Get UFW firewall status"""
+    # Get UFW firewall status
     try:
         log_message("GET /api/firewall/ufw/status")
         result = firewall_driver.ufw_status()
@@ -135,7 +137,7 @@ def ufw_status():
 
 @app.route('/api/firewall/ufw/enable', methods=['POST'])
 def ufw_enable():
-    """Enable UFW firewall"""
+    # Enable UFW firewall
     try:
         log_message("POST /api/firewall/ufw/enable")
         result = firewall_driver.ufw_enable()
@@ -146,7 +148,7 @@ def ufw_enable():
 
 @app.route('/api/firewall/ufw/disable', methods=['POST'])
 def ufw_disable():
-    """Disable UFW firewall"""
+    # Disable UFW firewall
     try:
         log_message("POST /api/firewall/ufw/disable")
         result = firewall_driver.ufw_disable()
@@ -157,7 +159,7 @@ def ufw_disable():
 
 @app.route('/api/firewall/ufw/reload', methods=['POST'])
 def ufw_reload():
-    """Reload UFW firewall"""
+    # Reload UFW firewall
     try:
         log_message("POST /api/firewall/ufw/reload")
         result = firewall_driver.ufw_reload()
@@ -168,7 +170,7 @@ def ufw_reload():
 
 @app.route('/api/firewall/ufw/reset', methods=['POST'])
 def ufw_reset():
-    """Reset UFW firewall"""
+    # Reset UFW firewall
     try:
         log_message("POST /api/firewall/ufw/reset")
         result = firewall_driver.ufw_reset()
@@ -179,7 +181,7 @@ def ufw_reset():
 
 @app.route('/api/firewall/ufw/allow', methods=['POST'])
 def ufw_allow():
-    """Allow port/protocol in UFW"""
+    # Allow port/protocol in UFW
     try:
         data = request.json
         log_message(f"POST /api/firewall/ufw/allow - {data}")
@@ -191,7 +193,7 @@ def ufw_allow():
 
 @app.route('/api/firewall/ufw/deny', methods=['POST'])
 def ufw_deny():
-    """Deny port/protocol in UFW"""
+    # Deny port/protocol in UFW
     try:
         data = request.json
         log_message(f"POST /api/firewall/ufw/deny - {data}")
@@ -203,7 +205,7 @@ def ufw_deny():
 
 @app.route('/api/firewall/ufw/delete', methods=['POST'])
 def ufw_delete():
-    """Delete UFW rule"""
+    # Delete UFW rule
     try:
         data = request.json
         log_message(f"POST /api/firewall/ufw/delete - {data}")
@@ -215,7 +217,7 @@ def ufw_delete():
 
 @app.route('/api/firewall/ufw/command', methods=['POST'])
 def ufw_command():
-    """Generic UFW command"""
+    # Execute UFW command
     try:
         data = request.json
         log_message(f"POST /api/firewall/ufw/command - {data}")
@@ -236,11 +238,12 @@ def ufw_command():
         log_message(f"Error in ufw_command: {e}")
         return jsonify({"error": str(e)}), 500
 
+
 # === FIREWALLD ENDPOINTS ===
 
 @app.route('/api/firewall/firewalld/status', methods=['GET'])
 def firewall_status():
-    """Get firewalld status"""
+    # Get firewalld status
     try:
         log_message("GET /api/firewall/firewalld/status")
         result = firewall_driver.firewall_status()
@@ -249,10 +252,9 @@ def firewall_status():
         log_message(f"Error in firewall_status: {e}")
         return jsonify({"error": str(e)}), 500
     
-# Tambahkan di agent_api.py
 @app.route('/api/firewall/firewalld/list-services', methods=['GET'])
 def firewalld_list_services():
-    """List firewalld services"""
+    # Get list firewalld services
     try:
         log_message("GET /api/firewall/firewalld/list-services")
         result = firewall_driver.firewall_cmd("--list-services")
@@ -263,7 +265,7 @@ def firewalld_list_services():
 
 @app.route('/api/firewall/firewalld/list-ports', methods=['GET'])
 def firewalld_list_ports():
-    """List firewalld ports"""
+    # Get list firewalld ports
     try:
         log_message("GET /api/firewall/firewalld/list-ports")
         result = firewall_driver.firewall_cmd("--list-ports")
@@ -274,7 +276,7 @@ def firewalld_list_ports():
 
 @app.route('/api/firewall/firewalld/reload', methods=['POST'])
 def firewall_reload():
-    """Reload firewalld"""
+    # Reload firewalld
     try:
         log_message("POST /api/firewall/firewalld/reload")
         result = firewall_driver.firewall_reload()
@@ -285,7 +287,7 @@ def firewall_reload():
 
 @app.route('/api/firewall/firewalld/add-port', methods=['POST'])
 def firewall_add_port():
-    """Add port to firewalld"""
+    # Add port to firewalld
     try:
         data = request.json
         log_message(f"POST /api/firewall/firewalld/add-port - {data}")
@@ -297,7 +299,7 @@ def firewall_add_port():
 
 @app.route('/api/firewall/firewalld/remove-port', methods=['POST'])
 def firewall_remove_port():
-    """Remove port from firewalld"""
+    # Remove port from firewalld
     try:
         data = request.json
         log_message(f"POST /api/firewall/firewalld/remove-port - {data}")
@@ -309,7 +311,7 @@ def firewall_remove_port():
 
 @app.route('/api/firewall/firewalld/enable-masquerade', methods=['POST'])
 def firewall_enable_masquerade():
-    """Enable masquerade in firewalld"""
+    # Enable masquerade in firewalld
     try:
         log_message("POST /api/firewall/firewalld/enable-masquerade")
         result = firewall_driver.firewall_enable_masquerade()
@@ -320,7 +322,7 @@ def firewall_enable_masquerade():
 
 @app.route('/api/firewall/firewalld/disable-masquerade', methods=['POST'])
 def firewall_disable_masquerade():
-    """Disable masquerade in firewalld"""
+    # Disable masquerade in firewalld
     try:
         log_message("POST /api/firewall/firewalld/disable-masquerade")
         result = firewall_driver.firewall_disable_masquerade()
@@ -331,7 +333,7 @@ def firewall_disable_masquerade():
 
 @app.route('/api/firewall/firewalld/command', methods=['POST'])
 def firewall_command():
-    """Run firewall-cmd"""
+    # Execute firewall-cmd command
     try:
         data = request.json
         log_message(f"POST /api/firewall/firewalld/command - {data}")
@@ -341,11 +343,12 @@ def firewall_command():
         log_message(f"Error in firewall_command: {e}")
         return jsonify({"error": str(e)}), 500
 
-# === NAT ENDPOINTS ===
+
+# === NAT FIREWALL ENDPOINTS ===
 
 @app.route('/api/firewall/nat/setup', methods=['POST'])
 def setup_nat():
-    """Setup NAT"""
+    # Setup NAT
     try:
         data = request.json
         log_message(f"POST /api/firewall/nat/setup - {data}")
@@ -357,7 +360,7 @@ def setup_nat():
 
 @app.route('/api/firewall/nat/clear', methods=['POST'])
 def clear_nat():
-    """Clear NAT rules"""
+    # Clear NAT rules
     try:
         log_message("POST /api/firewall/nat/clear")
         result = firewall_driver.clear_nat()
@@ -368,7 +371,7 @@ def clear_nat():
 
 @app.route('/api/firewall/status', methods=['GET'])
 def status_all():
-    """Get complete firewall status"""
+    # Get complete all firewall status
     try:
         log_message("GET /api/firewall/status")
         result = firewall_driver.status_all()
@@ -379,7 +382,7 @@ def status_all():
 
 @app.route('/api/firewall/detect', methods=['GET'])
 def detect_firewall():
-    """Detect firewall type"""
+    # Detect firewall type
     try:
         log_message("GET /api/firewall/detect")
         result = firewall_driver.detect_firewall()
@@ -388,11 +391,12 @@ def detect_firewall():
         log_message(f"Error in detect_firewall: {e}")
         return jsonify({"error": str(e)}), 500
 
+
 # === SYSTEM ENDPOINTS ===
 
 @app.route('/api/system/utilization', methods=['GET'])
 def get_utilization():
-    """Get system utilization"""
+    # Get system utilization
     try:
         log_message("GET /api/system/utilization")
         data = {
@@ -411,7 +415,7 @@ def get_utilization():
 
 @app.route('/api/system/logs', methods=['GET'])
 def get_logs():
-    """Get system logs"""
+    # Get system logs
     try:
         n = request.args.get('lines', 50, type=int)
         log_message(f"GET /api/system/logs?lines={n}")
@@ -421,6 +425,7 @@ def get_logs():
     except Exception as e:
         log_message(f"Error in get_logs: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 # Health check
 @app.route('/health', methods=['GET'])

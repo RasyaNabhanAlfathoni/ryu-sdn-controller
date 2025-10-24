@@ -24,35 +24,9 @@ RETRY_INTERVAL = 5
 MAX_RETRIES = 12
 HEARTBEAT_INTERVAL = 10
 
-def is_ryu_controller_running():
-    """Check if Ryu controller is running on this machine"""
-    try:
-        # Cek process Ryu
-        result = subprocess.run(['pgrep', '-f', 'ryu-manager'],
-                              capture_output=True, text=True)
-        if result.returncode == 0:
-            return True
-
-        # Cek port 8080 (Ryu API)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        result = sock.connect_ex(('localhost', 8080))
-        sock.close()
-        return result == 0
-
-    except Exception:
-        return False
-
-def detect_role():
-    """Auto-detect role: manager or agent"""
-    if is_ryu_controller_running():
-        return "manager"
-    else:
-        return "agent"
-
 def get_connected_ip(controller_url):
-    """
-    Dapatkan IP yang sebenarnya digunakan untuk koneksi ke controller
-    """
+    # Dapatkan IP yang sebenarnya digunakan untuk koneksi ke controller
+
     try:
         # Extract hostname dari controller URL
         from urllib.parse import urlparse
@@ -72,13 +46,12 @@ def get_connected_ip(controller_url):
     except Exception as e:
         print(f"[AGENT] Cannot detect connected IP: {e}")
 
-    # Fallback: cari IP dari interface yang terhubung ke network
+    # Fallback -> cari IP dari interface yang terhubung ke network
     return find_best_ip(controller_host)
 
 def find_best_ip(controller_host):
-    """
-    Cari IP terbaik berdasarkan routing ke controller
-    """
+    # Cari IP terbaik berdasarkan routing ke controller
+    
     try:
         # Resolve controller IP untuk mengetahui network destination
         controller_ip = socket.gethostbyname(controller_host)
@@ -97,7 +70,7 @@ def find_best_ip(controller_host):
     except Exception as e:
         print(f"[AGENT] Route-based IP detection failed: {e}")
 
-    # Final fallback: ambil IP non-local pertama
+    # Final fallback -> ambil IP non-local pertama
     for iface in netifaces.interfaces():
         if iface.startswith(('lo', 'docker', 'br-', 'virbr')):
             continue
@@ -110,7 +83,7 @@ def find_best_ip(controller_host):
     return "127.0.0.1"  # Ultimate fallback
 
 def get_mac_address():
-    """Get physical MAC address"""
+    # Get MAC address
     macs = {}
     for iface in netifaces.interfaces():
         addrs = netifaces.ifaddresses(iface)
@@ -120,7 +93,7 @@ def get_mac_address():
     return macs
 
 def get_os_info():
-    """Get operating system info"""
+    # Get operating system info
     try:
         # Coba baca dari /etc/os-release
         with open("/etc/os-release") as f:
@@ -130,7 +103,7 @@ def get_os_info():
     except Exception:
         pass
 
-    # Fallback ke platform
+    # Fallback -> gunakan method platform
     try:
         return platform.system()
     except Exception:
@@ -139,16 +112,15 @@ def get_os_info():
 def build_payload(controller_url):
     hostname = socket.gethostname()
 
-    # FIX: Gunakan IP yang terhubung ke controller, bukan interface pertama
+    # Gunakan IP yang terhubung ke controller, bukan interface pertama
     ip = get_connected_ip(controller_url)
 
     print(f"[AGENT] Using IP: {ip} for registration")
 
     payload = {
-        "role": detect_role(), # biar tau kalau ini agent
         "ip": ip, # info IP
         "username": getpass.getuser(), # info user
-        "southbound": "server_api",  # lebih deskriptif
+        "southbound": "server_api", 
         "os": get_os_info(),         # info OS
         "meta": {
             "hostname": hostname, # info Hostname server
@@ -160,7 +132,7 @@ def build_payload(controller_url):
     return payload
 
 def get_interface_details():
-    """Get detailed interface information including MAC addresses"""
+    # Get detailed interface information including MAC addresses
     interface_details = {}
 
     for iface in netifaces.interfaces():
@@ -185,7 +157,7 @@ def get_interface_details():
                 ipv4_addresses.append(ip_info)
             details['ipv4'] = ipv4_addresses
 
-        # IPv6 Addresses (optional)
+        # IPv6 Addresses (opsional)
         if netifaces.AF_INET6 in addrs:
             ipv6_addresses = []
             for addr in addrs[netifaces.AF_INET6]:
@@ -201,7 +173,7 @@ def get_interface_details():
     return interface_details
 
 def get_all_ips():
-    """Get all IP addresses for debugging"""
+    # Get all IP addresses for debugging
     ips = {}
     for iface in netifaces.interfaces():
         addrs = netifaces.ifaddresses(iface)
@@ -214,7 +186,7 @@ def register_once():
     url = CONTROLLER_URL.rstrip('/') + REGISTER_ENDPOINT
     headers = {"Content-Type": "application/json", "X-API-KEY": API_KEY}
 
-    # FIX: Pass controller URL untuk IP detection
+    # Pass controller URL untuk IP detection
     payload = build_payload(CONTROLLER_URL)
 
     print(f"[AGENT] Registering with payload: {json.dumps(payload, indent=2)}")

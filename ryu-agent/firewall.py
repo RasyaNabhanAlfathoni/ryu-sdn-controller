@@ -8,7 +8,7 @@ class FirewallDriver:
         self.firewall_type = self.detect_firewall()
 
     def detect_firewall(self):
-        # Deteksi sistem firewall aktif
+        # Deteksi sistem firewall aktif pada Agent
         try:
             subprocess.run(["ufw", "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.logger("Detected UFW firewall")
@@ -90,10 +90,11 @@ class FirewallDriver:
             return {"status": "error", "message": str(e)}
 
     def clear_nat(self):
-        """Hapus semua aturan NAT"""
+        # Hapus semua aturan NAT
         subprocess.run(["iptables", "-t", "nat", "-F"])
         return {"status": "cleared", "message": "All NAT rules cleared"}
 
+    # === All Status Section ===
     def status_all(self):
         result = {}
         if self.firewall_type == "ufw":

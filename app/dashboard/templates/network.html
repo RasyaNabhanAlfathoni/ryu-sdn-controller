@@ -219,28 +219,9 @@
         devices.forEach((device) => {
           const option = document.createElement("option");
           option.value = device.id;
-          option.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+          option.textContent = `${device.hostname} (${device.ip})`;
           select.appendChild(option);
         });
-
-        // Cari device dengan role agent
-        const agentDevice = devices.find((device) => device.role === "agent");
-        if (agentDevice) {
-          console.log("Found agent device:", agentDevice.id, agentDevice.ip);
-          select.value = agentDevice.id;
-          currentDeviceId = agentDevice.id;
-
-          // Load interfaces immediately - tanpa setTimeout
-          loadDeviceInfo();
-        } else {
-          console.log("No agent device found, showing first device");
-          // Fallback to first device
-          if (devices.length > 0) {
-            select.value = devices[0].id;
-            currentDeviceId = devices[0].id;
-            loadDeviceInfo();
-          }
-        }
       })
       .catch((error) => {
         console.error("Error loading devices:", error);

@@ -343,23 +343,9 @@
         devices.forEach((device) => {
           const option = document.createElement("option");
           option.value = device.id;
-          option.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+          option.textContent = `${device.hostname} (${device.ip})`;
           select.appendChild(option);
         });
-
-        // AUTO-SELECT AGENT
-        const agentDevice = devices.find((device) => device.role === "agent");
-        if (agentDevice) {
-          console.log("Found agent device:", agentDevice.id, agentDevice.ip);
-          select.value = agentDevice.id;
-          currentDeviceId = agentDevice.id;
-          updateCurrentDeviceInfo(agentDevice);
-
-          // Load firewall info immediately
-          setTimeout(() => {
-            loadFirewallInfo();
-          }, 100);
-        }
       })
       .catch((error) => {
         console.error("Error loading devices:", error);
@@ -373,7 +359,7 @@
     const deviceText = document.getElementById("currentDeviceText");
 
     if (device) {
-      deviceText.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+      deviceText.textContent = `${device.hostname} (${device.ip})`;
       deviceInfo.style.display = "block";
     } else {
       deviceInfo.style.display = "none";
@@ -396,7 +382,6 @@
     updateCurrentDeviceInfo({
       hostname: selectedOption.text.split(" ")[0],
       ip: selectedOption.text.match(/\((.*?)\)/)[1],
-      role: selectedOption.text.includes("agent") ? "agent" : "manager",
     });
 
     // Show loading

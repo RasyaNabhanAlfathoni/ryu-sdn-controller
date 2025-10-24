@@ -270,26 +270,26 @@ class NorthboundApi(ControllerBase):
         clean_devices = []
         for dev in devices:
             clean_dev = {
-            "id": dev.get("id"),
-            "hostname": dev.get("hostname"),
-            "ip": dev.get("ip"),
-            "role": dev.get("role", "agent"),
-            "os": dev.get("os"),
-            "southbound": dev.get("southbound"),
-            "connected": dev.get("connected", False),
-            "last_seen": dev.get("last_seen"),
-            "username": dev.get("username", "root")
-        }
+                "id": dev.get("id"),
+                "hostname": dev.get("hostname"),
+                "ip": dev.get("ip"),
+                "os": dev.get("os"),
+                "southbound": dev.get("southbound"),
+                "connected": dev.get("connected", False),
+                "last_seen": dev.get("last_seen"),
+                "username": dev.get("username")
+            }
         
-        # Hanya tambahkan meta jika ada data penting ( yg ditambahkan di meta )
-        if dev.get("meta") and dev.get("meta").get("detected_ips"):
-            clean_dev["meta"] = {"detected_ips": dev["meta"]["detected_ips"]}
-        if dev["meta"].get("mac_addresses"):
-            clean_dev["mac_addresses"] = dev["meta"]["mac_addresses"]
-        if dev["meta"].get("interface_details"):
-            clean_dev["interface_details"] = dev["meta"]["interface_details"]
+            # Hanya tambahkan meta jika ada data penting ( yg ditambahkan di meta )
+            meta = dev.get("meta", {})
+            if meta and meta.get("detected_ips"):
+                clean_dev["meta"] = {"detected_ips": meta["detected_ips"]}
+            if meta.get("mac_addresses"):
+                clean_dev["mac_addresses"] = meta["mac_addresses"]
+            if meta.get("interface_details"):
+                clean_dev["interface_details"] = meta["interface_details"]
             
-        clean_devices.append(clean_dev)
+            clean_devices.append(clean_dev)
         
         body = json.dumps(clean_devices)
         return self._resp(req, body)
@@ -313,49 +313,43 @@ class NorthboundApi(ControllerBase):
         
         data = json.loads(req.body)
         
-        # Ambil IP dari connection source sebagai prioritas utama
+        # PRIORITASkan IP dari body request (dari agent)
+        device_ip_from_body = data.get("ip")
         client_ip = req.remote_addr
-        if client_ip and client_ip != '127.0.0.1':
-            print(f"[CONTROLLER] Using client IP from connection: {client_ip}")
-            data["ip"] = client_ip
+        
+        print(f"[CONTROLLER] Registration - Body IP: {device_ip_from_body}, Client IP: {client_ip}")
+        
+        # Prioritaskan IP dari body (agent tahu IP-nya sendiri)
+        if device_ip_from_body and device_ip_from_body != '127.0.0.1':
+            final_ip = device_ip_from_body
+            print(f"[CONTROLLER] Using IP from request body: {final_ip}")
+        elif client_ip and client_ip != '127.0.0.1':
+            final_ip = client_ip
+            print(f"[CONTROLLER] Using client connection IP: {final_ip}")
         else:
-            # Jika masih localhost, cari di headers (jika behind proxy)
+            # Fallback ke headers jika behind proxy
             forwarded_for = req.headers.get('X-Forwarded-For')
             real_ip = req.headers.get('X-Real-IP')
             if forwarded_for:
-                real_client_ip = forwarded_for.split(',')[0].strip()
-                if real_client_ip and real_client_ip != '127.0.0.1':
-                    print(f"[CONTROLLER] Using X-Forwarded-For IP: {real_client_ip}")
-                    data["ip"] = real_client_ip
+                final_ip = forwarded_for.split(',')[0].strip()
+                print(f"[CONTROLLER] Using X-Forwarded-For IP: {final_ip}")
             elif real_ip and real_ip != '127.0.0.1':
-                print(f"[CONTROLLER] Using X-Real-IP: {real_ip}")
-                data["ip"] = real_ip
+                final_ip = real_ip
+                print(f"[CONTROLLER] Using X-Real-IP: {final_ip}")
             else:
-                print(f"[CONTROLLER] WARNING: Using IP from request body: {data.get('ip')}")
+                final_ip = device_ip_from_body or "unknown"
+                print(f"[CONTROLLER] WARNING: Using fallback IP: {final_ip}")
+        
+        data["ip"] = final_ip
         
         try:
             # Generate device ID yang konsisten berdasarkan IP + Hostname
             import hashlib
-            device_ip = data.get("ip", "unknown")
             device_hostname = data.get("meta", {}).get("hostname", "unknown")
-            unique_str = f"{device_ip}_{device_hostname}"
+            unique_str = f"{final_ip}_{device_hostname}"
             device_id = f"r{hashlib.md5(unique_str.encode()).hexdigest()[:8]}"
             data["id"] = device_id
 
-            # Cek apakah device dengan IP ini sudah ada
-            existing_device = next((d for d in self.core.devices.db.values() 
-                                if d.get("ip") == device_ip), None)
-            
-            if existing_device:
-                print(f"[CONTROLLER] Device with IP {device_ip} already exists: {existing_device.get('id')}")
-                return self._resp(req, json.dumps({
-                    "status": "ok", 
-                    "device": existing_device,
-                    "message": "Device already registered"
-                }))
-            
-            data["id"] = device_id
-            
             # info = self.core.detect_vendor(data)
 
             # ambil meta dari agent (kalau ada)
@@ -364,10 +358,10 @@ class NorthboundApi(ControllerBase):
             # data dari Agent ( ini yang akan tampil saat curl device )
             data["hostname"] = meta.get("hostname", data.get("hostname", "unknown"))
             data["os"] = meta.get("os", data.get("os", "UnknownOS"))
-            data["southbound"] = meta.get("southbound", data.get("southbound", "server_local"))
-            data["role"] = data.get("role", "agent")  # Gunakan role dari agent
+            data["southbound"] = meta.get("southbound", data.get("southbound", "unknown"))
             data["connected"] = True
-            data["username"] = data.get("username", "root")
+            data["username"] = meta.get("username", data.get("username", "unknown"))
+            data["last_seen"] = time.time()
 
              # Tambahkan interfaces dari meta jika ada
             if "interfaces" in meta:
@@ -382,13 +376,7 @@ class NorthboundApi(ControllerBase):
             # Simpan ke registry
             result = self.core.devices.create(data)
 
-            # Start monitoring jika server agent
-            if result.get("southbound") == "server_local" and result.get("role") == "agent":
-                threading.Thread(
-                    target=monitor_server,
-                    args=({"id": result["id"], "ip": result["ip"]},),
-                    daemon=True
-                ).start()
+            print(f"[CONTROLLER] Device registered: {device_id} - IP: {final_ip} - Hostname: {data['hostname']}")
 
             body = json.dumps({
                 "status": "ok",

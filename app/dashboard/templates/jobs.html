@@ -125,7 +125,7 @@
         devices.forEach((device) => {
           const option = document.createElement("option");
           option.value = device.id;
-          option.textContent = `${device.hostname} (${device.ip}) - ${device.role}`;
+          option.textContent = `${device.hostname} (${device.ip})`;
           select.appendChild(option);
         });
       });

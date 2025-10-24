@@ -19,7 +19,6 @@
                 <th>ID</th>
                 <th>Hostname</th>
                 <th>IP Address</th>
-                <th>Role</th>
                 <th>OS</th>
                 <th>Last Seen</th>
                 <th>Status</th>
@@ -32,13 +31,6 @@
                 <td><code>{{ device.id }}</code></td>
                 <td>{{ device.hostname }}</td>
                 <td>{{ device.ip }}</td>
-                <td>
-                  <span
-                    class="badge bg-{{ 'success' if device.role == 'manager' else 'info' }}"
-                  >
-                    {{ device.role }}
-                  </span>
-                </td>
                 <td>{{ device.os }}</td>
                 <td>
                   {% if device.last_seen %}

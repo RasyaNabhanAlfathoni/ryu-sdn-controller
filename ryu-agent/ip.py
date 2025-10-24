@@ -24,7 +24,7 @@ class ServerIpDriver:
     def get_interface_status(self, iface):
         """Get interface status using multiple methods"""
         try:
-            # Method 2: Use ip command
+            # Method: Gunakan ip command
             ip_output = subprocess.getoutput(f"ip link show {iface}")
             if 'state UP' in ip_output:
                 return 'up'
@@ -36,7 +36,7 @@ class ServerIpDriver:
             return 'unknown'
 
     def get_ip_info(self, iface):
-        # Ambil IP address dari interface
+        # Ambil IP address dari masing-masing interface
         try:
             output = subprocess.getoutput(f"ip addr show {iface}")
             ip_match = re.findall(r'inet (\d+\.\d+\.\d+\.\d+/\d+)', output)
@@ -57,16 +57,16 @@ class ServerIpDriver:
         return subprocess.getoutput(cmd)
 
     def del_ip(self, iface, ip_cidr):
-        # Hapus IP dari interface
+        # Hapus IP dari interface tertentu
         cmd = f"ip addr del {ip_cidr} dev {iface}"
         return subprocess.getoutput(cmd)
 
     def enable_iface(self, iface):
-        # Enable interface
+        # Enable status interface
         return subprocess.getoutput(f"ip link set {iface} up")
 
     def disable_iface(self, iface):
-        # Disable interface
+        # Disable status interface
         return subprocess.getoutput(f"ip link set {iface} down")
 
     def show_all(self):
@@ -75,6 +75,6 @@ class ServerIpDriver:
         return [self.get_ip_info(i) for i in all_ifaces]
 
     def get_interface_ips(self, iface):
-        # Get specific interface IPs for dropdown
+        # Menampilkan IP address spesifik dari interface untuk dropdown
         info = self.get_ip_info(iface)
         return info.get("ip_addresses", [])

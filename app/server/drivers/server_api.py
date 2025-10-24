@@ -5,8 +5,8 @@ class ServerAPI:
     name = "AgentClient"  # Ganti nama untuk clarity
 
     def __init__(self, dev):
-        self.agent_ip = dev.get("ip")  # IP agent (192.168.221.163)
-        self.agent_url = f"http://{self.agent_ip}:8080"  # Agent API endpoint
+        self.agent_ip = dev.get("ip")  # IP agent (contoh: 192.168.221.163)
+        self.agent_url = f"http://{self.agent_ip}:8080"  # Agent URL API endpoint
         self.device_id = dev.get("id")
         self.device_data = dev
         print(f"[AgentClient] Initialized for {self.device_id} at {self.agent_url}")
@@ -53,8 +53,9 @@ class ServerAPI:
                 logger(f"Agent unexpected error: {error_msg}")
             return {"error": error_msg}
 
+
     # === IP Management Methods ===
-    
+
     def list_interfaces(self, logger=None):
         """Get list of network interfaces from agent"""
         return self._call_agent("/api/network/interfaces", logger=logger)
@@ -104,8 +105,27 @@ class ServerAPI:
     def get_interface_status(self, iface, logger=None):
         """Get interface status from agent"""
         return self._call_agent(f"/api/network/interface/{iface}/status", logger=logger)
+    
 
-    # === Firewall Management Methods ===
+    # === Advanced Network Management Methods ===
+    
+    def port_scan(self, target, ports=None, logger=None):
+        """Port scanning"""
+        return self._call_agent("/api/network/portscan", {
+            "target": target,
+            "ports": ports
+        }, logger=logger)
+    
+    def get_routing_table(self, logger=None):
+        """Get routing table"""
+        return self._call_agent("/api/network/routing", logger=logger)
+
+    def get_arp_table(self, logger=None):
+        """Get ARP table"""
+        return self._call_agent("/api/network/arp", logger=logger)
+
+    
+    # === Firewall UFW Management Methods ===
     
     def ufw_status(self, logger=None):
         """Get UFW firewall status from agent"""
@@ -163,7 +183,8 @@ class ServerAPI:
                 "action": action
             }, logger=logger)
 
-    # === Firewalld Methods ===
+    
+    # === Firewalld Management Methods ===
     
     def firewall_status(self, logger=None):
         """Get firewalld status from agent"""
@@ -207,7 +228,8 @@ class ServerAPI:
             "args": args
         }, logger=logger)
 
-    # === NAT Methods ===
+    
+    # === NAT Firewall Management Methods ===
     
     def setup_nat(self, interface, logger=None):
         """Setup NAT on agent"""
@@ -226,6 +248,25 @@ class ServerAPI:
     def detect_firewall(self, logger=None):
         """Detect firewall type on agent"""
         return self._call_agent("/api/firewall/detect", logger=logger)
+
+    
+    # === System Services Methods ===
+    
+    def list_services(self, logger=None):
+        """List all system services"""
+        return self._call_agent("/api/system/services", logger=logger)
+
+    def service_control(self, service, action, logger=None):
+        """Control system services (start/stop/restart/enable/disable)"""
+        return self._call_agent("/api/system/service/control", {
+            "service": service,
+            "action": action
+        }, logger=logger)
+
+    def service_status(self, service, logger=None):
+        """Get service status"""
+        return self._call_agent(f"/api/system/service/{service}/status", logger=logger)
+
 
     # === System Monitoring Methods ===
     
