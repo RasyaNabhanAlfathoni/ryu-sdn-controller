@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from ip import ServerIpDriver
 from firewall import FirewallDriver
+from service import ServiceDriver
 import psutil
 import subprocess
 import json
@@ -10,6 +11,7 @@ app = Flask(__name__)
 # Initialize drivers with logging support
 ip_driver = ServerIpDriver()
 firewall_driver = FirewallDriver()
+service_driver = ServiceDriver()
 
 def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)
@@ -121,6 +123,33 @@ def get_interface_status(iface):
         log_message(f"Error in get_interface_status: {e}")
         return jsonify({"error": str(e)}), 500
 
+
+# === Network Advanced ENDPOINTS ===
+
+@app.route('/api/network/routing', methods=['GET'])
+def get_routing_table():
+    # Get routing table
+    try:
+        log_message("GET /api/network/routing")
+        output = subprocess.getoutput("ip route show")
+        routes = output.splitlines()
+        return jsonify(routes)
+    except Exception as e:
+        log_message(f"Error in get_routing_table: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/network/arp', methods=['GET'])
+def get_arp_table():
+    # Get ARP table
+    try:
+        log_message("GET /api/network/arp")
+        output = subprocess.getoutput("ip neighbor show")
+        neighbors = output.splitlines()
+        return jsonify(neighbors)
+    except Exception as e:
+        log_message(f"Error in get_arp_table: {e}")
+        return jsonify({"error": str(e)}), 500
+    
 
 # === UFW FIREWALL ENDPOINTS ===
 

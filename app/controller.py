@@ -21,9 +21,6 @@ from mikrotik.drivers.ip import RouterOSIpDriver
 # == Server Driver ==
 # Import library driver server yang telah dibuat 
 from server.drivers.server_api import ServerAPI
-from server.drivers.firewall import FirewallDriver
-from server.drivers.ip import ServerIpDriver
-from server.drivers.monitor import monitor_server
 
 API_INSTANCE_NAME = 'northbound_api'
 
