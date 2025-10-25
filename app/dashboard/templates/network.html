@@ -265,18 +265,22 @@
 
     console.log("Loading interfaces for device:", currentDeviceId);
 
-    runAction("server.ip.show_all", "interfacesContent", function (result) {
-      console.log("Interfaces API result:", result);
+    runAction(
+      "server.network.ip.show_all",
+      "interfacesContent",
+      function (result) {
+        console.log("Interfaces API result:", result);
 
-      if (result && Array.isArray(result)) {
-        currentInterfaces = result;
-        updateInterfaceDropdowns(result);
-        updateInterfacesDisplay(result);
-      } else {
-        document.getElementById("interfacesContent").innerHTML =
-          '<p class="text-danger">Error: No interface data received</p>';
+        if (result && Array.isArray(result)) {
+          currentInterfaces = result;
+          updateInterfaceDropdowns(result);
+          updateInterfacesDisplay(result);
+        } else {
+          document.getElementById("interfacesContent").innerHTML =
+            '<p class="text-danger">Error: No interface data received</p>';
+        }
       }
-    });
+    );
   }
 
   // Tambahkan function helper
@@ -364,7 +368,7 @@
     if (!iface || !currentDeviceId) return;
 
     runAction(
-      "server.ip.get_interface_ips",
+      "server.network.ip.get_interface_ips",
       null,
       function (result) {
         const select = document.getElementById("removeIpAddress");
@@ -402,7 +406,7 @@
     }
 
     runAction(
-      "server.ip.add",
+      "server.network.ip.add",
       null,
       function (result) {
         showResultModal(result);
@@ -427,7 +431,7 @@
       }
 
       runAction(
-        "server.ip.remove",
+        "server.network.ip.remove",
         null,
         function (result) {
           showResultModal(result);
@@ -448,7 +452,7 @@
       return;
     }
     runAction(
-      "server.ip.enable_interface",
+      "server.network.ip.enable_interface",
       null,
       function (result) {
         showResultModal(result);
@@ -465,7 +469,7 @@
       return;
     }
     runAction(
-      "server.ip.disable_interface",
+      "server.network.ip.disable_interface",
       null,
       function (result) {
         showResultModal(result);

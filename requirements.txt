@@ -44,18 +44,32 @@
 ## check-version
 # ryu-manager --version
 
-### 3 - Install Requirement for Drivers Server
+### 3 - Install Requirement for Drivers Server and Run Ryu Manager
 # 1) pip install ryu psutil paramiko netifaces fastapi uvicorn jinja2 SQLAlchemy psycopg2-binar
 # 2) sudo apt install postgresql postgresql-contrib libpq-dev -y
+# 3) RYU_API_KEY="agent-secret-token-1" ryu-manager app/controller.py --verbose
 
-### 4 - Inisialisasi Database ( opsional )
+### 3 - Install requirement & Inisialisasi agent_register.py ( untuk daftar agent )
+# note: jadi topologinya itu |VM RYU agent| -> |run agent register| -> |VM RYU Manager| 
+# 1) pastikan ada folder kerja ryu-agent di server agent
+# 2) pip3 install flask psutil requests
+# 3) python3 agent_register.py
+# atau bisa juga
+# 3) RYU_API_KEY="agent-secret-token-1" AGENT_IP=192.168.221.133 python3 agent_register.py --verbose
+
+### 4 - Test agent API & Run agent_api.py
+# curl http://192.168.221.163:8080/health
+# curl http://192.168.221.163:8080/api/network/interfaces
+# RYU_API_KEY="agent-secret-token-1" AGENT_IP=192.168.221.133 python3 agent_api.py --verbose
+
+### 5 - Inisialisasi Database ( opsional )
 # sudo -u postgres psql
 # CREATE DATABASE sdn_controller;
 # CREATE USER sdn_user WITH PASSWORD 'sdnpass';
 # GRANT ALL PRIVILEGES ON DATABASE sdn_controller TO sdn_user;
 # \q
 
-### 5 - Ujicoba
+### 6 - Ujicoba
 ## Melihat daftar device
 #curl -H "X-API-KEY: agent-secret-token-1" http://192.168.221.133:8080/devices | jq
 # nanti akan muncul output seperti ini:
@@ -94,16 +108,7 @@
 # 1) curl -X POST http://192.168.221.133:8080/jobs -H "Content-Type: application/json" -d '{"device_id": "r43199a56", "action": "server.ip.disable_interface", "params": {"iface": "ens33"}}'
 # 2) curl http://192.168.221.133:8080/jobs/<job_id> | jq
 
-### 6 - Inisialisasi agent_register.py ( untuk daftar agent )
-# note: jadi topologinya itu |VM RYU agent| -> |run agent register| -> |VM RYU Manager| 
-# 1) python3 agent_register.py
-
-### 7- Install requirement for agent and test agent API
-# pip3 install flask psutil requests
-# curl http://192.168.221.163:8080/health
-# curl http://192.168.221.163:8080/api/network/interfaces
-
-### 8 - Inisialisasi dashboard
+### 7 - Inisialisasi dashboard
 # 1) pip3 install flask requests
 # 2) cd ~/ryu-sdn/app/dashboard
 # 3) python3 app.py

@@ -1,14 +1,13 @@
-# ryu-agent/monitor.py
 import psutil
 import platform
 import subprocess
 
-class MonitorDriver:
+class SystemDriver:
     def __init__(self, logger=print):
         self.logger = logger
 
     def get_utilization(self):
-        """Get system utilization"""
+        # Get system utilization
         try:
             return {
                 "cpu_usage": psutil.cpu_percent(interval=1),
@@ -23,7 +22,7 @@ class MonitorDriver:
             return {"error": str(e)}
 
     def get_system_info(self):
-        """Get system information"""
+        # Get system information
         try:
             uname = platform.uname()
             return {
@@ -38,20 +37,20 @@ class MonitorDriver:
             return {"error": str(e)}
 
     def get_detailed_utilization(self):
-        """Get detailed system utilization"""
+        # Get detailed system utilization
         try:
-            # CPU details
+            # Detail CPU
             cpu_times = psutil.cpu_times_percent(interval=1)
             
-            # Memory details
+            # Detail Memory
             memory = psutil.virtual_memory()
             swap = psutil.swap_memory()
             
-            # Disk details
+            # Detail Disk
             disk = psutil.disk_usage('/')
             disk_io = psutil.disk_io_counters()
             
-            # Network details
+            # Detail Network
             net_io = psutil.net_io_counters()
             
             return {
@@ -90,4 +89,22 @@ class MonitorDriver:
                 }
             }
         except Exception as e:
+            return {"error": str(e)}
+        
+    def get_system_logs(self, n=50):
+        # Get system logs
+        try:
+            lines = subprocess.check_output(["tail", "-n", str(n), "/var/log/syslog"]).decode()
+            return lines.splitlines()
+        except Exception as e:
+            self.logger(f"Error getting system logs: {e}")
+            return {"error": str(e)}
+
+    def get_dmesg_logs(self, n=50):
+        # Get kernel logs
+        try:
+            lines = subprocess.check_output(["dmesg", "-T"]).decode().splitlines()
+            return lines[-n:] if n > 0 else lines
+        except Exception as e:
+            self.logger(f"Error getting dmesg logs: {e}")
             return {"error": str(e)}

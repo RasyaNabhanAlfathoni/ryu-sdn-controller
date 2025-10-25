@@ -6,7 +6,7 @@ class ServerAPI:
 
     def __init__(self, dev):
         self.agent_ip = dev.get("ip")  # IP agent (contoh: 192.168.221.163)
-        self.agent_url = f"http://{self.agent_ip}:8080"  # Agent URL API endpoint
+        self.agent_url = f"http://{self.agent_ip}:8081"  # Agent URL API endpoint
         self.device_id = dev.get("id")
         self.device_data = dev
         print(f"[AgentClient] Initialized for {self.device_id} at {self.agent_url}")
@@ -273,6 +273,14 @@ class ServerAPI:
     def get_utilization(self, logger=None):
         """Get system utilization from agent"""
         return self._call_agent("/api/system/utilization", logger=logger)
+
+    def get_detailed_utilization(self, logger=None):
+        """Get system utilization detailed from agent"""
+        return self._call_agent("/api/system/utilization/detailed", logger=logger)
+    
+    def get_system_info(self, logger=None):
+        """Get system info from agent"""
+        return self._call_agent("/api/system/info", logger=logger)
     
     def get_logs(self, n=50, logger=None):
         """Get system logs from agent"""

@@ -14,7 +14,7 @@
             <div class="d-grid gap-2">
               <button
                 class="btn btn-primary"
-                onclick="runQuickAction('server.monitor')"
+                onclick="runQuickAction('server.system.monitor')"
               >
                 System Monitor
               </button>
@@ -25,7 +25,7 @@
             <div class="d-grid gap-2">
               <button
                 class="btn btn-success"
-                onclick="runQuickAction('server.ip.show_all')"
+                onclick="runQuickAction('server.network.ip.show_all')"
               >
                 Network Info
               </button>
@@ -68,8 +68,8 @@
               <label class="form-label">Action</label>
               <select class="form-select" id="actionSelect" required>
                 <option value="">Select action...</option>
-                <option value="server.monitor">System Monitor</option>
-                <option value="server.ip.show_all">Network Info</option>
+                <option value="server.system.monitor">System Monitor</option>
+                <option value="server.network.ip.show_all">Network Info</option>
                 <option value="server.firewall.ufw_status">
                   Firewall Status
                 </option>

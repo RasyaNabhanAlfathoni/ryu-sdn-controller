@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
-from ip import ServerIpDriver
+from network import ServerNetworkDriver
 from firewall import FirewallDriver
 from service import ServiceDriver
+from system import SystemDriver
 import psutil
 import subprocess
 import json
@@ -9,9 +10,10 @@ import json
 app = Flask(__name__)
 
 # Initialize drivers with logging support
-ip_driver = ServerIpDriver()
+network_driver = ServerNetworkDriver()
 firewall_driver = FirewallDriver()
 service_driver = ServiceDriver()
+system_driver = SystemDriver()
 
 def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)
@@ -25,7 +27,7 @@ def list_interfaces():
     # Get list network interfaces
     try:
         log_message("GET /api/network/interfaces")
-        result = ip_driver.list_interfaces()
+        result = network_driver.list_interfaces()
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in list_interfaces: {e}")
@@ -36,7 +38,7 @@ def interfaces_detail():
     # Get detailed network interfaces
     try:
         log_message("GET /api/network/interfaces/detail")
-        result = ip_driver.get_interface_details()
+        result = network_driver.get_interface_details()
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in interfaces_detail: {e}")
@@ -48,7 +50,7 @@ def add_ip():
     try:
         data = request.json
         log_message(f"POST /api/network/ip/add - {data}")
-        result = ip_driver.add_ip(data['interface'], data['ip_cidr'])
+        result = network_driver.add_ip(data['interface'], data['ip_cidr'])
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in add_ip: {e}")
@@ -60,7 +62,7 @@ def remove_ip():
     try:
         data = request.json
         log_message(f"POST /api/network/ip/remove - {data}")
-        result = ip_driver.del_ip(data['interface'], data['ip_cidr'])
+        result = network_driver.del_ip(data['interface'], data['ip_cidr'])
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in remove_ip: {e}")
@@ -72,7 +74,7 @@ def enable_interface():
     try:
         data = request.json
         log_message(f"POST /api/network/interface/enable - {data}")
-        result = ip_driver.enable_iface(data['interface'])
+        result = network_driver.enable_iface(data['interface'])
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in enable_interface: {e}")
@@ -84,7 +86,7 @@ def disable_interface():
     try:
         data = request.json
         log_message(f"POST /api/network/interface/disable - {data}")
-        result = ip_driver.disable_iface(data['interface'])
+        result = network_driver.disable_iface(data['interface'])
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in disable_interface: {e}")
@@ -95,7 +97,7 @@ def get_interface_ips(iface):
     # Get IP addresses for specific interface
     try:
         log_message(f"GET /api/network/interface/{iface}/ips")
-        result = ip_driver.get_interface_ips(iface)
+        result = network_driver.get_interface_ips(iface)
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_interface_ips: {e}")
@@ -106,7 +108,7 @@ def get_ip_info(iface):
     # Get IP info for specific interface
     try:
         log_message(f"GET /api/network/interface/{iface}/info")
-        result = ip_driver.get_ip_info(iface)
+        result = network_driver.get_ip_info(iface)
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_ip_info: {e}")
@@ -117,7 +119,7 @@ def get_interface_status(iface):
     # Get interface status
     try:
         log_message(f"GET /api/network/interface/{iface}/status")
-        result = ip_driver.get_interface_status(iface)
+        result = network_driver.get_interface_status(iface)
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_interface_status: {e}")
@@ -128,26 +130,36 @@ def get_interface_status(iface):
 
 @app.route('/api/network/routing', methods=['GET'])
 def get_routing_table():
-    # Get routing table
+    # Get routing table via driver
     try:
         log_message("GET /api/network/routing")
-        output = subprocess.getoutput("ip route show")
-        routes = output.splitlines()
-        return jsonify(routes)
+        result = network_driver.get_routing_table()  # Call driver
+        return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_routing_table: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/network/arp', methods=['GET'])
 def get_arp_table():
-    # Get ARP table
+    # Get ARP table via driver
     try:
         log_message("GET /api/network/arp")
-        output = subprocess.getoutput("ip neighbor show")
-        neighbors = output.splitlines()
-        return jsonify(neighbors)
+        result = network_driver.get_arp_table()  # Call driver
+        return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_arp_table: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/network/portscan', methods=['POST'])
+def port_scan():
+    # Port scanning via driver
+    try:
+        data = request.json
+        log_message(f"POST /api/network/portscan - {data}")
+        result = network_driver.port_scan(data.get('target'), data.get('ports'))
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in port_scan: {e}")
         return jsonify({"error": str(e)}), 500
     
 
@@ -421,36 +433,86 @@ def detect_firewall():
         return jsonify({"error": str(e)}), 500
 
 
+# === NEW SERVICE ENDPOINTS ===
+
+@app.route('/api/system/services', methods=['GET'])
+def list_services():
+    # List all system services
+    try:
+        log_message("GET /api/system/services")
+        result = service_driver.list_services()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in list_services: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/service/control', methods=['POST'])
+def service_control():
+    # Control system service
+    try:
+        data = request.json
+        log_message(f"POST /api/system/service/control - {data}")
+        result = service_driver.service_control(data['service'], data['action'])
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in service_control: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/service/<service>/status', methods=['GET'])
+def service_status(service):
+    # Get service status
+    try:
+        log_message(f"GET /api/system/service/{service}/status")
+        result = service_driver.service_status(service)
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in service_status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # === SYSTEM ENDPOINTS ===
 
 @app.route('/api/system/utilization', methods=['GET'])
 def get_utilization():
-    # Get system utilization
+    # Get system utilization via driver
     try:
         log_message("GET /api/system/utilization")
-        data = {
-            "cpu_usage": psutil.cpu_percent(interval=1),
-            "memory_usage": psutil.virtual_memory().percent,
-            "storage_usage": psutil.disk_usage('/').percent,
-            "io_read": psutil.disk_io_counters().read_bytes,
-            "io_write": psutil.disk_io_counters().write_bytes,
-            "net_rx": psutil.net_io_counters().bytes_recv,
-            "net_tx": psutil.net_io_counters().bytes_sent,
-        }
-        return jsonify(data)
+        result = system_driver.get_utilization()  # Call driver
+        return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_utilization: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/system/utilization/detailed', methods=['GET'])
+def get_detailed_utilization():
+    # Get detailed system utilization
+    try:
+        log_message("GET /api/system/utilization/detailed")
+        result = system_driver.get_detailed_utilization()  # Call driver
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_detailed_utilization: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/info', methods=['GET'])
+def get_system_info():
+    # Get system information
+    try:
+        log_message("GET /api/system/info")
+        result = system_driver.get_system_info()  # Call driver
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_system_info: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/system/logs', methods=['GET'])
 def get_logs():
-    # Get system logs
+    # Get system logs via driver
     try:
         n = request.args.get('lines', 50, type=int)
         log_message(f"GET /api/system/logs?lines={n}")
-
-        lines = subprocess.check_output(["tail", "-n", str(n), "/var/log/syslog"]).decode()
-        return jsonify(lines.splitlines())
+        result = system_driver.get_system_logs(n)  # Call driver
+        return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_logs: {e}")
         return jsonify({"error": str(e)}), 500
@@ -462,5 +524,5 @@ def health():
     return jsonify({"status": "healthy", "service": "agent_api"})
 
 if __name__ == '__main__':
-    print("Starting Agent API on http://0.0.0.0:8080")
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    print("Starting Agent API on http://0.0.0.0:8081")
+    app.run(host='0.0.0.0', port=8081, debug=False)

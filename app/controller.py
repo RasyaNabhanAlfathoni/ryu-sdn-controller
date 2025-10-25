@@ -173,18 +173,25 @@ class Orchestrator(app_manager.RyuApp):
             # "route.add": d.add_route,
             # "raw.run": d.run_raw,
 
+
             # === Server Commands ===
-            # IP Management - SEKARANG PAKAI INSTANCE METHODS
-            "server.ip.list_interfaces": lambda p, logger: d.list_interfaces(logger=logger),
-            "server.ip.get_interface_details": lambda p, logger: d.get_interface_details(logger=logger),
-            "server.ip.show_all": lambda p, logger: d.show_all(logger=logger),
-            "server.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-            "server.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-            "server.ip.enable_interface": lambda p, logger: d.enable_iface(p.get("iface"), logger=logger),
-            "server.ip.disable_interface": lambda p, logger: d.disable_iface(p.get("iface"), logger=logger),
-            "server.ip.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
-            "server.ip.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
-            "server.ip.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
+
+            # Network Management
+            "server.network.list_interfaces": lambda p, logger: d.list_interfaces(logger=logger),
+            "server.network.get_interface_details": lambda p, logger: d.get_interface_details(logger=logger),
+            "server.network.ip.show_all": lambda p, logger: d.show_all(logger=logger),
+            "server.network.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+            "server.network.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+            "server.network.ip.enable_interface": lambda p, logger: d.enable_iface(p.get("iface"), logger=logger),
+            "server.network.ip.disable_interface": lambda p, logger: d.disable_iface(p.get("iface"), logger=logger),
+            "server.network.ip.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
+            "server.network.ip.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
+            "server.network.ip.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
+
+            # Advanced Network Management 
+            "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
+            "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
+            "server.network.arp_table": lambda p, logger: d.get_arp_table(logger=logger),
 
             # Firewall Management - UFW
             "server.firewall.ufw_status": lambda p, logger: d.ufw_status(logger=logger),
@@ -218,9 +225,16 @@ class Orchestrator(app_manager.RyuApp):
             "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
 
             # Monitor - TETAP STATIC KARENA SUDAH @staticmethod
-            "server.monitor": lambda p, logger: d.get_utilization(logger=logger),
-
-        }
+            "server.system.monitor": lambda p, logger: d.get_utilization(logger=logger),
+            "server.system.monitor_detailed": lambda p, logger: d.get_detailed_utilization(logger=logger),
+            "server.system.info": lambda p, logger: d.get_system_info(logger=logger),
+            "server.system.logs": lambda p, logger: d.get_logs(p.get("lines", 50), logger=logger),
+            
+            # System Services
+            "server.system.services.list": lambda p, logger: d.list_services(logger=logger),
+            "server.system.services.control": lambda p, logger: d.service_control(p.get("service"), p.get("action"), logger=logger),
+            "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
+        } 
 
         if action not in fnmap:
             self.jobs.append_log(jid, f"ERROR: Unknown action '{action}'")

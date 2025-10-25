@@ -2,7 +2,7 @@ import os
 import subprocess
 import re
 
-class ServerIpDriver:
+class ServerNetworkDriver:
     def __init__(self, logger=print):
         self.logger = logger
 
@@ -22,7 +22,7 @@ class ServerIpDriver:
         return result
 
     def get_interface_status(self, iface):
-        """Get interface status using multiple methods"""
+        # Get interface status using multiple methods
         try:
             # Method: Gunakan ip command
             ip_output = subprocess.getoutput(f"ip link show {iface}")
@@ -78,3 +78,38 @@ class ServerIpDriver:
         # Menampilkan IP address spesifik dari interface untuk dropdown
         info = self.get_ip_info(iface)
         return info.get("ip_addresses", [])
+
+    # === ADVANCED NETWORK METHODS ===
+    def get_routing_table(self):
+        """Get routing table"""
+        try:
+            output = subprocess.getoutput("ip route show")
+            routes = output.splitlines()
+            return routes
+        except Exception as e:
+            self.logger(f"Error getting routing table: {e}")
+            return {"error": str(e)}
+
+    def get_arp_table(self):
+        """Get ARP table"""
+        try:
+            output = subprocess.getoutput("ip neighbor show")
+            neighbors = output.splitlines()
+            return neighbors
+        except Exception as e:
+            self.logger(f"Error getting ARP table: {e}")
+            return {"error": str(e)}
+
+    def port_scan(self, target, ports=None):
+        """Port scanning"""
+        try:
+            if ports:
+                cmd = f"nmap -p {ports} {target}"
+            else:
+                cmd = f"nmap {target}"
+            
+            output = subprocess.getoutput(cmd)
+            return output
+        except Exception as e:
+            self.logger(f"Error in port scan: {e}")
+            return {"error": str(e)}
