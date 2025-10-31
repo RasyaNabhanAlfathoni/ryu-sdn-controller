@@ -182,11 +182,13 @@ class Orchestrator(app_manager.RyuApp):
             "server.network.ip.show_all": lambda p, logger: d.show_all(logger=logger),
             "server.network.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
             "server.network.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-            "server.network.ip.enable_interface": lambda p, logger: d.enable_iface(p.get("iface"), logger=logger),
-            "server.network.ip.disable_interface": lambda p, logger: d.disable_iface(p.get("iface"), logger=logger),
-            "server.network.ip.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
-            "server.network.ip.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
-            "server.network.ip.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
+            "server.network.enable_interface": lambda p, logger: d.enable_iface(p.get("iface"), logger=logger),
+            "server.network.disable_interface": lambda p, logger: d.disable_iface(p.get("iface"), logger=logger),
+            "server.network.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
+            "server.network.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
+            "server.network.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
+            "server.network.connections": lambda p, logger: d.get_network_connections(logger=logger),
+            "server.network.interface_counters": lambda p, logger: d.get_interface_counters(p.get("iface"), logger=logger),
 
             # Advanced Network Management 
             "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
@@ -224,7 +226,7 @@ class Orchestrator(app_manager.RyuApp):
             "server.firewall.status_all": lambda p, logger: d.status_all(logger=logger),
             "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
 
-            # Monitor - TETAP STATIC KARENA SUDAH @staticmethod
+            # System Management - Monitor
             "server.system.monitor": lambda p, logger: d.get_utilization(logger=logger),
             "server.system.monitor_detailed": lambda p, logger: d.get_detailed_utilization(logger=logger),
             "server.system.info": lambda p, logger: d.get_system_info(logger=logger),

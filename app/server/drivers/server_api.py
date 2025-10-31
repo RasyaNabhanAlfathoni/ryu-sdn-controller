@@ -106,6 +106,14 @@ class ServerAPI:
         """Get interface status from agent"""
         return self._call_agent(f"/api/network/interface/{iface}/status", logger=logger)
     
+    def get_network_connections(self, logger=None):
+        """Get active network connections from agent"""
+        return self._call_agent("/api/network/connections", logger=logger)
+    
+    def get_interface_counters(self, interface, logger=None):
+        """Get interface counters from agent"""
+        return self._call_agent(f"/api/network/interface/{interface}/counters", logger=logger)
+    
 
     # === Advanced Network Management Methods ===
     

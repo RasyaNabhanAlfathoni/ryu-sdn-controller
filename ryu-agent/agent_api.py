@@ -125,6 +125,27 @@ def get_interface_status(iface):
         log_message(f"Error in get_interface_status: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/network/connections', methods=['GET'])
+def get_network_connections():
+    # Get active network connections (simpel version
+    try:
+        log_message("GET /api/network/connections")
+        result = network_driver.get_network_connections()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_network_connections: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/network/interface/<iface>/counters', methods=['GET'])
+def get_interface_counters(iface):
+    # Get interface counters (simpel version)
+    try:
+        log_message(f"GET /api/network/interface/{iface}/counters")
+        result = network_driver.get_interface_counters(iface)
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_interface_counters: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # === Network Advanced ENDPOINTS ===
 
