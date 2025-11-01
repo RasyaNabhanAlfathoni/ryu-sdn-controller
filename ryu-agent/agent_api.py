@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify
-from network import ServerNetworkDriver
-from firewall import FirewallDriver
-from service import ServiceDriver
-from system import SystemDriver
+from drivers.linux.network import ServerNetworkDriver
+from drivers.linux.firewall import ServerFirewallDriver
+from drivers.linux.service import ServerServiceDriver
+from drivers.linux.system import ServerSystemDriver
 import psutil
 import subprocess
 import json
@@ -11,9 +11,9 @@ app = Flask(__name__)
 
 # Initialize drivers with logging support
 network_driver = ServerNetworkDriver()
-firewall_driver = FirewallDriver()
-service_driver = ServiceDriver()
-system_driver = SystemDriver()
+firewall_driver = ServerFirewallDriver()
+service_driver = ServerServiceDriver()
+system_driver = ServerSystemDriver()
 
 def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)

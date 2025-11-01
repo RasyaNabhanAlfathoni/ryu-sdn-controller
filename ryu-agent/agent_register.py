@@ -93,21 +93,72 @@ def get_mac_address():
     return macs
 
 def get_os_info():
-    # Get operating system info
+    # Get detailed OS information compatible dengan berbagai distro
     try:
-        # Coba baca dari /etc/os-release
+        # Coba baca dari /etc/os-release (standard across distros)
         with open("/etc/os-release") as f:
+            os_release = {}
             for line in f:
-                if line.startswith("PRETTY_NAME="):
-                    return line.split("=")[1].strip().strip('"')
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    os_release[key] = value.strip('"')
+            
+            name = os_release.get('NAME', 'Unknown')
+            version = os_release.get('VERSION', '')
+            pretty_name = os_release.get('PRETTY_NAME', f"{name} {version}")
+            
+            return pretty_name
+            
     except Exception:
         pass
 
-    # Fallback -> gunakan method platform
+    # Fallback untuk distro tanpa /etc/os-release
     try:
-        return platform.system()
+        # CentOS/RHEL older versions
+        with open("/etc/redhat-release") as f:
+            return f.read().strip()
+    except Exception:
+        pass
+
+    try:
+        # Debian older versions
+        with open("/etc/debian_version") as f:
+            debian_ver = f.read().strip()
+            return f"Debian {debian_ver}"
+    except Exception:
+        pass
+
+    # Final fallback
+    try:
+        return f"{platform.system()} {platform.release()}"
     except Exception:
         return "UnknownOS"
+    
+def get_os_family():
+    # Detect OS family untuk compatibility checking
+    try:
+        with open("/etc/os-release") as f:
+            content = f.read().lower()
+            if 'ubuntu' in content or 'debian' in content:
+                return 'debian'
+            elif 'centos' in content or 'rhel' in content or 'redhat' in content:
+                return 'rhel'
+            elif 'fedora' in content:
+                return 'fedora'
+            elif 'suse' in content or 'opensuse' in content:
+                return 'suse'
+            elif 'arch' in content:
+                return 'arch'
+    except Exception:
+        pass
+    
+    # Fallback detection
+    if os.path.exists("/etc/redhat-release"):
+        return 'rhel'
+    elif os.path.exists("/etc/debian_version"):
+        return 'debian'
+    
+    return 'unknown'
 
 def build_payload(controller_url):
     hostname = socket.gethostname()
