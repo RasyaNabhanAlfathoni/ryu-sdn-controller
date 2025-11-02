@@ -15,19 +15,20 @@ class ServerSystemDriver:
     def get_utilization(self):
         """Get basic system utilization"""
         try:
-            # Get CPU usage with 1 second interval for accuracy
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
-            
+            net_io = psutil.net_io_counters()
+            disk_io = psutil.disk_io_counters()
+
             return {
                 "cpu_usage": cpu_percent,
                 "memory_usage": memory.percent,
                 "storage_usage": disk.percent,
-                "io_read": psutil.disk_io_counters().read_bytes if psutil.disk_io_counters() else 0,
-                "io_write": psutil.disk_io_counters().write_bytes if psutil.disk_io_counters() else 0,
-                "net_rx": psutil.net_io_counters().bytes_recv if psutil.net_io_counters() else 0,
-                "net_tx": psutil.net_io_counters().bytes_sent if psutil.net_io_counters() else 0,
+                "io_read": disk_io.read_bytes if disk_io else 0,
+                "io_write": disk_io.write_bytes if disk_io else 0,
+                "net_rx": net_io.bytes_recv if net_io else 0,
+                "net_tx": net_io.bytes_sent if net_io else 0,
             }
         except Exception as e:
             return {"error": str(e)}
@@ -40,12 +41,14 @@ class ServerSystemDriver:
             
             # Get OS specific info
             os_info = self._get_os_specific_info()
+            kernel_version = platform.release()
             
             return {
                 "system": f"{uname.system} {uname.release}",
                 "hostname": uname.node,
                 "architecture": uname.machine,
                 "processor": uname.processor,
+                "kernel_version": kernel_version,
                 "boot_time": boot_time.isoformat(),
                 "uptime": str(datetime.now() - boot_time),
                 "users": [u.name for u in psutil.users()],
@@ -89,24 +92,59 @@ class ServerSystemDriver:
     def get_detailed_utilization(self):
         """Get detailed system utilization"""
         try:
-            # CPU details
+            # CPU
             cpu_times = psutil.cpu_times_percent(interval=1)
             cpu_freq = psutil.cpu_freq()
-            
-            # Memory details
+            per_core = psutil.cpu_percent(interval=1, percpu=True)
+
+            # Memory
             memory = psutil.virtual_memory()
             swap = psutil.swap_memory()
-            
-            # Disk details
+
+            # Disk
             disk = psutil.disk_usage('/')
             disk_io = psutil.disk_io_counters()
-            
-            # Network details
+            partitions = [
+                {
+                    "device": p.device,
+                    "mount": p.mountpoint,
+                    "fs_type": p.fstype,
+                    "usage_percent": psutil.disk_usage(p.mountpoint).percent
+                }
+                for p in psutil.disk_partitions()
+            ]
+
+            # Network
             net_io = psutil.net_io_counters()
-            
-            # Load average
+            net_per_iface = {
+                iface: {
+                    "bytes_recv": stats.bytes_recv,
+                    "bytes_sent": stats.bytes_sent,
+                    "packets_recv": stats.packets_recv,
+                    "packets_sent": stats.packets_sent,
+                }
+                for iface, stats in psutil.net_io_counters(pernic=True).items()
+            }
+
+            # Load Average
             load_avg = os.getloadavg()
-            
+
+            # Top Processes (by CPU)
+            top_processes = []
+            for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+                try:
+                    info = p.info
+                    top_processes.append(info)
+                except Exception:
+                    continue
+            top_processes = sorted(top_processes, key=lambda x: x['cpu_percent'], reverse=True)[:5]
+
+            # Temperature (if supported)
+            try:
+                temps = psutil.sensors_temperatures()
+            except Exception:
+                temps = {}
+
             return {
                 "cpu": {
                     "percent": psutil.cpu_percent(interval=1),
@@ -116,7 +154,8 @@ class ServerSystemDriver:
                     "cores": psutil.cpu_count(logical=False),
                     "threads": psutil.cpu_count(logical=True),
                     "frequency": cpu_freq.current if cpu_freq else "unknown",
-                    "load_avg": load_avg
+                    "load_avg": load_avg,
+                    "per_core_percent": per_core
                 },
                 "memory": {
                     "percent": memory.percent,
@@ -139,14 +178,18 @@ class ServerSystemDriver:
                     "read_bytes": disk_io.read_bytes if disk_io else 0,
                     "write_bytes": disk_io.write_bytes if disk_io else 0,
                     "read_count": disk_io.read_count if disk_io else 0,
-                    "write_count": disk_io.write_count if disk_io else 0
+                    "write_count": disk_io.write_count if disk_io else 0,
+                    "partitions": partitions
                 },
                 "network": {
                     "bytes_recv": net_io.bytes_recv if net_io else 0,
                     "bytes_sent": net_io.bytes_sent if net_io else 0,
                     "packets_recv": net_io.packets_recv if net_io else 0,
-                    "packets_sent": net_io.packets_sent if net_io else 0
-                }
+                    "packets_sent": net_io.packets_sent if net_io else 0,
+                    "interfaces": net_per_iface
+                },
+                "temperature": temps,
+                "top_processes": top_processes
             }
         except Exception as e:
             return {"error": str(e)}
