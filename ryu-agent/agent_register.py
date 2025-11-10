@@ -96,7 +96,7 @@ def get_os_info():
     # Get detailed OS information compatible dengan berbagai distro
     try:
         # Coba baca dari /etc/os-release (standard across distros)
-        with open("/etc/os-release") as f:
+        with open("/etc/host-os-release") as f:
             os_release = {}
             for line in f:
                 if '=' in line:
@@ -112,7 +112,39 @@ def get_os_info():
     except Exception:
         pass
 
-    # Fallback untuk distro tanpa /etc/os-release
+    # Try host LSB release
+    try:
+        with open("/etc/host-lsb-release") as f:
+            lsb_release = {}
+            for line in f:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    lsb_release[key] = value.strip('"')
+            
+            description = lsb_release.get('DISTRIB_DESCRIPTION', '')  
+            return description
+    except Exception:
+        pass
+    
+    # Try Fallback to container OS (with warning)
+    try:
+        with open("/etc/os-release") as f:
+            os_release = {}
+            for line in f:
+                if '=' in line:
+                    key, value = line.strip().split('=', 1)
+                    os_release[key] = value.strip('"')
+            
+            name = os_release.get('NAME', 'Unknown')
+            version = os_release.get('VERSION', '')
+            pretty_name = os_release.get('PRETTY_NAME', f"{name} {version}")
+            
+            print(f"[AGENT] WARNING: Using container OS: {pretty_name}")
+            return f"{pretty_name} [CONTAINER]"
+    except Exception:
+        pass
+
+     # Fallback untuk distro tanpa /etc/os-release
     try:
         # CentOS/RHEL older versions
         with open("/etc/redhat-release") as f:
