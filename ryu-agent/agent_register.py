@@ -15,11 +15,11 @@ import getpass
 import uuid
 import platform
 
-CONTROLLER_URL = os.environ.get("RYU_CONTROLLER_URL", "http://192.168.221.133:8080")
+CONTROLLER_URL = os.environ.get("RYU_CONTROLLER_URL", "http://127.0.0.1:8080")
 API_KEY = os.environ.get("RYU_API_KEY", "agent-secret-token-1")
 REGISTER_ENDPOINT = "/devices"
 HEARTBEAT_ENDPOINT = "/devices/{device_id}/heartbeat"
-AGENT_IP = os.environ.get("AGENT_IP")
+AGENT_IP = os.environ.get("AGENT_IP", "127.0.0.1")
 RETRY_INTERVAL = 5
 MAX_RETRIES = 12
 HEARTBEAT_INTERVAL = 10

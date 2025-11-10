@@ -16,7 +16,7 @@
 # ---------------------------------------------------------------------------------------------
 
 # 1 — Prasyarat & instalasi dependency (Ubuntu 20.04/22.04)
-# Maksimal versi python 3.9  
+# Versi python 3.9  
 
 ## Update package
 # apt update -y
@@ -26,6 +26,7 @@
 
 ## Install python3.9 ( ada masalah jika 3.10 )
 # sudo apt install python3.9 python3.9-venv python3.9-dev -y
+# sudo yum install python39 python39-devel python39-pip -y
 
 ## installing prerequisites
 # apt install gcc python3-dev libffi-dev libssl-dev libxml2-dev libxslt1-dev zlib1g-dev
@@ -52,7 +53,7 @@
 ### 3 - Install requirement & Inisialisasi agent_register.py ( untuk daftar agent )
 # note: jadi topologinya itu |VM RYU agent| -> |run agent register| -> |VM RYU Manager| 
 # 1) pastikan ada folder kerja ryu-agent di server agent
-# 2) pip3 install flask psutil requests
+# 2) pip3 install flask psutil requests netifaces
 # 3) python3 agent_register.py
 # atau bisa juga
 # 3) RYU_API_KEY="agent-secret-token-1" AGENT_IP=192.168.221.133 python3 agent_register.py --verbose

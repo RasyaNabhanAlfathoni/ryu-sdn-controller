@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  ryu-agent-register:
+    build: .
+    container_name: ryu-agent-register
+    environment:
+      - RYU_CONTROLLER_URL=http://192.168.221.133:8080 # http:// dan port dari Ryu Manager
+      - RYU_API_KEY=agent-secret-token-1 # API Key dari Ryu Manager
+      - AGENT_IP=192.168.221.133 # IP Server Agent yang 1 Network dengan Server Ryu Manager
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/run/dbus:/var/run/dbus:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    privileged: true # Untuk Akses command system pada Server
+    network_mode: host # Untuk Scanning real network pada Server
+    restart: unless-stopped
+    command: python3 agent_register.py --verbose
+
+  ryu-agent-api:
+    build: .
+    container_name: ryu-agent-api
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/run/dbus:/var/run/dbus:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    privileged: true # Untuk Akses command system pada Server
+    network_mode: host # Untuk Scanning real network pada Server
+    restart: unless-stopped
+    command: python3 agent_api.py --verbose
