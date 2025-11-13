@@ -90,7 +90,7 @@ class ServerSystemDriver:
         return {"description": "Unknown"}
 
     def get_detailed_utilization(self):
-        """Get detailed system utilization"""
+        """Get detailed system utilization - FIXED VERSION"""
         try:
             # CPU
             cpu_times = psutil.cpu_times_percent(interval=1)
@@ -104,94 +104,157 @@ class ServerSystemDriver:
             # Disk
             disk = psutil.disk_usage('/')
             disk_io = psutil.disk_io_counters()
-            partitions = [
-                {
-                    "device": p.device,
-                    "mount": p.mountpoint,
-                    "fs_type": p.fstype,
-                    "usage_percent": psutil.disk_usage(p.mountpoint).percent
-                }
-                for p in psutil.disk_partitions()
-            ]
+            # FIX: Filter partitions yang meaningful
+            partitions = []
+            for p in psutil.disk_partitions():
+                try:
+                    # Skip virtual/docker mounts dan filesystem types tertentu
+                    if any(skip in p.mountpoint for skip in [
+                        '/etc/', '/proc/', '/sys/', '/dev/', '/run/',
+                        '/var/lib/docker/', '/snap/'
+                    ]):
+                        continue
+                        
+                    # Skip certain filesystem types
+                    if p.fstype in ['squashfs', 'overlay', 'tmpfs', 'devtmpfs']:
+                        continue
+                        
+                    usage = psutil.disk_usage(p.mountpoint)
+                    partitions.append({
+                        "device": p.device,
+                        "mount": p.mountpoint,
+                        "fs_type": p.fstype,
+                        "usage_percent": round(usage.percent, 1),
+                        "total_gb": round(usage.total / (1024**3), 2),
+                        "used_gb": round(usage.used / (1024**3), 2),
+                        "free_gb": round(usage.free / (1024**3), 2)
+                    })
+                except (PermissionError, OSError) as e:
+                    # Skip partitions yang tidak bisa diakses
+                    self.logger(f"Skipping partition {p.mountpoint}: {e}")
+                    continue
 
             # Network
             net_io = psutil.net_io_counters()
-            net_per_iface = {
-                iface: {
-                    "bytes_recv": stats.bytes_recv,
-                    "bytes_sent": stats.bytes_sent,
-                    "packets_recv": stats.packets_recv,
-                    "packets_sent": stats.packets_sent,
-                }
-                for iface, stats in psutil.net_io_counters(pernic=True).items()
-            }
+            net_per_iface = {}
+            
+            try:
+                # FIX: Handle case where pernic=True might fail
+                interface_stats = psutil.net_io_counters(pernic=True)
+                for iface, stats in interface_stats.items():
+                    # Skip virtual interfaces
+                    if any(virtual in iface for virtual in ['virbr', 'docker', 'veth', 'br-']):
+                        continue
+                        
+                    net_per_iface[iface] = {
+                        "bytes_recv": stats.bytes_recv,
+                        "bytes_sent": stats.bytes_sent,
+                        "packets_recv": stats.packets_recv,
+                        "packets_sent": stats.packets_sent,
+                        "errin": stats.errin,
+                        "errout": stats.errout,
+                        "dropin": stats.dropin,
+                        "dropout": stats.dropout
+                    }
+            except Exception as e:
+                self.logger(f"Network per-interface stats failed: {e}")
+                # Fallback to aggregate stats only
 
             # Load Average
             load_avg = os.getloadavg()
 
-            # Top Processes (by CPU)
+            # Top Processes
             top_processes = []
-            for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            for p in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'memory_info']):
                 try:
                     info = p.info
+                    # Convert memory to MB untuk consistency
+                    if info.get('memory_info'):
+                        info['memory_mb'] = round(info['memory_info'].rss / (1024**2), 1)
                     top_processes.append(info)
-                except Exception:
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-            top_processes = sorted(top_processes, key=lambda x: x['cpu_percent'], reverse=True)[:5]
+            
+            # Sort by CPU then memory
+            top_processes = sorted(
+                top_processes, 
+                key=lambda x: (x.get('cpu_percent', 0), x.get('memory_percent', 0)), 
+                reverse=True
+            )[:10]  # Top 10 processes
 
-            # Temperature (if supported)
+            # Temperature
             try:
                 temps = psutil.sensors_temperatures()
+                # Simplify temperature data
+                simplified_temps = {}
+                for sensor, readings in temps.items():
+                    if readings:
+                        simplified_temps[sensor] = {
+                            'current': readings[0].current,
+                            'high': readings[0].high,
+                            'critical': readings[0].critical
+                        }
+                temps = simplified_temps
             except Exception:
                 temps = {}
 
             return {
                 "cpu": {
                     "percent": psutil.cpu_percent(interval=1),
-                    "user": getattr(cpu_times, 'user', 0),
-                    "system": getattr(cpu_times, 'system', 0),
-                    "idle": getattr(cpu_times, 'idle', 0),
+                    "user": round(getattr(cpu_times, 'user', 0), 1),
+                    "system": round(getattr(cpu_times, 'system', 0), 1),
+                    "idle": round(getattr(cpu_times, 'idle', 0), 1),
                     "cores": psutil.cpu_count(logical=False),
                     "threads": psutil.cpu_count(logical=True),
-                    "frequency": cpu_freq.current if cpu_freq else "unknown",
-                    "load_avg": load_avg,
-                    "per_core_percent": per_core
+                    "frequency": round(cpu_freq.current, 1) if cpu_freq else 0,
+                    "load_avg": [round(load, 3) for load in load_avg],
+                    "per_core_percent": [round(pct, 1) for pct in per_core]
                 },
                 "memory": {
-                    "percent": memory.percent,
+                    "percent": round(memory.percent, 1),
                     "used_gb": round(memory.used / (1024**3), 2),
                     "available_gb": round(memory.available / (1024**3), 2),
                     "total_gb": round(memory.total / (1024**3), 2),
                     "cached_gb": round(getattr(memory, 'cached', 0) / (1024**3), 2),
-                    "buffers_gb": round(getattr(memory, 'buffers', 0) / (1024**3), 2)
+                    "buffers_gb": round(getattr(memory, 'buffers', 0) / (1024**3), 2),
+                    "shared_gb": round(getattr(memory, 'shared', 0) / (1024**3), 2)
                 },
                 "swap": {
-                    "percent": swap.percent,
+                    "percent": round(swap.percent, 1),
                     "used_gb": round(swap.used / (1024**3), 2),
-                    "total_gb": round(swap.total / (1024**3), 2)
+                    "total_gb": round(swap.total / (1024**3), 2),
+                    "sin": round(swap.sin / (1024**2), 1) if hasattr(swap, 'sin') else 0,
+                    "sout": round(swap.sout / (1024**2), 1) if hasattr(swap, 'sout') else 0
                 },
                 "disk": {
-                    "percent": disk.percent,
-                    "used_gb": round(disk.used / (1024**3), 2),
-                    "free_gb": round(disk.free / (1024**3), 2),
-                    "total_gb": round(disk.total / (1024**3), 2),
-                    "read_bytes": disk_io.read_bytes if disk_io else 0,
-                    "write_bytes": disk_io.write_bytes if disk_io else 0,
-                    "read_count": disk_io.read_count if disk_io else 0,
-                    "write_count": disk_io.write_count if disk_io else 0,
+                    "root": {
+                        "percent": round(disk.percent, 1),
+                        "used_gb": round(disk.used / (1024**3), 2),
+                        "free_gb": round(disk.free / (1024**3), 2),
+                        "total_gb": round(disk.total / (1024**3), 2)
+                    },
+                    "io": {
+                        "read_bytes": disk_io.read_bytes if disk_io else 0,
+                        "write_bytes": disk_io.write_bytes if disk_io else 0,
+                        "read_count": disk_io.read_count if disk_io else 0,
+                        "write_count": disk_io.write_count if disk_io else 0
+                    },
                     "partitions": partitions
                 },
                 "network": {
-                    "bytes_recv": net_io.bytes_recv if net_io else 0,
-                    "bytes_sent": net_io.bytes_sent if net_io else 0,
-                    "packets_recv": net_io.packets_recv if net_io else 0,
-                    "packets_sent": net_io.packets_sent if net_io else 0,
+                    "total": {
+                        "bytes_recv": net_io.bytes_recv if net_io else 0,
+                        "bytes_sent": net_io.bytes_sent if net_io else 0,
+                        "packets_recv": net_io.packets_recv if net_io else 0,
+                        "packets_sent": net_io.packets_sent if net_io else 0
+                    },
                     "interfaces": net_per_iface
                 },
                 "temperature": temps,
                 "top_processes": top_processes
             }
         except Exception as e:
+            self.logger(f"Error in get_detailed_utilization: {e}")
             return {"error": str(e)}
 
     def get_system_logs(self, n=50):
