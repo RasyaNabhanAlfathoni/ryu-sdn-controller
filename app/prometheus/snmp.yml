@@ -1,0 +1,126 @@
+auths:
+  public_v1:
+    community: public
+    security_level: noAuthNoPriv
+    auth_protocol: MD5
+    priv_protocol: DES
+    version: 1
+  public_v2:
+    community: public
+    security_level: noAuthNoPriv
+    auth_protocol: MD5
+    priv_protocol: DES
+    version: 2
+modules:
+  mikrotik:
+    walk:
+      - 1.3.6.1.2.1.31.1.1.1.1
+      - 1.3.6.1.4.1.14988
+      - 1.3.6.1.2.1
+    metrics:
+      - name: SystemIdentity
+        oid: 1.3.6.1.2.1.1.5.0
+        type: DisplayString
+      - name: CPU
+        oid: 1.3.6.1.2.1.25.3.3.1.2.1
+        type: gauge
+      - name: FirmwareVersion
+        oid: 1.3.6.1.4.1.14988.1.1.4.4.0
+        type: DisplayString
+      - name: HardwareModel
+        oid: 1.3.6.1.2.1.1.1.0
+        type: DisplayString
+      - name: SerialNumber
+        oid: 1.3.6.1.4.1.14988.1.1.7.3.0
+        type: DisplayString
+      - name: DeviceTemperature
+        oid: 1.3.6.1.4.1.14988.1.1.3.10.0
+        type: gauge
+      - name: SystemUptime
+        oid: 1.3.6.1.2.1.1.3.0
+        type: gauge
+      - name: TotalRAM
+        oid: 1.3.6.1.2.1.25.2.3.1.5.65536
+        type: gauge
+        help: Total RAM dalam blok (allocation unit = 1024 byte)
+      - name: UsedRAM
+        oid: 1.3.6.1.2.1.25.2.3.1.6.65536
+        type: gauge
+        help: RAM yang terpakai dalam blok (allocation unit = 1024 byte)
+      - name: TotalStorage
+        oid: 1.3.6.1.2.1.25.2.3.1.5.131072
+        type: gauge
+        help: Total Storage/Flash (allocation unit = 1024 byte)
+      - name: UsedStorage
+        oid: 1.3.6.1.2.1.25.2.3.1.6.131072
+        type: gauge
+        help: Storage/Flash yang terpakai (allocation unit = 1024 byte)
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        help: Bytes received per interface (64-bit counter)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter
+        help: Bytes sent per interface (64-bit counter)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: InterfaceMAC
+        oid: 1.3.6.1.2.1.2.2.1.6
+        type: OctetString
+        help: Mac Address Interface
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: InterfaceType
+        oid: 1.3.6.1.2.1.2.2.1.3
+        type: gauge
+        help: Type Interface 6=interface 135=vlan 209=bridge
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: InterfaceStatus
+        oid: 1.3.6.1.2.1.2.2.1.8
+        type: counter
+        help: Status Interface 1=up, 2=down
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: InterfaceDescription
+        oid: 1.3.6.1.2.1.1.1.0
+        type: DisplayString
+        help: Interface Status

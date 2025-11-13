@@ -8,6 +8,7 @@ from webob import Response
 import json, uuid, time, datetime
 
 # === MikroTik Driver ===
+from drivers.snmp_file_manager import SNMPFileManager
 from drivers.router_drivers.mikrotik.routeros_api import RouterOSApiDriver
 from drivers.router_drivers.mikrotik.ip import RouterOSIpDriver
 from drivers.router_drivers.mikrotik.interface import RouterOSInterfaceDriver
@@ -17,6 +18,7 @@ from drivers.router_drivers.mikrotik.dhcp_client import RouterOSDhcpClientDriver
 from drivers.router_drivers.mikrotik.ip_pool import RouterOSIpPoolDriver
 from drivers.router_drivers.mikrotik.dns_server import RouterOSDnsDriver
 from drivers.router_drivers.mikrotik.neighbor import RouterOSNeighborDriver
+from drivers.router_drivers.mikrotik.snmp import RouterOSSNMPDriver
 
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
@@ -210,6 +212,17 @@ class Orchestrator(app_manager.RyuApp):
                 "mikrotik.neighbor.get": lambda p, logger: RouterOSNeighborDriver(d).get_neighbors(p, logger),
                 "mikrotik.neighbor.discovery.get": lambda p, logger: RouterOSNeighborDriver(d).get_discovery_settings(p, logger),
                 "mikrotik.neighbor.discovery.edit": lambda p, logger: RouterOSNeighborDriver(d).edit_discovery_settings(p, logger),
+
+                # SNMP RouterOS native config
+                "mikrotik.snmp.config.get": lambda p, logger: RouterOSSNMPDriver(d).get_snmp_config(p, logger),
+                "mikrotik.snmp.config.edit": lambda p, logger: RouterOSSNMPDriver(d).edit_snmp_config(p, logger),
+                "mikrotik.snmp.community.list": lambda p, logger: RouterOSSNMPDriver(d).list_communities(p, logger),
+                "mikrotik.snmp.community.add": lambda p, logger: RouterOSSNMPDriver(d).add_community(p, logger),
+                "mikrotik.snmp.community.edit": lambda p, logger: RouterOSSNMPDriver(d).edit_community(p, logger),
+                "mikrotik.snmp.community.delete": lambda p, logger: RouterOSSNMPDriver(d).delete_community(p, logger),
+                "mikrotik.snmp.community.enable": lambda p, logger: RouterOSSNMPDriver(d).enable_community(p, logger),
+                "mikrotik.snmp.community.disable": lambda p, logger: RouterOSSNMPDriver(d).disable_community(p, logger),
+                "mikrotik.snmp.device.add": lambda p, logger: SNMPFileManager().add_device(p),
 
                 # Identity
                 "mikrotik.identity.set": d.set_identity,

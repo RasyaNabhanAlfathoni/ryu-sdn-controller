@@ -1,0 +1,42 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./snmp_targets.json:/etc/prometheus/snmp_targets.json
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - 8000:9090
+    depends_on:
+      - snmp_exporter
+    networks:
+      - monitor_net
+
+  snmp_exporter:
+    image: prom/snmp-exporter
+    container_name: snmp_exporter
+    restart: unless-stopped
+    ports:
+      - "9116:9116"
+    volumes:
+      - ./snmp.yml:/etc/snmp_exporter/snmp.yml
+    develop:
+      watch:
+        - action: sync
+          path: ./snmp.yml
+          target: /etc/snmp_exporter/snmp.yml
+    networks:
+      - monitor_net
+
+networks:
+  monitor_net:
+    driver: bridge
+
+volumes:
+  prometheus_data:
