@@ -346,23 +346,40 @@ class NorthboundApi(ControllerBase):
         for dev in devices:
             clean_dev = {
                 "id": dev.get("id"),
+                "status": dev.get("status", "ok"),
                 "hostname": dev.get("hostname"),
-                "ip": dev.get("ip"),
+                "main_username": dev.get("main_username"),
+                "architecture": dev.get("architecture"),
+                "architecture_bits": dev.get("architecture_bits"),
+                "processor_type": dev.get("processor_type"),
+                "main_ip": dev.get("ip"),
+                "main_interface": dev.get("main_interface"),
+                "main_mac_address": dev.get("main_mac_address"),
+                "vendor": dev.get("vendor"),
                 "os": dev.get("os"),
                 "southbound": dev.get("southbound"),
-                "connected": dev.get("connected", False),
-                "last_seen": dev.get("last_seen"),
-                "username": dev.get("username")
+                "last_seen": dev.get("last_seen"),   
             }
         
             # Hanya tambahkan meta jika ada data penting ( yg ditambahkan di meta )
             meta = dev.get("meta", {})
-            if meta and meta.get("detected_ips"):
-                clean_dev["meta"] = {"detected_ips": meta["detected_ips"]}
-            if meta.get("mac_addresses"):
-                clean_dev["mac_addresses"] = meta["mac_addresses"]
-            if meta.get("interface_details"):
-                clean_dev["interface_details"] = meta["interface_details"]
+            if meta:
+                clean_meta = {}
+                
+                # Include important meta fields
+                if meta.get("detected_ips"):
+                    clean_meta["detected_ips"] = meta["detected_ips"]
+                if meta.get("interface_details"):
+                    clean_meta["interface_details"] = meta["interface_details"]
+                if meta.get("interfaces"):
+                    clean_meta["interfaces"] = meta["interfaces"]
+                if meta.get("virtualization"):
+                    clean_meta["virtualization"] = meta["virtualization"]
+                if meta.get("cpu_cores"):
+                    clean_meta["cpu_cores"] = meta["cpu_cores"]
+                
+                if clean_meta:
+                    clean_dev["meta"] = clean_meta
             
             clean_devices.append(clean_dev)
         
@@ -381,6 +398,7 @@ class NorthboundApi(ControllerBase):
         
         return self._resp(req, body)
 
+    # Create devices, disini ambil data dari payload agent_register
     @route('devices', '/devices', methods=['POST'])
     def create_device(self, req, **kwargs):
         # Cek API key untuk semua device (opsional, bisa disesuaikan)
@@ -405,8 +423,8 @@ class NorthboundApi(ControllerBase):
                 
                 # Extract unique identifiers berdasarkan registration mode
                 if registration_mode == "server_agent":
-                    ip = device_data.get('ip', 'unknown')
-                    hostname = device_data.get('meta', {}).get('hostname', 'unknown')
+                    ip = device_data.get('main_ip_address', 'unknown')
+                    hostname = device_data.get('hostname', 'unknown')
                     device_type = "server"
                 else:  # active_discovery (mikrotik)
                     ip = device_data.get('ip', 'unknown')
@@ -430,7 +448,7 @@ class NorthboundApi(ControllerBase):
             # === MODE SERVER AGENT (Linux Server) ===
             if is_server:
                 # PRIORITASkan IP dari body request (dari server agent)
-                device_ip_from_body = data.get("ip")
+                device_ip_from_body = data.get("main_ip_address")
                 client_ip = req.remote_addr
                 
                 print(f"[CONTROLLER] Server Agent Registration - Body IP: {device_ip_from_body}, Client IP: {client_ip}")
@@ -457,6 +475,7 @@ class NorthboundApi(ControllerBase):
                         print(f"[CONTROLLER] WARNING: Using fallback IP: {final_ip}")
                 
                 data["ip"] = final_ip
+                data["main_ip_address"] = final_ip 
                 
                 # Generate device ID yang konsisten menggunakan generate_device_id
                 device_id = generate_device_id(data, "server_agent")
@@ -466,16 +485,40 @@ class NorthboundApi(ControllerBase):
                 meta = data.get("meta", {})
 
                 # data dari Server Agent ( ini yang akan tampil saat curl device )
-                data["hostname"] = meta.get("hostname", data.get("hostname", "unknown"))
-                data["os"] = meta.get("os", data.get("os", "UnknownOS"))
-                data["southbound"] = meta.get("southbound", data.get("southbound", "unknown"))
+                data["hostname"] = data.get("hostname", meta.get("hostname", "unknown"))
+                data["os"] = data.get("os", meta.get("os", "UnknownOS"))
+                data["southbound"] = data.get("southbound", meta.get("southbound", "unknown"))
                 data["connected"] = True
-                data["username"] = meta.get("username", data.get("username", "unknown"))
+                data["username"] = data.get("main_username", meta.get("username", "unknown"))
                 data["last_seen"] = time.time()
 
-                 # Tambahkan interfaces dari meta jika ada
+                 # Tambahkan field-field baru dari payload
+                if "architecture" in data:
+                    data["architecture"] = data["architecture"]
+                if "architecture_bits" in data:
+                    data["architecture_bits"] = data["architecture_bits"]
+                if "processor_type" in data:
+                    data["processor_type"] = data["processor_type"]
+                if "vendor" in data:
+                    data["vendor"] = data["vendor"]
+                if "main_interface" in data:
+                    data["main_interface"] = data["main_interface"]
+                if "main_mac_address" in data:
+                    data["main_mac_address"] = data["main_mac_address"]
+                if "status" in data:
+                    data["status"] = data["status"]
+
+                # Tambahkan interfaces dari meta jika ada
                 if "interfaces" in meta:
                     data["interfaces"] = meta["interfaces"]
+
+                # Tambahkan cpu core dari meta jika ada
+                if "cpu_cores" in meta:
+                    data["cpu_cores"] = meta["cpu_cores"]
+
+                # Tambahkan virtualization dari meta jika ada
+                if "virtualization" in meta:
+                    data["virtualization"] = meta["virtualization"]
                 
                 # Simpan meta yang dikirim server agent
                 if meta:

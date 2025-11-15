@@ -14,6 +14,7 @@ import threading
 import getpass
 import uuid
 import platform
+import subprocess
 
 CONTROLLER_URL = os.environ.get("RYU_CONTROLLER_URL", "http://127.0.0.1:8080")
 API_KEY = os.environ.get("RYU_API_KEY", "agent-secret-token-1")
@@ -24,53 +25,56 @@ RETRY_INTERVAL = 5
 MAX_RETRIES = 12
 HEARTBEAT_INTERVAL = 10
 
-def get_connected_ip(controller_url):
-    # Dapatkan IP yang sebenarnya digunakan untuk koneksi ke controller
-
+def find_best_ip(controller_url):
+    """Cari IP dan interface terbaik - return (ip, interface)"""
     try:
-        # Extract hostname dari controller URL
         from urllib.parse import urlparse
         parsed = urlparse(controller_url)
         controller_host = parsed.hostname
 
-        # Buat koneksi socket untuk melihat source IP yang digunakan
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect((controller_host, 80))  # Port tidak penting, yang penting connect
-        local_ip = s.getsockname()[0]
-        s.close()
+        # Method 1: Try socket connection untuk detect source IP
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((controller_host, 80))
+            local_ip = s.getsockname()[0]
+            s.close()
 
-        # Jangan gunakan localhost IP
-        if local_ip and not local_ip.startswith("127."):
-            return local_ip
+            if local_ip and not local_ip.startswith("127."):
+                # Cari interface untuk IP ini
+                for iface in netifaces.interfaces():
+                    addrs = netifaces.ifaddresses(iface).get(netifaces.AF_INET, [])
+                    for addr in addrs:
+                        if addr.get('addr') == local_ip:
+                            return local_ip, iface
+        except Exception:
+            pass
 
-    except Exception as e:
-        print(f"[AGENT] Cannot detect connected IP: {e}")
-
-    # Fallback -> cari IP dari interface yang terhubung ke network
-    return find_best_ip(controller_host)
-
-def find_best_ip(controller_host):
-    # Cari IP terbaik berdasarkan routing ke controller
-    
-    try:
-        # Resolve controller IP untuk mengetahui network destination
-        controller_ip = socket.gethostbyname(controller_host)
-
-        # Cari interface yang memiliki route ke controller
+        # Method 2: Cari melalui gateway
         gateways = netifaces.gateways()
         default_gateway = gateways.get('default', {})
 
-        for family, (gateway_ip, interface, _) in default_gateway.items():
-            if family == socket.AF_INET:
+        if socket.AF_INET in default_gateway:
+            gateway_info = default_gateway[socket.AF_INET]
+            
+            # Handle different gateway info formats
+            if isinstance(gateway_info, tuple):
+                gateway_ip, interface, is_default = gateway_info
+            elif isinstance(gateway_info, list):
+                gateway_ip, interface, is_default = gateway_info[0]
+            else:
+                interface = None
+                
+            if interface:
                 addrs = netifaces.ifaddresses(interface).get(netifaces.AF_INET, [])
                 for addr in addrs:
                     ip = addr.get('addr')
                     if ip and not ip.startswith("127."):
-                        return ip
+                        return ip, interface
+                        
     except Exception as e:
         print(f"[AGENT] Route-based IP detection failed: {e}")
 
-    # Final fallback -> ambil IP non-local pertama
+    # Method 3: Fallback - first non-loopback interface
     for iface in netifaces.interfaces():
         if iface.startswith(('lo', 'docker', 'br-', 'virbr')):
             continue
@@ -78,9 +82,144 @@ def find_best_ip(controller_host):
         for addr in addrs:
             ip = addr.get("addr")
             if ip and not ip.startswith("127.") and not ip.startswith("169.254."):
-                return ip
+                return ip, iface
 
-    return "127.0.0.1"  # Ultimate fallback
+    # Ultimate fallback
+    return "127.0.0.1", "lo"
+
+def get_main_interface_info(controller_url):
+    # Get main interface, IP, dan MAC address yang terhubung ke controller
+    main_ip, main_interface = find_best_ip(controller_url)
+    
+    # Get MAC address untuk main interface
+    main_mac = "unknown"
+    try:
+        addrs = netifaces.ifaddresses(main_interface)
+        if netifaces.AF_LINK in addrs:
+            main_mac = addrs[netifaces.AF_LINK][0].get('addr', 'unknown')
+    except Exception as e:
+        print(f"[AGENT] Cannot get MAC for {main_interface}: {e}")
+    
+    return main_ip, main_interface, main_mac
+
+def get_architecture():
+    # Get system architecture detail
+    try:
+        arch = platform.machine()
+        bits = 64 if '64' in platform.architecture()[0] else 32
+        
+        # More detailed architecture info
+        arch_details = {
+            "architecture": arch,
+            "bits": bits,
+            "processor_type": platform.processor()
+        }
+        
+        return arch_details
+    except Exception as e:
+        print(f"[AGENT] Error getting architecture: {e}")
+        return {"architecture": "unknown", "bits": 0, "processor_type": "unknown"}
+
+def detect_virtualization():
+    # Detect virtualization platform
+    try:
+        # Check container first
+        if os.path.exists("/.dockerenv"):
+            return "docker"
+        if os.path.exists("/run/.containerenv"):
+            return "podman"
+        
+        # Check systemd-detect-virt
+        try:
+            result = subprocess.run(
+                ["systemd-detect-virt"], 
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                virt = result.stdout.strip()
+                if virt != "none":
+                    return virt
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        
+        # Check /proc/cpuinfo for hypervisor flag
+        if os.path.exists("/proc/cpuinfo"):
+            with open("/proc/cpuinfo", "r") as f:
+                content = f.read()
+                if "hypervisor" in content.lower():
+                    # Try to identify specific hypervisor
+                    if os.path.exists("/sys/class/dmi/id/product_name"):
+                        with open("/sys/class/dmi/id/product_name", "r") as dmi:
+                            product = dmi.read().strip().lower()
+                            if "vmware" in product:
+                                return "vmware"
+                            elif "virtualbox" in product:
+                                return "virtualbox"
+                            elif "kvm" in product:
+                                return "kvm"
+                            elif "qemu" in product:
+                                return "qemu"
+                            elif "hyper-v" in product:
+                                return "hyperv"
+                            elif "proxmox" in product:
+                                return "proxmox"
+                    return "virtualized"
+        
+        return "physical"
+        
+    except Exception as e:
+        print(f"[AGENT] Error detecting virtualization: {e}")
+        return "unknown"
+
+def get_hardware_vendor():
+    # Detect hardware vendor atau virtualization platform"""
+    try:
+        # Check virtualization first
+        virtualization = detect_virtualization()
+        if virtualization != "physical":
+            return virtualization
+        
+        # Check hardware vendor
+        # Method 1: dmidecode
+        try:
+            result = subprocess.run(
+                ["dmidecode", "-s", "system-manufacturer"], 
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                vendor = result.stdout.strip()
+                if vendor not in ["", "Not Specified", "Default string"]:
+                    return vendor
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+        
+        # Method 2: /sys/class/dmi/id
+        try:
+            with open("/sys/class/dmi/id/sys_vendor", "r") as f:
+                vendor = f.read().strip()
+                if vendor and vendor not in ["", "Not Specified"]:
+                    return vendor
+        except Exception:
+            pass
+        
+        # Method 3: lshw
+        try:
+            result = subprocess.run(
+                ["lshw", "-class", "system"], 
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if "vendor:" in line.lower():
+                        return line.split(":")[1].strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+        
+        return "Unknown"
+        
+    except Exception as e:
+        print(f"[AGENT] Error detecting hardware vendor: {e}")
+        return "Unknown"
 
 def get_mac_address():
     # Get MAC address
@@ -194,19 +333,31 @@ def get_os_family():
 
 def build_payload(controller_url):
     hostname = socket.gethostname()
+    username = getpass.getuser()
 
-    # Gunakan IP yang terhubung ke controller, bukan interface pertama
-    ip = get_connected_ip(controller_url)
+    # Get main connection info
+    main_ip, main_interface, main_mac = get_main_interface_info(controller_url)
+    architecture = get_architecture()
+    vendor = get_hardware_vendor()
 
-    print(f"[AGENT] Using IP: {ip} for registration")
+    print(f"[AGENT] Using IP: {main_ip} for registration")
 
     payload = {
-        "ip": ip, # info IP
-        "username": getpass.getuser(), # info user
-        "southbound": "server_api", 
-        "os": get_os_info(),         # info OS
+        "hostname": hostname,
+        "main_ip_address": main_ip,
+        "main_interface": main_interface,
+        "main_mac_address": main_mac,
+        "southbound": "server_api",
+        "status": "ok",
+        "main_username": username,
+        "os": get_os_info(),
+        "architecture": architecture["architecture"],
+        "architecture_bits": architecture["bits"],
+        "processor_type": architecture["processor_type"],
+        "vendor": vendor,
         "meta": {
-            "hostname": hostname, # info Hostname server
+            "cpu_cores": os.cpu_count(),
+            "virtualization": detect_virtualization(),
             "interfaces": netifaces.interfaces(), # info interface
             "detected_ips": get_all_ips(),  # Untuk debugging
             "interface_details": get_interface_details()  # Detail lengkap dengan MAC atau bisa juga pakai get_mac_address()

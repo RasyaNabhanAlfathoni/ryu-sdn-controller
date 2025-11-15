@@ -89,6 +89,71 @@ class ServerSystemDriver:
         
         return {"description": "Unknown"}
 
+    def _get_hardware_info(self):
+        """Collect detailed hardware information (CPU, virtualization, etc.)"""
+        info = {}
+
+        # === BOARD ARCHITECTURE ===
+        try:
+            info["architecture"] = platform.machine()
+            info["cpu_bits"] = "64-bit" if platform.machine().endswith("64") else "32-bit"
+        except:
+            info["architecture"] = "Unknown"
+            info["cpu_bits"] = "Unknown"
+
+        # === CPU MODEL ===
+        try:
+            cpu_model = None
+            if os.path.exists("/proc/cpuinfo"):
+                with open("/proc/cpuinfo") as f:
+                    for line in f:
+                        if "model name" in line:
+                            cpu_model = line.split(":")[1].strip()
+                            break
+            info["cpu_model"] = cpu_model or platform.processor() or "Unknown"
+        except:
+            info["cpu_model"] = "Unknown"
+
+        # === VIRTUALIZATION DETECTION ===
+        info["virtualization"] = {
+            "is_virtual_machine": False,
+            "virtual_type": None
+        }
+
+        # systemd-detect-virt (lebih akurat)
+        try:
+            result = subprocess.run(
+                 ["systemd-detect-virt"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            virt_type = result.stdout.strip()
+            if virt_type and virt_type != "none":
+                info["virtualization"]["is_virtual_machine"] = True
+                info["virtualization"]["virtual_type"] = virt_type
+        except:
+            pass
+
+        # === BIOS / MOTHERBOARD INFO ===
+        try:
+            dmi = "/sys/class/dmi/id/"
+
+            def read_dmi(file):
+                path = os.path.join(dmi, file)
+                if os.path.exists(path):
+                    return open(path).read().strip()
+                return None
+
+            info["hardware_vendor"] = read_dmi("sys_vendor")
+            info["hardware_model"] = read_dmi("product_name")
+            info["bios_version"] = read_dmi("bios_version")
+            info["bios_date"] = read_dmi("bios_date")
+        except:
+            pass
+
+        return info
+
     def get_detailed_utilization(self):
         """Get detailed system utilization - FIXED VERSION"""
         try:
@@ -199,6 +264,7 @@ class ServerSystemDriver:
                 temps = {}
 
             return {
+                "hardware" : self._get_hardware_info(),
                 "cpu": {
                     "percent": psutil.cpu_percent(interval=1),
                     "user": round(getattr(cpu_times, 'user', 0), 1),
