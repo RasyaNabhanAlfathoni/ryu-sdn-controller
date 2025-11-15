@@ -140,7 +140,7 @@ def get_os_info():
             pretty_name = os_release.get('PRETTY_NAME', f"{name} {version}")
             
             print(f"[AGENT] WARNING: Using container OS: {pretty_name}")
-            return f"{pretty_name} [CONTAINER]"
+            return f"{pretty_name}"
     except Exception:
         pass
 

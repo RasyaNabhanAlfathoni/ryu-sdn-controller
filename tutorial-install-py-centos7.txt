@@ -1,0 +1,50 @@
+### Flow System Overview 
+## 1) Fase Registrasi
+# Agent Node → Ryu Controller (Device Registration)
+#     ↓               ↓
+# agent_register.py → controller.py (/devices POST)
+
+## 2) Fase manajemen
+# Web Dashboard → Ryu Controller → Agent Node (Command Execution)
+#       ↓               ↓               ↓
+#    Browser → controller.py → server_api.py → agent_api.py → Local Commands
+
+# Infrastruktur
+# - VM Ryu manager (ryu_manager and dashboard)
+# - VM Ryu agent (ryu_agent and ryu_agent_api)
+
+# ---------------------------------------------------------------------------------------------
+
+# 1 — Prasyarat & instalasi dependency (Centos 7)
+# Versi python 3.9  
+
+## Update package
+yum update -y
+
+## install tools 
+yum groupinstall -y "Development Tools"
+yum install -y openssl-devel bzip2-devel libffi-devel xz-devel
+
+## install python3.9 manual
+cd /usr/src
+wget https://www.python.org/ftp/python/3.9.18/Python-3.9.18.tgz
+tar xzf Python-3.9.18.tgz
+
+## konfigurasi python 3.9
+cd Python-3.9.18
+./configure --enable-optimizations
+make altinstall
+
+## verifikasi installasi
+python3.9 --version
+pip3.9 --version
+pip3.9 --version
+
+### TAMBAHAN: CARA GANTI VERSI PYTHON3
+# Tambahkan versi Python ke alternatives
+sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
+sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
+sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 3
+
+# Pilih versi yang diinginkan
+sudo update-alternatives --config python3
