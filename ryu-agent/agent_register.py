@@ -112,7 +112,7 @@ def get_architecture():
         arch_details = {
             "architecture": arch,
             "bits": bits,
-            "processor_type": platform.processor()
+            "processor_type": get_processor_info()
         }
         
         return arch_details
@@ -120,16 +120,104 @@ def get_architecture():
         print(f"[AGENT] Error getting architecture: {e}")
         return {"architecture": "unknown", "bits": 0, "processor_type": "unknown"}
 
+def get_processor_info():
+    """Get processor information from host"""
+    try:
+        # Try to read from host proc if mounted
+        if os.path.exists("/host/proc/cpuinfo"):
+            with open("/host/proc/cpuinfo", "r") as f:
+                content = f.read()
+                # Extract processor model
+                for line in content.splitlines():
+                    if "model name" in line.lower():
+                        return line.split(":")[1].strip()
+        
+        # Fallback to container cpuinfo
+        if os.path.exists("/proc/cpuinfo"):
+            with open("/proc/cpuinfo", "r") as f:
+                content = f.read()
+                for line in content.splitlines():
+                    if "model name" in line.lower():
+                        return line.split(":")[1].strip()
+        
+        # Try lscpu command
+        result = subprocess.run(["lscpu"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if "model name" in line.lower():
+                    return line.split(":")[1].strip()
+        
+        return platform.processor() or "Unknown"
+        
+    except Exception as e:
+        print(f"[AGENT] Error getting processor info: {e}")
+        return platform.processor() or "Unknown"
+
 def detect_virtualization():
     # Detect virtualization platform
     try:
-        # Check container first
+        # Check if we're in a container first
         if os.path.exists("/.dockerenv"):
-            return "docker"
-        if os.path.exists("/run/.containerenv"):
-            return "podman"
-        
-        # Check systemd-detect-virt
+            container_type = "docker"
+        elif os.path.exists("/run/.containerenv"):
+            container_type = "podman"
+        else:
+            container_type = None
+
+        # Try to detect underlying hypervisor from host
+        if os.path.exists("/sys/class/dmi/id/product_name"):
+            with open("/sys/class/dmi/id/product_name", "r") as f:
+                product_name = f.read().strip().lower()
+                
+                if "vmware" in product_name:
+                    return {
+                        "type": "virtual",
+                        "hypervisor": "vmware",
+                        "container": container_type
+                    }
+                elif "virtualbox" in product_name:
+                    return {
+                        "type": "virtual", 
+                        "hypervisor": "virtualbox",
+                        "container": container_type
+                    }
+                elif "kvm" in product_name:
+                    return {
+                        "type": "virtual",
+                        "hypervisor": "kvm", 
+                        "container": container_type
+                    }
+                elif "qemu" in product_name:
+                    return {
+                        "type": "virtual",
+                        "hypervisor": "qemu",
+                        "container": container_type
+                    }
+                elif "hyper-v" in product_name:
+                    return {
+                        "type": "virtual",
+                        "hypervisor": "hyperv",
+                        "container": container_type
+                    }
+                elif "proxmox" in product_name:
+                    return {
+                        "type": "virtual",
+                        "hypervisor": "proxmox",
+                        "container": container_type
+                    }
+
+        # Check CPU flags for virtualization
+        if os.path.exists("/proc/cpuinfo"):
+            with open("/proc/cpuinfo", "r") as f:
+                content = f.read()
+                if "hypervisor" in content.lower():
+                    return {
+                        "type": "virtual",
+                        "hypervisor": "unknown_hypervisor",
+                        "container": container_type
+                    }
+
+        # Check systemd-detect-virt for additional info
         try:
             result = subprocess.run(
                 ["systemd-detect-virt"], 
@@ -138,49 +226,40 @@ def detect_virtualization():
             if result.returncode == 0:
                 virt = result.stdout.strip()
                 if virt != "none":
-                    return virt
+                    return {
+                        "type": "virtual",
+                        "hypervisor": virt,
+                        "container": container_type
+                    }
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
-        
-        # Check /proc/cpuinfo for hypervisor flag
-        if os.path.exists("/proc/cpuinfo"):
-            with open("/proc/cpuinfo", "r") as f:
-                content = f.read()
-                if "hypervisor" in content.lower():
-                    # Try to identify specific hypervisor
-                    if os.path.exists("/sys/class/dmi/id/product_name"):
-                        with open("/sys/class/dmi/id/product_name", "r") as dmi:
-                            product = dmi.read().strip().lower()
-                            if "vmware" in product:
-                                return "vmware"
-                            elif "virtualbox" in product:
-                                return "virtualbox"
-                            elif "kvm" in product:
-                                return "kvm"
-                            elif "qemu" in product:
-                                return "qemu"
-                            elif "hyper-v" in product:
-                                return "hyperv"
-                            elif "proxmox" in product:
-                                return "proxmox"
-                    return "virtualized"
-        
-        return "physical"
+
+        # If no virtualization detected
+        return {
+            "type": "physical",
+            "hypervisor": "none",
+            "container": container_type
+        }
         
     except Exception as e:
         print(f"[AGENT] Error detecting virtualization: {e}")
-        return "unknown"
+        return {
+            "type": "unknown",
+            "hypervisor": "unknown", 
+            "container": None
+        }
 
 def get_hardware_vendor():
     # Detect hardware vendor atau virtualization platform"""
     try:
-        # Check virtualization first
-        virtualization = detect_virtualization()
-        if virtualization != "physical":
-            return virtualization
-        
-        # Check hardware vendor
-        # Method 1: dmidecode
+        # Try to read from host DMI if mounted
+        if os.path.exists("/sys/class/dmi/id/sys_vendor"):
+            with open("/sys/class/dmi/id/sys_vendor", "r") as f:
+                vendor = f.read().strip()
+                if vendor and vendor not in ["", "Not Specified"]:
+                    return vendor
+
+        # Try dmidecode
         try:
             result = subprocess.run(
                 ["dmidecode", "-s", "system-manufacturer"], 
@@ -192,29 +271,22 @@ def get_hardware_vendor():
                     return vendor
         except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
             pass
-        
-        # Method 2: /sys/class/dmi/id
-        try:
-            with open("/sys/class/dmi/id/sys_vendor", "r") as f:
-                vendor = f.read().strip()
-                if vendor and vendor not in ["", "Not Specified"]:
-                    return vendor
-        except Exception:
-            pass
-        
-        # Method 3: lshw
+
+        # Try lshw
         try:
             result = subprocess.run(
-                ["lshw", "-class", "system"], 
+                ["lshw", "-class", "system", "-quiet"], 
                 capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 for line in result.stdout.splitlines():
-                    if "vendor:" in line.lower():
-                        return line.split(":")[1].strip()
+                    if "vendor:" in line.lower() and ":" in line:
+                        vendor = line.split(":")[1].strip()
+                        if vendor and vendor not in ["", "Not Specified"]:
+                            return vendor
         except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
             pass
-        
+
         return "Unknown"
         
     except Exception as e:
@@ -354,9 +426,9 @@ def build_payload(controller_url):
         "architecture": architecture["architecture"],
         "architecture_bits": architecture["bits"],
         "processor_type": architecture["processor_type"],
+        "cpu_cores": os.cpu_count(),
         "vendor": vendor,
         "meta": {
-            "cpu_cores": os.cpu_count(),
             "virtualization": detect_virtualization(),
             "interfaces": netifaces.interfaces(), # info interface
             "detected_ips": get_all_ips(),  # Untuk debugging

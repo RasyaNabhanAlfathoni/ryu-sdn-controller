@@ -352,6 +352,7 @@ class NorthboundApi(ControllerBase):
                 "architecture": dev.get("architecture"),
                 "architecture_bits": dev.get("architecture_bits"),
                 "processor_type": dev.get("processor_type"),
+                "cpu_cores": dev.get("cpu_cores"),
                 "main_ip": dev.get("ip"),
                 "main_interface": dev.get("main_interface"),
                 "main_mac_address": dev.get("main_mac_address"),
@@ -375,9 +376,7 @@ class NorthboundApi(ControllerBase):
                     clean_meta["interfaces"] = meta["interfaces"]
                 if meta.get("virtualization"):
                     clean_meta["virtualization"] = meta["virtualization"]
-                if meta.get("cpu_cores"):
-                    clean_meta["cpu_cores"] = meta["cpu_cores"]
-                
+    
                 if clean_meta:
                     clean_dev["meta"] = clean_meta
             
@@ -499,6 +498,8 @@ class NorthboundApi(ControllerBase):
                     data["architecture_bits"] = data["architecture_bits"]
                 if "processor_type" in data:
                     data["processor_type"] = data["processor_type"]
+                if "cpu_cores" in data:
+                    data["cpu_cores"] = data["cpu_cores"]
                 if "vendor" in data:
                     data["vendor"] = data["vendor"]
                 if "main_interface" in data:
@@ -511,10 +512,6 @@ class NorthboundApi(ControllerBase):
                 # Tambahkan interfaces dari meta jika ada
                 if "interfaces" in meta:
                     data["interfaces"] = meta["interfaces"]
-
-                # Tambahkan cpu core dari meta jika ada
-                if "cpu_cores" in meta:
-                    data["cpu_cores"] = meta["cpu_cores"]
 
                 # Tambahkan virtualization dari meta jika ada
                 if "virtualization" in meta:
