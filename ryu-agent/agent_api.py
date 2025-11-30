@@ -3,17 +3,19 @@ from drivers.linux.network import ServerNetworkDriver
 from drivers.linux.firewall import ServerFirewallDriver
 from drivers.linux.service import ServerServiceDriver
 from drivers.linux.system import ServerSystemDriver
+from drivers.linux.wazuh_dispatcher import WazuhDispatcher
 import psutil
 import subprocess
 import json
 
 app = Flask(__name__)
 
-# Initialize drivers with logging support
+# Initialize drivers with logging support 
 network_driver = ServerNetworkDriver()
 firewall_driver = ServerFirewallDriver()
 service_driver = ServerServiceDriver()
 system_driver = ServerSystemDriver()
+wazuh_dispatcher = WazuhDispatcher()
 
 def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)
@@ -21,29 +23,6 @@ def log_message(message):
 
 
 # === NETWORK ENDPOINTS ===
-
-@app.route('/api/network/interfaces', methods=['GET'])
-def list_interfaces():
-    # Get list network interfaces
-    try:
-        log_message("GET /api/network/interfaces")
-        result = network_driver.list_interfaces()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in list_interfaces: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interfaces/detail', methods=['GET'])
-def interfaces_detail():
-    # Get detailed network interfaces
-    try:
-        log_message("GET /api/network/interfaces/detail")
-        result = network_driver.get_interface_details()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in interfaces_detail: {e}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/api/network/ip/add', methods=['POST'])
 def add_ip():
     # Add IP address to interface
@@ -66,6 +45,48 @@ def remove_ip():
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in remove_ip: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/api/network/interfaces', methods=['GET'])
+def list_interfaces():
+    # Get list network interfaces
+    try:
+        log_message("GET /api/network/interfaces")
+        result = network_driver.list_interfaces()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in list_interfaces: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/network/interfaces/detail', methods=['GET'])
+def interfaces_detail():
+    # Get detailed network interfaces
+    try:
+        log_message("GET /api/network/interfaces/detail")
+        result = network_driver.get_interface_details()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in interfaces_detail: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/api/network/interface/configure', methods=['POST'])
+def configure_interface():
+    # Network interface configuration
+    try:
+        data = request.json
+        log_message(f"POST /api/network/interface/configure - {data}")
+        
+        result = network_driver.configure_interface(
+            iface=data['interface'],
+            ip_cidr=data['ip_cidr'],
+            gateway=data.get('gateway'),
+            dns_servers=data.get('dns_servers'),
+            onboot=data.get('onboot', True),
+            dhcp=data.get('dhcp', False)
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in configure_interface: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/network/interface/enable', methods=['POST'])
@@ -158,6 +179,51 @@ def get_routing_table():
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_routing_table: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+
+@app.route('/api/network/routing/add', methods=['POST'])
+def add_route():
+    # Add static route
+    try:
+        data = request.json
+        log_message(f"POST /api/network/routing/add - {data}")
+        result = network_driver.add_route(
+            data['network'], 
+            data.get('gateway'), 
+            data.get('interface')
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in add_route: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/network/routing/delete', methods=['POST'])
+def delete_route():
+    # Delete static route
+    try:
+        data = request.json
+        log_message(f"POST /api/network/routing/delete - {data}")
+        result = network_driver.delete_route(
+            data['network'], 
+            data.get('gateway'), 
+            data.get('interface')
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in delete_route: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/network/dns/set', methods=['POST'])
+def set_dns():
+    # Configure DNS servers
+    try:
+        data = request.json
+        log_message(f"POST /api/network/dns/set - {data}")
+        result = network_driver.set_dns_servers(data['dns_servers'])
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in set_dns: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/network/arp', methods=['GET'])
@@ -538,6 +604,52 @@ def get_logs():
         log_message(f"Error in get_logs: {e}")
         return jsonify({"error": str(e)}), 500
 
+# === WAZUH ENDPOINTS ===
+@app.route('/api/wazuh/install', methods=['POST'])
+def wazuh_install():
+    """Install Wazuh agent"""
+    try:
+        data = request.json
+        log_message(f"POST /api/wazuh/install - {data}")
+        result = wazuh_dispatcher.dispatch("server.wazuh.install", data)
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in wazuh_install: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/wazuh/uninstall', methods=['POST'])
+def wazuh_uninstall():
+    """Uninstall Wazuh agent"""
+    try:
+        log_message("POST /api/wazuh/uninstall")
+        result = wazuh_dispatcher.dispatch("server.wazuh.uninstall", {})
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in wazuh_uninstall: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/wazuh/status', methods=['GET'])
+def wazuh_status():
+    """Get Wazuh agent status"""
+    try:
+        log_message("GET /api/wazuh/status")
+        result = wazuh_dispatcher.dispatch("server.wazuh.status", {})
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in wazuh_status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/wazuh/security/overview', methods=['POST'])
+def wazuh_security_overview():
+    """Get security overview"""
+    try:
+        data = request.json
+        log_message(f"POST /api/wazuh/security/overview - {data}")
+        result = wazuh_dispatcher.dispatch("server.wazuh.security.overview", data)
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in wazuh_security_overview: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # Health check
 @app.route('/health', methods=['GET'])

@@ -23,6 +23,9 @@ from drivers.router_drivers.mikrotik.snmp import RouterOSSNMPDriver
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
 
+# === Wazuh Driver ===
+from drivers.wazuh_drivers.wazuh_api import WazuhAPI
+
 API_INSTANCE_NAME = 'northbound_api'
 
 # Ini sesuaikan dengan secret key nya (Untuk Server Agent)
@@ -74,6 +77,29 @@ class Orchestrator(app_manager.RyuApp):
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
 
+        # Initialize Wazuh integration
+        try:
+            wazuh_api_url = os.getenv('WAZUH_API_URL')
+            wazuh_user = os.getenv('WAZUH_USER') 
+            wazuh_password = os.getenv('WAZUH_PASSWORD')
+            
+            if all([wazuh_api_url, wazuh_user, wazuh_password]):
+                self.wazuh_api = WazuhAPI(
+                    base_url=wazuh_api_url,
+                    username=wazuh_user,
+                    password=wazuh_password,
+                    core=self,  # Pass core reference untuk job creation
+                    logger=self.logger
+                )
+                self.logger.info("Wazuh integration initialized successfully")
+            else:
+                self.logger.warning("Wazuh environment variables not set")
+                self.wazuh_api = None
+                
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Wazuh integration: {e}")
+            self.wazuh_api = None
+
     def detect_vendor(self, dev):
         # == Deteksi otomatis tipe perangkat ==
 
@@ -122,6 +148,11 @@ class Orchestrator(app_manager.RyuApp):
         driver = self.pick_driver(dev)
         action = p["action"]; params = p.get("params", {})
         self.jobs.append_log(jid, f"Use driver: {driver.name}")
+
+        if "server.wazuh" in action:
+            # Untuk Wazuh functions, perlu pass device_id secara explicit
+            # karena mereka tidak menerima device_id dari params biasa
+            params["device_id"] = p["device_id"]
         
         result = self.dispatch(driver, action, params, jid)
         
@@ -233,72 +264,114 @@ class Orchestrator(app_manager.RyuApp):
             }
         elif driver_type == "server":
             fnmap = {
+                # === Server Commands ===
 
-            # === Server Commands ===
+                # Network Management
+                "server.network.list_interfaces": lambda p, logger: d.list_interfaces(logger=logger),
+                "server.network.get_interface_details": lambda p, logger: d.get_interface_details(logger=logger),
+                "server.network.ip.show_all": lambda p, logger: d.show_all(logger=logger),
+                "server.network.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+                "server.network.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+                "server.network.configure_interface": lambda p, logger: d.configure_interface(
+                    iface=p.get("iface"), 
+                    ip_cidr=p.get("ip_cidr"),
+                    gateway=p.get("gateway"),
+                    dns_servers=p.get("dns_servers"),
+                    onboot=p.get("onboot", True),
+                    dhcp=p.get("dhcp", False),
+                    logger=logger
+                ),
+                "server.network.enable_interface": lambda p, logger: d.enable_interface(p.get("iface"), logger=logger),
+                "server.network.disable_interface": lambda p, logger: d.disable_interface(p.get("iface"), logger=logger),
+                "server.network.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
+                "server.network.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
+                "server.network.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
+                "server.network.connections": lambda p, logger: d.get_network_connections(logger=logger),
+                "server.network.interface_counters": lambda p, logger: d.get_interface_counters(p.get("iface"), logger=logger),
 
-            # Network Management
-            "server.network.list_interfaces": lambda p, logger: d.list_interfaces(logger=logger),
-            "server.network.get_interface_details": lambda p, logger: d.get_interface_details(logger=logger),
-            "server.network.ip.show_all": lambda p, logger: d.show_all(logger=logger),
-            "server.network.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-            "server.network.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-            "server.network.enable_interface": lambda p, logger: d.enable_iface(p.get("iface"), logger=logger),
-            "server.network.disable_interface": lambda p, logger: d.disable_iface(p.get("iface"), logger=logger),
-            "server.network.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
-            "server.network.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
-            "server.network.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
-            "server.network.connections": lambda p, logger: d.get_network_connections(logger=logger),
-            "server.network.interface_counters": lambda p, logger: d.get_interface_counters(p.get("iface"), logger=logger),
+                # Advanced Network Management 
+                "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
+                "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
+                "server.network.arp_table": lambda p, logger: d.get_arp_table(logger=logger),
 
-            # Advanced Network Management 
-            "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
-            "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
-            "server.network.arp_table": lambda p, logger: d.get_arp_table(logger=logger),
+                # Firewall Management - UFW
+                "server.firewall.ufw_status": lambda p, logger: d.ufw_status(logger=logger),
+                "server.firewall.ufw_enable": lambda p, logger: d.ufw_enable(logger=logger),
+                "server.firewall.ufw_disable": lambda p, logger: d.ufw_disable(logger=logger),
+                "server.firewall.ufw_reload": lambda p, logger: d.ufw_reload(logger=logger),
+                "server.firewall.ufw_reset": lambda p, logger: d.ufw_reset(logger=logger),
+                "server.firewall.ufw_allow": lambda p, logger: d.ufw_allow(p.get("port_proto"), logger=logger),
+                "server.firewall.ufw_deny": lambda p, logger: d.ufw_deny(p.get("port_proto"), logger=logger),
+                "server.firewall.ufw_delete": lambda p, logger: d.ufw_delete(p.get("rule"), logger=logger),
+                "server.firewall.ufw_allow_in": lambda p, logger: d.ufw("allow", "in", p.get("port_proto"), logger=logger),
+                "server.firewall.ufw_allow_out": lambda p, logger: d.ufw("allow", "out", p.get("port_proto"), logger=logger),
+                "server.firewall.ufw_deny_in": lambda p, logger: d.ufw("deny", "in", p.get("port_proto"), logger=logger),
+                "server.firewall.ufw_deny_out": lambda p, logger: d.ufw("deny", "out", p.get("port_proto"), logger=logger),
+                
+                # Firewall Management - Firewalld
+                "server.firewall.firewalld_status": lambda p, logger: d.firewall_status(logger=logger),
+                "server.firewall.firewalld_reload": lambda p, logger: d.firewall_reload(logger=logger),
+                "server.firewall.firewalld_add_port": lambda p, logger: d.firewall_add_port(p.get("port_proto"), logger=logger),
+                "server.firewall.firewalld_remove_port": lambda p, logger: d.firewall_remove_port(p.get("port_proto"), logger=logger),
+                "server.firewall.firewalld_enable_masquerade": lambda p, logger: d.firewall_enable_masquerade(logger=logger),
+                "server.firewall.firewalld_disable_masquerade": lambda p, logger: d.firewall_disable_masquerade(logger=logger),
+                "server.firewall.firewalld_list_ports": lambda p, logger: d.firewall_cmd("--list-ports", logger=logger),
+                "server.firewall.firewalld_list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
+                "server.firewall.firewalld_command": lambda p, logger: d.firewall_cmd(p.get("args"), logger=logger),
+                
+                # Firewall Management - NAT & General
+                "server.firewall.nat.add": lambda p, logger: d.setup_nat(p.get("interface"), logger=logger),
+                "server.firewall.nat.clear": lambda p, logger: d.clear_nat(logger=logger),
+                "server.firewall.status_all": lambda p, logger: d.status_all(logger=logger),
+                "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
 
-            # Firewall Management - UFW
-            "server.firewall.ufw_status": lambda p, logger: d.ufw_status(logger=logger),
-            "server.firewall.ufw_enable": lambda p, logger: d.ufw_enable(logger=logger),
-            "server.firewall.ufw_disable": lambda p, logger: d.ufw_disable(logger=logger),
-            "server.firewall.ufw_reload": lambda p, logger: d.ufw_reload(logger=logger),
-            "server.firewall.ufw_reset": lambda p, logger: d.ufw_reset(logger=logger),
-            "server.firewall.ufw_allow": lambda p, logger: d.ufw_allow(p.get("port_proto"), logger=logger),
-            "server.firewall.ufw_deny": lambda p, logger: d.ufw_deny(p.get("port_proto"), logger=logger),
-            "server.firewall.ufw_delete": lambda p, logger: d.ufw_delete(p.get("rule"), logger=logger),
-            "server.firewall.ufw_allow_in": lambda p, logger: d.ufw("allow", "in", p.get("port_proto"), logger=logger),
-            "server.firewall.ufw_allow_out": lambda p, logger: d.ufw("allow", "out", p.get("port_proto"), logger=logger),
-            "server.firewall.ufw_deny_in": lambda p, logger: d.ufw("deny", "in", p.get("port_proto"), logger=logger),
-            "server.firewall.ufw_deny_out": lambda p, logger: d.ufw("deny", "out", p.get("port_proto"), logger=logger),
-            
-            # Firewall Management - Firewalld
-            "server.firewall.firewalld_status": lambda p, logger: d.firewall_status(logger=logger),
-            "server.firewall.firewalld_reload": lambda p, logger: d.firewall_reload(logger=logger),
-            "server.firewall.firewalld_add_port": lambda p, logger: d.firewall_add_port(p.get("port_proto"), logger=logger),
-            "server.firewall.firewalld_remove_port": lambda p, logger: d.firewall_remove_port(p.get("port_proto"), logger=logger),
-            "server.firewall.firewalld_enable_masquerade": lambda p, logger: d.firewall_enable_masquerade(logger=logger),
-            "server.firewall.firewalld_disable_masquerade": lambda p, logger: d.firewall_disable_masquerade(logger=logger),
-            "server.firewall.firewalld_list_ports": lambda p, logger: d.firewall_cmd("--list-ports", logger=logger),
-            "server.firewall.firewalld_list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
-            "server.firewall.firewalld_command": lambda p, logger: d.firewall_cmd(p.get("args"), logger=logger),
-            
-            # Firewall Management - NAT & General
-            "server.firewall.nat.add": lambda p, logger: d.setup_nat(p.get("interface"), logger=logger),
-            "server.firewall.nat.clear": lambda p, logger: d.clear_nat(logger=logger),
-            "server.firewall.status_all": lambda p, logger: d.status_all(logger=logger),
-            "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
+                # System Management - Monitor
+                "server.system.monitor": lambda p, logger: d.get_utilization(logger=logger),
+                "server.system.monitor_detailed": lambda p, logger: d.get_detailed_utilization(logger=logger),
+                "server.system.info": lambda p, logger: d.get_system_info(logger=logger),
+                "server.system.logs": lambda p, logger: d.get_logs(p.get("lines", 50), logger=logger),
+                
+                # System Services
+                "server.system.services.list": lambda p, logger: d.list_services(logger=logger),
+                "server.system.services.control": lambda p, logger: d.service_control(p.get("service"), p.get("action"), logger=logger),
+                "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
 
-            # System Management - Monitor
-            "server.system.monitor": lambda p, logger: d.get_utilization(logger=logger),
-            "server.system.monitor_detailed": lambda p, logger: d.get_detailed_utilization(logger=logger),
-            "server.system.info": lambda p, logger: d.get_system_info(logger=logger),
-            "server.system.logs": lambda p, logger: d.get_logs(p.get("lines", 50), logger=logger),
-            
-            # System Services
-            "server.system.services.list": lambda p, logger: d.list_services(logger=logger),
-            "server.system.services.control": lambda p, logger: d.service_control(p.get("service"), p.get("action"), logger=logger),
-            "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
-            } 
-        else:
-            fnmap = {}
+                # === Wazuh Agent Command ===
+                "server.wazuh.install": lambda p, logger: self.wazuh_api.install_agent(
+                    device_id=p.get("device_id"),
+                    manager_ip=p.get("manager_ip"), 
+                    logger=logger
+                ),
+                "server.wazuh.uninstall": lambda p, logger: self.wazuh_api.uninstall_agent(
+                    device_id=p.get("device_id"),
+                    logger=logger
+                ),
+                "server.wazuh.status": lambda p, logger: self.wazuh_api.get_agent_status(
+                    device_id=p.get("device_id"),
+                    logger=logger
+                ),
+                "server.wazuh.security.overview": lambda p, logger: self.wazuh_api.get_security_overview(
+                    device_id=p.get("device_id"),
+                    logger=logger
+                ),
+                "server.wazuh.security.vulnerabilities": lambda p, logger: self.wazuh_api.get_vulnerabilities(
+                    agent_id=p.get("agent_id"),
+                    logger=logger
+                ),
+                "server.wazuh.security.fim": lambda p, logger: self.wazuh_api.get_fim_data(
+                    agent_id=p.get("agent_id"),
+                    logger=logger
+                ),
+                "server.wazuh.security.events": lambda p, logger: self.wazuh_api.get_agent_security_events(
+                    agent_id=p.get("agent_id"),
+                    limit=p.get("limit", 50),
+                    logger=logger
+                ),
+                
+                # Command untuk Wazuh manager operations (tetap pakai wazuh_api langsung)
+                "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(),
+                "wazuh.manager.status": lambda p, logger: self.wazuh_api.get_manager_status(),
+            }    
 
         if action not in fnmap:
             self.jobs.append_log(jid, f"ERROR: Unknown action '{action}'")
@@ -337,66 +410,6 @@ class NorthboundApi(ControllerBase):
         return self._resp(req, b)
 
     # === Device Management ===
-    @route('devices', '/devices', methods=['GET'])
-    def list_devices(self, req, **kwargs):
-        devices = self.core.devices.list()
-
-        # ubah setiap device biar lebih clean ( ini yg bakal tampil saat curl device )
-        clean_devices = []
-        for dev in devices:
-            clean_dev = {
-                "id": dev.get("id"),
-                "status": dev.get("status", "ok"),
-                "hostname": dev.get("hostname"),
-                "main_username": dev.get("main_username"),
-                "architecture": dev.get("architecture"),
-                "architecture_bits": dev.get("architecture_bits"),
-                "processor_type": dev.get("processor_type"),
-                "cpu_cores": dev.get("cpu_cores"),
-                "main_ip": dev.get("ip"),
-                "main_interface": dev.get("main_interface"),
-                "main_mac_address": dev.get("main_mac_address"),
-                "vendor": dev.get("vendor"),
-                "os": dev.get("os"),
-                "southbound": dev.get("southbound"),
-                "last_seen": dev.get("last_seen"),   
-            }
-        
-            # Hanya tambahkan meta jika ada data penting ( yg ditambahkan di meta )
-            meta = dev.get("meta", {})
-            if meta:
-                clean_meta = {}
-                
-                # Include important meta fields
-                if meta.get("detected_ips"):
-                    clean_meta["detected_ips"] = meta["detected_ips"]
-                if meta.get("interface_details"):
-                    clean_meta["interface_details"] = meta["interface_details"]
-                if meta.get("interfaces"):
-                    clean_meta["interfaces"] = meta["interfaces"]
-                if meta.get("virtualization"):
-                    clean_meta["virtualization"] = meta["virtualization"]
-    
-                if clean_meta:
-                    clean_dev["meta"] = clean_meta
-            
-            clean_devices.append(clean_dev)
-        
-        body = json.dumps(clean_devices)
-        return self._resp(req, body)
-    
-    # Panggil device berdasarkan ID
-    @route('devices', '/devices/{device_id}', methods=['GET'])
-    def get_device(self, req, device_id, **kwargs):
-        # Get specific device by ID
-        try:
-            device = self.core.devices.get(device_id)
-            body = json.dumps(device)
-        except KeyError:
-            body = json.dumps({"error": "Device not found"})
-        
-        return self._resp(req, body)
-
     # Create devices, disini ambil data dari payload agent_register
     @route('devices', '/devices', methods=['POST'])
     def create_device(self, req, **kwargs):
@@ -591,6 +604,66 @@ class NorthboundApi(ControllerBase):
         if isinstance(body, str):
             body = body.encode('utf-8')
         return Response(content_type='application/json', body=body, status=status)
+
+    @route('devices', '/devices', methods=['GET'])
+    def list_devices(self, req, **kwargs):
+        devices = self.core.devices.list()
+
+        # ubah setiap device biar lebih clean ( ini yg bakal tampil saat curl device )
+        clean_devices = []
+        for dev in devices:
+            clean_dev = {
+                "id": dev.get("id"),
+                "status": dev.get("status", "ok"),
+                "hostname": dev.get("hostname"),
+                "main_username": dev.get("main_username"),
+                "architecture": dev.get("architecture"),
+                "architecture_bits": dev.get("architecture_bits"),
+                "processor_type": dev.get("processor_type"),
+                "cpu_cores": dev.get("cpu_cores"),
+                "main_ip": dev.get("ip"),
+                "main_interface": dev.get("main_interface"),
+                "main_mac_address": dev.get("main_mac_address"),
+                "vendor": dev.get("vendor"),
+                "os": dev.get("os"),
+                "southbound": dev.get("southbound"),
+                "last_seen": dev.get("last_seen"),   
+            }
+        
+            # Hanya tambahkan meta jika ada data penting ( yg ditambahkan di meta )
+            meta = dev.get("meta", {})
+            if meta:
+                clean_meta = {}
+                
+                # Include important meta fields
+                if meta.get("detected_ips"):
+                    clean_meta["detected_ips"] = meta["detected_ips"]
+                if meta.get("interface_details"):
+                    clean_meta["interface_details"] = meta["interface_details"]
+                if meta.get("interfaces"):
+                    clean_meta["interfaces"] = meta["interfaces"]
+                if meta.get("virtualization"):
+                    clean_meta["virtualization"] = meta["virtualization"]
+    
+                if clean_meta:
+                    clean_dev["meta"] = clean_meta
+            
+            clean_devices.append(clean_dev)
+        
+        body = json.dumps(clean_devices)
+        return self._resp(req, body)
+    
+    # Panggil device berdasarkan ID
+    @route('devices', '/devices/{device_id}', methods=['GET'])
+    def get_device(self, req, device_id, **kwargs):
+        # Get specific device by ID
+        try:
+            device = self.core.devices.get(device_id)
+            body = json.dumps(device)
+        except KeyError:
+            body = json.dumps({"error": "Device not found"})
+        
+        return self._resp(req, body)
     
     @route('devices', '/devices/{did}/heartbeat', methods=['POST'])
     def heartbeat(self, req, did, **kwargs):
@@ -611,4 +684,57 @@ class NorthboundApi(ControllerBase):
             self.core.logger.warning(f"Heartbeat: Device {did} not in registry: {e}")
 
         return self._resp(req, json.dumps({"status":"ok", "device": did}))
+
+    @route('prometheus-targets', '/api/prometheus/server/targets', methods=['GET'])
+    def prometheus_targets(self, req, **kwargs):
+        """HTTP Service Discovery endpoint untuk Prometheus"""
+        try:
+            devices = self.core.devices.list()
+            
+            # Format response untuk Prometheus HTTP SD
+            targets = []
+            
+            for device in devices:
+                # Filter hanya server devices dengan southbound = server_api
+                if device.get('southbound') == 'server_api':
+                    # Ambil IP dari device - pakai main_ip atau ip
+                    ip = device.get('main_ip') or device.get('ip')
+                    hostname = device.get('hostname', 'unknown')
+                    device_id = device.get('id', 'unknown')
+                    
+                    # Validasi IP
+                    if ip and ip != '127.0.0.1' and ip != 'unknown':
+                        target = {
+                            "targets": [f"{ip}:9100"],  # Node Exporter port
+                            "labels": {
+                                "instance": ip,
+                                "hostname": hostname,
+                                "device_id": device_id,
+                                "job": "node-exporter-servers",
+                                "group": "servers",
+                                "os": device.get('os', 'unknown'),
+                                "architecture": device.get('architecture', 'unknown'),
+                                "southbound": "server_api"
+                            }
+                        }
+                        targets.append(target)
+                        
+                        print(f"Prometheus-SD Added target: {ip} ({hostname})")
+            
+            print(f"Prometheus-SD Generated {len(targets)} targets from {len(devices)} total devices")
+            
+            body = json.dumps(targets)
+            return self._resp(req, body)
+            
+        except Exception as e:
+            import traceback
+            print(f"Prometheus-SD Error generating targets: {e}")
+            print(traceback.format_exc())
+            
+            # Return empty array jika error
+            body = json.dumps([])
+            return self._resp(req, body)
+    
+    
+    
 

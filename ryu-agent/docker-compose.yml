@@ -7,7 +7,7 @@ services:
     environment:
       - RYU_CONTROLLER_URL=http://192.168.221.133:8080 # http:// dan port dari Ryu Manager
       - RYU_API_KEY=agent-secret-token-1 # API Key dari Ryu Manager
-      - AGENT_IP=192.168.221.133 # IP Server Agent yang 1 Network dengan Server Ryu Manager
+      - AGENT_IP=192.168.221.133 # IP Server Agent yang 1 Network atau dapat diPing dengan Server Ryu Manager
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -24,13 +24,40 @@ services:
     build: .
     container_name: ryu-agent-api
     volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /var/run/dbus:/var/run/dbus:ro
-      - /etc/machine-id:/etc/machine-id:ro
-      - /etc/os-release:/etc/host-os-release:ro
-      - /etc/lsb-release:/etc/host-lsb-release:ro
+      - /proc:/host/proc:ro # Akses process info host
+      - /sys:/host/sys:ro # Akses system info host
+      - /var/run/dbus:/var/run/dbus:ro # Akses D-Bus host
+      - /etc/machine-id:/etc/machine-id:ro # Machine ID host
+      - /etc/os-release:/etc/host-os-release:ro # OS info host
+      - /etc/lsb-release:/etc/host-lsb-release:ro # Distro info host
+      - /var/run/docker.sock:/var/run/docker.sock # Mount docker socket
+      - /:/host-rootfs:ro # Mount host filesystem
+      - /etc/netplan:/etc/netplan:rw # Netplan Network Manager
+      - /etc/network:/etc/network:rw # Debian Network Manager
+      - /etc/systemd/network:/etc/systemd/network:rw # Systemd-Networkd Network Manager
+      - /etc/sysconfig/network-scripts:/etc/sysconfig/network-scripts:rw # RHEL/CentOS Network Manager
+
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
     privileged: true # Untuk Akses command system pada Server
     network_mode: host # Untuk Scanning real network pada Server
     restart: unless-stopped
     command: python3 agent_api.py --verbose
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+    network_mode: host

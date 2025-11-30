@@ -1,4 +1,4 @@
-### Flow System Overview 
+### Flow System Overview
 ## 1) Fase Registrasi
 # Agent Node → Ryu Controller (Device Registration)
 #     ↓               ↓
@@ -25,7 +25,7 @@
 # sudo apt update -y
 
 ## Install python3.9 ( ada masalah jika 3.10 )
-# sudo apt install python3.9 python3.9-venv python3.9-dev -y
+# sudo apt install python3.9 python3-pip pipython3.9-venv python3.9-dev -y
 # sudo yum install python39 python39-devel python39-pip -y
 
 ## installing prerequisites
@@ -46,9 +46,10 @@
 # ryu-manager --version
 
 ### 3 - Install Requirement for Drivers Server and Run Ryu Manager
-# 1) pip install ryu psutil paramiko netifaces fastapi uvicorn jinja2 SQLAlchemy psycopg2-binar
-# 2) sudo apt install postgresql postgresql-contrib libpq-dev -y
-# 3) RYU_API_KEY="agent-secret-token-1" ryu-manager app/controller.py --verbose
+# 1) pip install ryu psutil paramiko netifaces fastapi uvicorn jinja2 SQLAlchemy
+# 2) pip3 install routeros-api
+# 3) sudo apt install postgresql postgresql-contrib libpq-dev -y
+# 4) RYU_API_KEY="agent-secret-token-1" ryu-manager app/controller.py --verbose
 
 ### 3 - Install requirement & Inisialisasi agent_register.py ( untuk daftar agent )
 # note: jadi topologinya itu |VM RYU agent| -> |run agent register| -> |VM RYU Manager| 

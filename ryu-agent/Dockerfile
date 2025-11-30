@@ -5,6 +5,7 @@ WORKDIR /ryu-agent
 # Install system dependencies untuk agent operations
 RUN apt-get update && apt-get install -y \
     net-tools \
+    sudo \
     iproute2 \
     iputils-ping \
     curl \

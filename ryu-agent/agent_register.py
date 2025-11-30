@@ -164,6 +164,70 @@ def detect_virtualization():
         else:
             container_type = None
 
+        # Check virtual devices first (more reliable for some hypervisors)
+        virtual_devices = {
+            # VMware
+            "/dev/vmmon": "vmware",
+            "/dev/vmci": "vmware", 
+            "/dev/vmware": "vmware",
+            "/proc/vmware": "vmware",
+            
+            # VirtualBox
+            "/dev/vboxguest": "virtualbox",
+            "/dev/vboxuser": "virtualbox",
+            "/proc/vbox": "virtualbox",
+            
+            # Xen
+            "/dev/xen": "xen",
+            "/proc/xen": "xen",
+            "/sys/hypervisor/uuid": "xen",
+            "/proc/xen/capabilities": "xen",
+            
+            # Hyper-V
+            "/sys/bus/vmbus": "hyperv",
+            "/sys/class/hv_util": "hyperv",
+            "/sys/class/hv_vmbus": "hyperv",
+            "/sys/class/uio/uio_hv_util": "hyperv",
+            
+            # KVM/QEMU
+            "/dev/kvm": "kvm",
+            "/dev/rtc": "qemu",
+            "/dev/ppdev": "qemu",
+            
+            # Parallels
+            "/dev/prl_fs": "parallels",
+            "/dev/prl_frozen": "parallels",
+            "/dev/prl_tg": "parallels",
+            
+            # Virtuozzo/OpenVZ
+            "/proc/vz": "virtuozzo",
+            "/proc/bc": "virtuozzo",
+            
+            # LXC/LXD
+            "/proc/1/environ": "lxc",  # Might contain lxc info
+            
+            # Docker (though we already check containers above)
+            "/.dockerinit": "docker",
+            
+            # User-mode Linux
+            "/proc/mm": "uml",
+            
+            # IBM PowerVM
+            "/proc/ppc64/lparcfg": "powervm",
+            "/proc/device-tree/rtas/ibm,hypertas-functions": "powervm",
+            
+            # IBM z/VM
+            "/proc/sysinfo": "zvm",
+        }
+        
+        for device, hypervisor in virtual_devices.items():
+            if os.path.exists(device):
+                return {
+                    "type": "virtual",
+                    "hypervisor": hypervisor,
+                    "container": container_type
+                }
+
         # Try to detect underlying hypervisor from host
         if os.path.exists("/sys/class/dmi/id/product_name"):
             with open("/sys/class/dmi/id/product_name", "r") as f:

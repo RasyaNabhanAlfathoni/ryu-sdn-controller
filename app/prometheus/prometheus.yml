@@ -19,3 +19,11 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: snmp_exporter:9116
+
+  # Node Exporter - Dynamic via Controller API
+  - job_name: "node-exporter-servers"
+    http_sd_configs:
+      - url: "http://192.168.221.133:8080/api/prometheus/server/targets" # IP controller
+        refresh_interval: 30s
+    scrape_interval: 15s
+    metrics_path: /metrics

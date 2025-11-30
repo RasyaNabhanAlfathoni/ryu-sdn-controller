@@ -19,7 +19,7 @@ class ServerAPI:
                 logger(f"Calling agent API: {url}")
             
             headers = {'Content-Type': 'application/json'}
-            timeout = 10
+            timeout = 300
             
             if data:
                 response = requests.post(url, json=data, headers=headers, timeout=timeout)
@@ -82,13 +82,24 @@ class ServerAPI:
             "ip_cidr": ip_cidr
         }, logger=logger)
     
-    def enable_iface(self, iface, logger=None):
+    def configure_interface(self, iface, ip_cidr, gateway=None, dns_servers=None, onboot=True, logger=None, dhcp=False):
+        """Network interface configuration on agent"""
+        return self._call_agent("/api/network/interface/configure", {
+            "interface": iface,
+            "ip_cidr": ip_cidr,
+            "gateway": gateway,
+            "dns_servers": dns_servers,
+            "onboot": onboot,
+            "dhcp": dhcp
+        }, logger=logger)
+        
+    def enable_interface(self, iface, logger=None):
         """Enable network interface on agent"""
         return self._call_agent("/api/network/interface/enable", {
             "interface": iface
         }, logger=logger)
     
-    def disable_iface(self, iface, logger=None):
+    def disable_interface(self, iface, logger=None):
         """Disable network interface on agent"""
         return self._call_agent("/api/network/interface/disable", {
             "interface": iface
@@ -293,3 +304,47 @@ class ServerAPI:
     def get_logs(self, n=50, logger=None):
         """Get system logs from agent"""
         return self._call_agent(f"/api/system/logs?lines={n}", logger=logger)
+
+    ## === Wazuh Commands ===
+    def wazuh_install(self, manager_ip, agent_key, agent_name, logger=None):
+        """Trigger Wazuh agent installation via agent API"""
+        return self._call_agent("/api/wazuh/install", {
+            "manager_ip": manager_ip,
+            "agent_key": agent_key, 
+            "agent_name": agent_name
+        }, logger=logger)
+
+    def wazuh_uninstall(self, logger=None):
+        """Trigger Wazuh agent uninstallation via agent API"""
+        return self._call_agent("/api/wazuh/uninstall", logger=logger)
+
+    def wazuh_status(self, logger=None):
+        """Get Wazuh agent status via agent API"""
+        return self._call_agent("/api/wazuh/status", logger=logger)
+
+    def wazuh_security_overview(self, agent_id, logger=None):
+        """Get security overview via agent API"""
+        return self._call_agent("/api/wazuh/security/overview", {
+            "agent_id": agent_id
+        }, logger=logger)
+    
+    def wazuh_security_vulnerabilities(self, agent_id, limit=50, logger=None):
+        """Get vulnerabilities via agent API"""
+        return self._call_agent("/api/wazuh/security/vulnerabilities", {
+            "agent_id": agent_id,
+            "limit": limit
+        }, logger=logger)
+
+    def wazuh_security_fim(self, agent_id, logger=None):
+        """Get FIM data via agent API"""
+        return self._call_agent("/api/wazuh/security/fim", {
+            "agent_id": agent_id
+        }, logger=logger)
+
+    def wazuh_security_events(self, agent_id, limit=50, logger=None):
+        """Get security events via agent API"""
+        return self._call_agent("/api/wazuh/security/events", {
+            "agent_id": agent_id,
+            "limit": limit
+        }, logger=logger)
+    
