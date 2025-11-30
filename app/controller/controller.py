@@ -7,6 +7,9 @@ from ryu.lib import hub
 from webob import Response
 import json, uuid, time, datetime
 
+# === Database Integration ===
+from database.device_repository import DeviceRepository
+
 # === MikroTik Driver ===
 from drivers.snmp_file_manager import SNMPFileManager
 from drivers.router_drivers.mikrotik.routeros_api import RouterOSApiDriver
@@ -19,6 +22,8 @@ from drivers.router_drivers.mikrotik.ip_pool import RouterOSIpPoolDriver
 from drivers.router_drivers.mikrotik.dns_server import RouterOSDnsDriver
 from drivers.router_drivers.mikrotik.neighbor import RouterOSNeighborDriver
 from drivers.router_drivers.mikrotik.snmp import RouterOSSNMPDriver
+from actions.routers.mikrotik import MikrotikRouterActions
+from actions.servers.server import ServerActions
 
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
@@ -144,22 +149,66 @@ class Orchestrator(app_manager.RyuApp):
                 self.jobs.set(jid, status="failed", result=str(e))
 
     def run_command(self, jid, p):
-        dev = self.devices.get(p["device_id"])
-        driver = self.pick_driver(dev)
-        action = p["action"]; params = p.get("params", {})
-        self.jobs.append_log(jid, f"Use driver: {driver.name}")
+        action = p["action"]
+        params = p.get("params", {})
 
-        if "server.wazuh" in action:
-            # Untuk Wazuh functions, perlu pass device_id secara explicit
-            # karena mereka tidak menerima device_id dari params biasa
-            params["device_id"] = p["device_id"]
+        # GLOBAL ACTION (SNMP & Wazuh Manager)
+        if action in ["snmp.device.add", "snmp.metric.add", "snmp.test.oid"]:
+            return self.dispatch(None, action, params, jid)
         
-        result = self.dispatch(driver, action, params, jid)
-        
-        # Simpan hasil ke jobs store
-        self.jobs.set(jid, result=result)
-        
-        return result
+        # DEVICE-BASED ACTION
+        device_id = p.get("device_id")
+        if not device_id:
+            raise ValueError("device_id is required")
+
+        # Cari device - prioritaskan memory registry dulu (karena device ada di memory)
+        dev_config = None
+    
+        # Method 1: Database lookup (fallback)
+        if not dev_config:
+            try:
+                dev_row = DeviceRepository.find_by_device_id(device_id)
+                if dev_row:
+                    self.jobs.append_log(jid, f"Found in database: {dev_row.get('device_type')}")
+                    dev_config = {
+                        "id": dev_row["device_id"],
+                        "device_id": dev_row["device_id"],
+                        "ip": dev_row.get("main_ip_address"),
+                        "main_ip_address": dev_row.get("main_ip_address"),
+                        "username": dev_row.get("username") or dev_row.get("main_username", "unknown"),
+                        "password": dev_row.get("password", ""),
+                        "vendor": dev_row.get("vendor", "unknown"),
+                        "device_type": dev_row.get("device_type", "unknown"),
+                        "southbound": dev_row.get("southbound", "unknown"),
+                        "hostname": dev_row.get("hostname", "unknown")
+                    }
+            except Exception as e:
+                self.jobs.append_log(jid, f"Database lookup failed: {e}")
+
+        # Method 2: Memory registry lookup (prioritas utama)
+        if hasattr(self, 'devices'):
+            memory_dev = self.devices.get(device_id)
+            if memory_dev:
+                self.jobs.append_log(jid, "Found device in memory registry")
+                dev_config = memory_dev
+
+        if not dev_config:
+            self.jobs.append_log(jid, f"ERROR: Device {device_id} not found in any registry")
+            raise ValueError(f"Device '{device_id}' not found")
+
+        # Create driver
+        try:
+            driver = self.pick_driver(dev_config)
+            self.jobs.append_log(jid, f"Driver created successfully: {type(driver).__name__}")
+            
+            # PERBAIKAN: Simpan result dari dispatch ke job store
+            result = self.dispatch(driver, action, params, jid)
+            self.jobs.set(jid, result=result) 
+            return result
+            
+        except Exception as e:
+            self.jobs.append_log(jid, f"Driver creation failed: {e}")
+            raise
 
     def pick_driver(self, dev):
         sb = dev.get("southbound", "")
@@ -171,223 +220,44 @@ class Orchestrator(app_manager.RyuApp):
             raise ValueError(f"Unknown southbound driver: {sb}")
 
     def dispatch(self, d, action, params, jid):
-        # Deteksi tipe driver berdasarkan class
-        driver_type = "unknown"
-        if hasattr(d, '__class__'):
-            if 'RouterOS' in d.__class__.__name__:
-                driver_type = "mikrotik"
-            elif 'ServerAPI' in d.__class__.__name__:
-                driver_type = "server"
+        # Global actions (tidak memerlukan device driver)
+        global_actions = {
+            # SNMP Actions
+            "snmp.device.add": lambda p, logger: SNMPFileManager().add_device(p["module"], p),
+            "snmp.metric.add": lambda p, logger: SNMPFileManager().add_metric(p["module"], p),
+            "snmp.test.oid": lambda p, logger: SNMPFileManager().test_snmp(
+                ip=p["ip"],
+                community=p.get("community", "public"),
+                oid=p["oid"],
+                version=p.get("version")
+            ),
+        }
 
-        # === Buat fnmap berbeda berdasarkan driver type ===
-        if driver_type == "mikrotik":
-            fnmap = {
-                # === Router MikroTik Commands ===
+        # Device-based actions
+        device_actions = {}
+        
+        if d is not None:
+            # Deteksi tipe driver
+            driver_type = "unknown"
+            if hasattr(d, '__class__'):
+                if 'RouterOS' in d.__class__.__name__:
+                    driver_type = "mikrotik"
+                    device_actions = MikrotikRouterActions.get_actions(d)
+                elif 'ServerAPI' in d.__class__.__name__:
+                    driver_type = "server"
+                    wazuh_api = self.wazuh_api if hasattr(self, 'wazuh_api') and self.wazuh_api is not None else None
+                    device_actions = ServerActions.get_actions(d, self.wazuh_api)
 
-                # IP Address Management
-                "mikrotik.ip.address.add": lambda p, logger: RouterOSIpDriver(d).add_address(p, logger),
-                "mikrotik.ip.address.remove": lambda p, logger: RouterOSIpDriver(d).remove_address(p, logger),
-                "mikrotik.ip.address.edit": lambda p, logger: RouterOSIpDriver(d).edit_address(p, logger),
-                "mikrotik.ip.address.disable": lambda p, logger: RouterOSIpDriver(d).disable_address(p, logger),
-                "mikrotik.ip.address.enable": lambda p, logger: RouterOSIpDriver(d).enable_address(p, logger),
-                "mikrotik.ip.address.comment": lambda p, logger: RouterOSIpDriver(d).comment_address(p, logger),
+        # Gabungkan semua actions
+        all_actions = {**global_actions, **device_actions}
 
-                # IP POOL Management
-                "mikrotik.ip.pool.add": lambda p, logger: RouterOSIpPoolDriver(d).add_pool(p, logger),
-                "mikrotik.ip.pool.edit": lambda p, logger: RouterOSIpPoolDriver(d).edit_pool(p, logger),
-                "mikrotik.ip.pool.delete": lambda p, logger: RouterOSIpPoolDriver(d).delete_pool(p, logger),
-                "mikrotik.ip.pool.comment": lambda p, logger: RouterOSIpPoolDriver(d).comment_pool(p, logger),
-
-                # Interface Management
-                "mikrotik.interface.edit": lambda p, logger: RouterOSInterfaceDriver(d).edit_interface(p, logger),
-                "mikrotik.interface.disable": lambda p, logger: RouterOSInterfaceDriver(d).disable_interface(p, logger),
-                "mikrotik.interface.enable": lambda p, logger: RouterOSInterfaceDriver(d).enable_interface(p, logger),
-                "mikrotik.interface.comment": lambda p, logger: RouterOSInterfaceDriver(d).comment_interface(p, logger),
-                "mikrotik.interface.cable_test": lambda p, logger: RouterOSInterfaceDriver(d).cable_test(p, logger),
-
-                # VLAN Management
-                "mikrotik.vlan.add": lambda p, logger: RouterOSVlanDriver(d).add_vlan(p, logger),
-                "mikrotik.vlan.edit": lambda p, logger: RouterOSVlanDriver(d).edit_vlan(p, logger),
-                "mikrotik.vlan.delete": lambda p, logger: RouterOSVlanDriver(d).delete_vlan(p, logger),
-                "mikrotik.vlan.enable": lambda p, logger: RouterOSVlanDriver(d).enable_vlan(p, logger),
-                "mikrotik.vlan.disable": lambda p, logger: RouterOSVlanDriver(d).disable_vlan(p, logger),
-                "mikrotik.vlan.comment": lambda p, logger: RouterOSVlanDriver(d).comment_vlan(p, logger),
-
-                # DHCP SERVER
-                "mikrotik.dhcp.server.add": lambda p, logger: RouterOSDhcpServerDriver(d).add_server(p, logger),
-                "mikrotik.dhcp.server.edit": lambda p, logger: RouterOSDhcpServerDriver(d).edit_server(p, logger),
-                "mikrotik.dhcp.server.enable": lambda p, logger: RouterOSDhcpServerDriver(d).enable_server(p, logger),
-                "mikrotik.dhcp.server.disable": lambda p, logger: RouterOSDhcpServerDriver(d).disable_server(p, logger),
-                "mikrotik.dhcp.server.delete": lambda p, logger: RouterOSDhcpServerDriver(d).delete_server(p, logger),
-                "mikrotik.dhcp.network.edit": lambda p, logger: RouterOSDhcpServerDriver(d).edit_network(p, logger),
-
-                # DHCP CLIENT
-                "mikrotik.dhcp.client.add": lambda p, logger: RouterOSDhcpClientDriver(d).add_client(p, logger),
-                "mikrotik.dhcp.client.edit": lambda p, logger: RouterOSDhcpClientDriver(d).edit_client(p, logger),
-                "mikrotik.dhcp.client.enable": lambda p, logger: RouterOSDhcpClientDriver(d).enable_client(p, logger),
-                "mikrotik.dhcp.client.disable": lambda p, logger: RouterOSDhcpClientDriver(d).disable_client(p, logger),
-                "mikrotik.dhcp.client.delete": lambda p, logger: RouterOSDhcpClientDriver(d).delete_client(p, logger),
-                "mikrotik.dhcp.client.comment": lambda p, logger: RouterOSDhcpClientDriver(d).comment_client(p, logger),
-
-                # DNS Configuration
-                "mikrotik.dns.edit": lambda p, logger: RouterOSDnsDriver(d).edit_dns(p, logger),
-                "mikrotik.dns.flush": lambda p, logger: RouterOSDnsDriver(d).flush_cache(p, logger),
-                "mikrotik.dns.static.add": lambda p, logger: RouterOSDnsDriver(d).add_static(p, logger),
-                "mikrotik.dns.static.edit": lambda p, logger: RouterOSDnsDriver(d).edit_static(p, logger),
-                "mikrotik.dns.static.enable": lambda p, logger: RouterOSDnsDriver(d).enable_static(p, logger),
-                "mikrotik.dns.static.disable": lambda p, logger: RouterOSDnsDriver(d).disable_static(p, logger),
-                "mikrotik.dns.static.comment": lambda p, logger: RouterOSDnsDriver(d).comment_static(p, logger),
-                "mikrotik.dns.static.delete": lambda p, logger: RouterOSDnsDriver(d).delete_static(p, logger),
-
-                # Neighbor List
-                "mikrotik.neighbor.get": lambda p, logger: RouterOSNeighborDriver(d).get_neighbors(p, logger),
-                "mikrotik.neighbor.discovery.get": lambda p, logger: RouterOSNeighborDriver(d).get_discovery_settings(p, logger),
-                "mikrotik.neighbor.discovery.edit": lambda p, logger: RouterOSNeighborDriver(d).edit_discovery_settings(p, logger),
-
-                # SNMP RouterOS native config
-                "mikrotik.snmp.config.get": lambda p, logger: RouterOSSNMPDriver(d).get_snmp_config(p, logger),
-                "mikrotik.snmp.config.edit": lambda p, logger: RouterOSSNMPDriver(d).edit_snmp_config(p, logger),
-                "mikrotik.snmp.community.list": lambda p, logger: RouterOSSNMPDriver(d).list_communities(p, logger),
-                "mikrotik.snmp.community.add": lambda p, logger: RouterOSSNMPDriver(d).add_community(p, logger),
-                "mikrotik.snmp.community.edit": lambda p, logger: RouterOSSNMPDriver(d).edit_community(p, logger),
-                "mikrotik.snmp.community.delete": lambda p, logger: RouterOSSNMPDriver(d).delete_community(p, logger),
-                "mikrotik.snmp.community.enable": lambda p, logger: RouterOSSNMPDriver(d).enable_community(p, logger),
-                "mikrotik.snmp.community.disable": lambda p, logger: RouterOSSNMPDriver(d).disable_community(p, logger),
-                "mikrotik.snmp.device.add": lambda p, logger: SNMPFileManager().add_device(p),
-
-                # Identity
-                "mikrotik.identity.set": d.set_identity,
-
-                # Interface / Route (legacy)
-                "mikrotik.route.add": d.add_route,
-                "mikrotik.raw.run": d.run_raw,
-            }
-        elif driver_type == "server":
-            fnmap = {
-                # === Server Commands ===
-
-                # Network Management
-                "server.network.list_interfaces": lambda p, logger: d.list_interfaces(logger=logger),
-                "server.network.get_interface_details": lambda p, logger: d.get_interface_details(logger=logger),
-                "server.network.ip.show_all": lambda p, logger: d.show_all(logger=logger),
-                "server.network.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-                "server.network.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-                "server.network.configure_interface": lambda p, logger: d.configure_interface(
-                    iface=p.get("iface"), 
-                    ip_cidr=p.get("ip_cidr"),
-                    gateway=p.get("gateway"),
-                    dns_servers=p.get("dns_servers"),
-                    onboot=p.get("onboot", True),
-                    dhcp=p.get("dhcp", False),
-                    logger=logger
-                ),
-                "server.network.enable_interface": lambda p, logger: d.enable_interface(p.get("iface"), logger=logger),
-                "server.network.disable_interface": lambda p, logger: d.disable_interface(p.get("iface"), logger=logger),
-                "server.network.get_single_interface": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
-                "server.network.get_interface_ips": lambda p, logger: d.get_interface_ips(p.get("iface"), logger=logger),
-                "server.network.get_interface_status": lambda p, logger: d.get_interface_status(p.get("iface"), logger=logger),
-                "server.network.connections": lambda p, logger: d.get_network_connections(logger=logger),
-                "server.network.interface_counters": lambda p, logger: d.get_interface_counters(p.get("iface"), logger=logger),
-
-                # Advanced Network Management 
-                "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
-                "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
-                "server.network.arp_table": lambda p, logger: d.get_arp_table(logger=logger),
-
-                # LLDP Discovery
-                "server.network.lldp.neighbors": lambda p, logger: d.get_lldp_neighbors(
-                    iface=p.get('iface'), 
-                    logger=logger
-                ),
-                "server.network.lldp.statistics": lambda p, logger: d.get_lldp_statistics(logger=logger),
-                "server.network.lldp.status": lambda p, logger: d.get_lldp_status(logger=logger),
-
-                # Firewall Management - UFW
-                "server.firewall.ufw_status": lambda p, logger: d.ufw_status(logger=logger),
-                "server.firewall.ufw_enable": lambda p, logger: d.ufw_enable(logger=logger),
-                "server.firewall.ufw_disable": lambda p, logger: d.ufw_disable(logger=logger),
-                "server.firewall.ufw_reload": lambda p, logger: d.ufw_reload(logger=logger),
-                "server.firewall.ufw_reset": lambda p, logger: d.ufw_reset(logger=logger),
-                "server.firewall.ufw_allow": lambda p, logger: d.ufw_allow(p.get("port_proto"), logger=logger),
-                "server.firewall.ufw_deny": lambda p, logger: d.ufw_deny(p.get("port_proto"), logger=logger),
-                "server.firewall.ufw_delete": lambda p, logger: d.ufw_delete(p.get("rule"), logger=logger),
-                "server.firewall.ufw_allow_in": lambda p, logger: d.ufw("allow", "in", p.get("port_proto"), logger=logger),
-                "server.firewall.ufw_allow_out": lambda p, logger: d.ufw("allow", "out", p.get("port_proto"), logger=logger),
-                "server.firewall.ufw_deny_in": lambda p, logger: d.ufw("deny", "in", p.get("port_proto"), logger=logger),
-                "server.firewall.ufw_deny_out": lambda p, logger: d.ufw("deny", "out", p.get("port_proto"), logger=logger),
-                
-                # Firewall Management - Firewalld
-                "server.firewall.firewalld_status": lambda p, logger: d.firewall_status(logger=logger),
-                "server.firewall.firewalld_reload": lambda p, logger: d.firewall_reload(logger=logger),
-                "server.firewall.firewalld_add_port": lambda p, logger: d.firewall_add_port(p.get("port_proto"), logger=logger),
-                "server.firewall.firewalld_remove_port": lambda p, logger: d.firewall_remove_port(p.get("port_proto"), logger=logger),
-                "server.firewall.firewalld_enable_masquerade": lambda p, logger: d.firewall_enable_masquerade(logger=logger),
-                "server.firewall.firewalld_disable_masquerade": lambda p, logger: d.firewall_disable_masquerade(logger=logger),
-                "server.firewall.firewalld_list_ports": lambda p, logger: d.firewall_cmd("--list-ports", logger=logger),
-                "server.firewall.firewalld_list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
-                "server.firewall.firewalld_command": lambda p, logger: d.firewall_cmd(p.get("args"), logger=logger),
-                
-                # Firewall Management - NAT & General
-                "server.firewall.nat.add": lambda p, logger: d.setup_nat(p.get("interface"), logger=logger),
-                "server.firewall.nat.clear": lambda p, logger: d.clear_nat(logger=logger),
-                "server.firewall.status_all": lambda p, logger: d.status_all(logger=logger),
-                "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
-
-                # System Management - Monitor
-                "server.system.monitor": lambda p, logger: d.get_utilization(logger=logger),
-                "server.system.monitor_detailed": lambda p, logger: d.get_detailed_utilization(logger=logger),
-                "server.system.info": lambda p, logger: d.get_system_info(logger=logger),
-                "server.system.logs": lambda p, logger: d.get_logs(p.get("lines", 50), logger=logger),
-                
-                # System Services
-                "server.system.services.list": lambda p, logger: d.list_services(logger=logger),
-                "server.system.services.control": lambda p, logger: d.service_control(p.get("service"), p.get("action"), logger=logger),
-                "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
-
-                # === Wazuh Agent Command ===
-                "server.wazuh.install": lambda p, logger: self.wazuh_api.install_agent(
-                    device_id=p.get("device_id"),
-                    manager_ip=p.get("manager_ip"), 
-                    logger=logger
-                ),
-                "server.wazuh.uninstall": lambda p, logger: self.wazuh_api.uninstall_agent(
-                    device_id=p.get("device_id"),
-                    logger=logger
-                ),
-                "server.wazuh.status": lambda p, logger: self.wazuh_api.get_agent_status(
-                    device_id=p.get("device_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.overview": lambda p, logger: self.wazuh_api.get_security_overview(
-                    device_id=p.get("device_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.vulnerabilities": lambda p, logger: self.wazuh_api.get_vulnerabilities(
-                    agent_id=p.get("agent_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.fim": lambda p, logger: self.wazuh_api.get_fim_data(
-                    agent_id=p.get("agent_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.events": lambda p, logger: self.wazuh_api.get_agent_security_events(
-                    agent_id=p.get("agent_id"),
-                    limit=p.get("limit", 50),
-                    logger=logger
-                ),
-                
-                # Command untuk Wazuh manager operations (tetap pakai wazuh_api langsung)
-                "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(),
-                "wazuh.manager.status": lambda p, logger: self.wazuh_api.get_manager_status(),
-            }    
-
-        if action not in fnmap:
+        if action not in all_actions:
             self.jobs.append_log(jid, f"ERROR: Unknown action '{action}'")
             raise ValueError(f"Unknown action: {action}")
 
         try:
             self.jobs.append_log(jid, f"Executing {action} with params: {params}")
-            result = fnmap[action](params, logger=lambda s: self.jobs.append_log(jid, s))
+            result = all_actions[action](params, logger=lambda s: self.jobs.append_log(jid, s))
             self.jobs.append_log(jid, f"{action} completed successfully")
             return result
         except Exception as e:
@@ -421,192 +291,304 @@ class NorthboundApi(ControllerBase):
     # Create devices, disini ambil data dari payload agent_register
     @route('devices', '/devices', methods=['POST'])
     def create_device(self, req, **kwargs):
-        # Cek API key untuk semua device (opsional, bisa disesuaikan)
+        """Register device dengan struktur sesuai skema database"""
         if not _check_api_key(req):
-            return self._resp(req, json.dumps({"status":"error","error":"unauthorized"}), status=401)
+            return self._resp(req, json.dumps({"status": "error", "error": "unauthorized"}), status=401)
         
         data = json.loads(req.body)
         
-        # Deteksi tipe device berdasarkan southbound atau parameter lain
-        southbound_type = data.get("southbound", "").lower()
-        is_server = southbound_type in ["server", "server_api"]
-        is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
-        
         try:
-            # === GENERATE CONSISTENT DEVICE ID (FIXED VERSION) ===
+            # === DETECT DEVICE TYPE ===
+            southbound_type = data.get("southbound", "").lower()
+            is_server = southbound_type in ["server", "server_api"]
+            is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
+            
+            # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
-                """
-                Generate consistent device ID untuk semua tipe device
-                registration_mode: "server_agent" atau "active_discovery"
-                """
                 import hashlib
                 
-                # Extract unique identifiers berdasarkan registration mode
                 if registration_mode == "server_agent":
-                    ip = device_data.get('main_ip_address', 'unknown')
+                    ip = device_data.get('main_ip_address', device_data.get('ip', 'unknown'))
                     hostname = device_data.get('hostname', 'unknown')
                     device_type = "server"
-                else:  # active_discovery (mikrotik)
+                else:  # active_discovery
                     ip = device_data.get('ip', 'unknown')
-                    hostname = device_data.get('hostname', 'mikrotik_unknown')
-                    device_type = "mikrotik"
+                    hostname = device_data.get('hostname', 'unknown')
+                    device_type = "router"
                 
-                # Buat string unik yang konsisten
-                unique_components = [
-                    device_type,
-                    ip,
-                    hostname,
-                    registration_mode
-                ]
+                unique_components = [device_type, ip, hostname, registration_mode]
                 unique_str = "_".join(str(c) for c in unique_components)
-                
-                # Generate hash yang konsisten
                 hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
                 
                 return f"dev_{hash_digest}"
 
-            # === MODE SERVER AGENT (Linux Server) ===
+            device_type = "server" if is_server else "router"
+            registration_mode = "server_agent" if is_server else "active_discovery"
+            
+            # === HANDLE SERVER AGENT REGISTRATION ===
             if is_server:
-                # PRIORITASkan IP dari body request (dari server agent)
                 device_ip_from_body = data.get("main_ip_address")
                 client_ip = req.remote_addr
                 
-                print(f"[CONTROLLER] Server Agent Registration - Body IP: {device_ip_from_body}, Client IP: {client_ip}")
-                
-                # Prioritaskan IP dari body (Server agent tahu IP-nya sendiri)
+                # Determine final IP (prioritize body IP)
                 if device_ip_from_body and device_ip_from_body != '127.0.0.1':
                     final_ip = device_ip_from_body
-                    print(f"[CONTROLLER] Using IP from request body: {final_ip}")
                 elif client_ip and client_ip != '127.0.0.1':
                     final_ip = client_ip
-                    print(f"[CONTROLLER] Using client connection IP: {final_ip}")
                 else:
-                    # Fallback ke headers jika behind proxy
+                    # Fallback to headers
                     forwarded_for = req.headers.get('X-Forwarded-For')
                     real_ip = req.headers.get('X-Real-IP')
                     if forwarded_for:
                         final_ip = forwarded_for.split(',')[0].strip()
-                        print(f"[CONTROLLER] Using X-Forwarded-For IP: {final_ip}")
                     elif real_ip and real_ip != '127.0.0.1':
                         final_ip = real_ip
-                        print(f"[CONTROLLER] Using X-Real-IP: {final_ip}")
                     else:
                         final_ip = device_ip_from_body or "unknown"
-                        print(f"[CONTROLLER] WARNING: Using fallback IP: {final_ip}")
                 
                 data["ip"] = final_ip
-                data["main_ip_address"] = final_ip 
+                data["main_ip_address"] = final_ip
                 
-                # Generate device ID yang konsisten menggunakan generate_device_id
-                device_id = generate_device_id(data, "server_agent")
+                # Generate device ID
+                device_id = generate_device_id(data, registration_mode)
                 data["id"] = device_id
+                data["device_id"] = device_id
+                
+                # Data langsung dari payload (bukan dari meta)
+                server_data = {
+                    "hostname": data.get("hostname", "unknown"),
+                    "main_ip_address": data.get("main_ip_address"),
+                    "main_interface": data.get("main_interface", "unknown"),
+                    "main_mac_address": data.get("main_mac_address", "unknown"),
+                    "southbound": data.get("southbound", "server_api"),
+                    "status": data.get("status", "active"),
+                    "main_username": data.get("main_username", "unknown"),
+                    "os_version": data.get("os", "unknown"),  # Map os -> os_version
+                    "architecture": data.get("architecture"),
+                    "architecture_bits": data.get("architecture_bits"),
+                    "processor_type": data.get("processor_type"),
+                    "cpu_cores": data.get("cpu_cores"),
+                    "vendor": data.get("vendor", "unknown"),
+                    "connected": True,
+                    "last_seen": time.time()
+                }
 
-                # ambil meta dari server agent (kalau ada)
+                # Hanya ambil dari meta yang diperlukan
                 meta = data.get("meta", {})
-
-                # data dari Server Agent ( ini yang akan tampil saat curl device )
-                data["hostname"] = data.get("hostname", meta.get("hostname", "unknown"))
-                data["os"] = data.get("os", meta.get("os", "UnknownOS"))
-                data["southbound"] = data.get("southbound", meta.get("southbound", "unknown"))
-                data["connected"] = True
-                data["username"] = data.get("main_username", meta.get("username", "unknown"))
-                data["last_seen"] = time.time()
-
-                 # Tambahkan field-field baru dari payload
-                if "architecture" in data:
-                    data["architecture"] = data["architecture"]
-                if "architecture_bits" in data:
-                    data["architecture_bits"] = data["architecture_bits"]
-                if "processor_type" in data:
-                    data["processor_type"] = data["processor_type"]
-                if "cpu_cores" in data:
-                    data["cpu_cores"] = data["cpu_cores"]
-                if "vendor" in data:
-                    data["vendor"] = data["vendor"]
-                if "main_interface" in data:
-                    data["main_interface"] = data["main_interface"]
-                if "main_mac_address" in data:
-                    data["main_mac_address"] = data["main_mac_address"]
-                if "status" in data:
-                    data["status"] = data["status"]
-
-                # Tambahkan interfaces dari meta jika ada
-                if "interfaces" in meta:
-                    data["interfaces"] = meta["interfaces"]
-
-                # Tambahkan virtualization dari meta jika ada
-                if "virtualization" in meta:
-                    data["virtualization"] = meta["virtualization"]
-                
-                # Simpan meta yang dikirim server agent
                 if meta:
-                    data["meta"] = meta
+                    # Hanya virtualization yang diambil dari meta
+                    if "virtualization" in meta:
+                        server_data["virtualization"] = meta["virtualization"]
+                    
+                    # Simpan meta terpisah jika perlu
+                    server_data["meta"] = {
+                        "interfaces": meta.get("interfaces", []),
+                        "detected_ips": meta.get("detected_ips", []),
+                        "interface_details": meta.get("interface_details", {})
+                    }
 
-            # === MODE MIKROTIK (Active Discovery) ===
+                # Update data dengan server_data
+                data.update(server_data)
+
+            # === HANDLE MIKROTIK/ACTIVE DISCOVERY REGISTRATION ===
             elif is_mikrotik:
-                print(f"[CONTROLLER] Mikrotik/Active Discovery Registration - IP: {data.get('ip')}")
-                
-                # --- 1) Test koneksi & deteksi vendor dulu ---
+                # Test connection first
                 info = self.core.detect_vendor(data)
-
-                # Jika gagal koneksi/deteksi, jangan buat device — return error
+                
                 if not info.get("connected", False):
-                    body = json.dumps({
+                    return self._resp(req, json.dumps({
                         "status": "error",
                         "error": "Unable to connect to device or detect vendor",
                         "details": info
-                    })
-                    if isinstance(body, str):
-                        body = body.encode('utf-8')
-                    return Response(content_type='application/json', body=body, status=400)
-
-                # --- 2) Kalau sukses: generate ID dan gabungkan info ---
-                device_id = generate_device_id(data, "active_discovery")
+                    }), 400)
+                
+                device_id = generate_device_id(data, registration_mode)
                 data["id"] = device_id
+                data["device_id"] = device_id
                 data.update(info)
-            
+                
+                # Map MikroTik specific fields
+                data.update({
+                    "username": data.get("username", "admin"),
+                    "identity": data.get("identity", data.get("hostname", "mikrotik")),
+                    "os_version": data.get("version", "unknown"),
+                    "board": data.get("board-name", ""),
+                    "serial_number": data.get("serial-number", ""),
+                    "vendor": "MikroTik",
+                    "main_ip_address": data.get("ip"),
+                    "main_mac_address": data.get("mac-address", ""),
+                    "main_interface": data.get("main_interface", "ether1")
+                })
+                
             else:
-                # Handle unknown device type
                 return self._resp(req, json.dumps({
                     "status": "error", 
                     "error": "Unknown device type."
-                }), status=400)
-            
-            # === FINAL VALIDATION & REGISTRATION ===
-        
-            # Cek duplikasi device ID
-            if data["id"] in self.core.devices.db:
-                self.core.logger.warning(f"Device ID {data['id']} already exists, updating existing device")
+                }), 400)
 
-            # Simpan ke registry (common untuk kedua mode)
-            result = self.core.devices.create(data)
+            # === DATABASE REGISTRATION ===
+            db_registered = False
+            try:
+                # Prepare common device data untuk network_devices table
+                common_data = {
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "southbound": data.get("southbound", "unknown"),
+                    "status": "active",
+                    "last_seen": time.time()
+                }
+                
+                # Check for duplicates by device_id
+                existing = DeviceRepository.find_by_device_id(device_id)
+                
+                if existing:
+                    # Update existing device
+                    DeviceRepository.update_network_device(device_id, common_data)
+                    
+                    # Update specific table
+                    if device_type == "server":
+                        server_data = {
+                            "device_id": device_id,
+                            "hostname": data.get("hostname", "unknown"),
+                            "main_username": data.get("main_username", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "architecture": data.get("architecture"),
+                            "architecture_bits": data.get("architecture_bits"),
+                            "processor_type": data.get("processor_type"),
+                            "vendor": data.get("vendor", "unknown"),
+                            "main_ip_address": data.get("main_ip_address"),
+                            "main_mac_address": data.get("main_mac_address"),
+                            "main_interface": data.get("main_interface"),
+                            "southbound": data.get("southbound", "unknown"),
+                            "status": "active",
+                            "cpu_cores": data.get("cpu_cores"),
+                            "virtualization": data.get("virtualization"),
+                            "last_seen": time.time()
+                        }
+                        DeviceRepository.update_server(device_id, server_data)
+                    else:  # router
+                        router_data = {
+                            "device_id": device_id,
+                            "username": data.get("username", "unknown"),
+                            "password": data.get("password", ""),
+                            "identity": data.get("identity", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "board": data.get("board"),
+                            "serial_number": data.get("serial_number"),
+                            "vendor": data.get("vendor", "unknown"),
+                            "main_ip_address": data.get("main_ip_address"),
+                            "main_mac_address": data.get("main_mac_address"),
+                            "main_interface": data.get("main_interface"),
+                            "southbound": data.get("southbound", "unknown"),
+                            "status": "active",
+                            "last_seen": time.time()
+                        }
+                        DeviceRepository.update_router(device_id, router_data)
+                    
+                    self.core.logger.info(f"Updated existing device in database: {device_id}")
+                    
+                else:
+                    # Insert new device
+                    # First insert to network_devices
+                    network_id = DeviceRepository.insert_network_device(common_data)
+                    
+                    # Then insert to specific table
+                    if device_type == "server":
+                        server_data = {
+                            "device_id": device_id,
+                            "hostname": data.get("hostname", "unknown"),
+                            "main_username": data.get("main_username", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "architecture": data.get("architecture"),
+                            "architecture_bits": data.get("architecture_bits"),
+                            "processor_type": data.get("processor_type"),
+                            "vendor": data.get("vendor", "unknown"),
+                            "main_ip_address": data.get("main_ip_address"),
+                            "main_mac_address": data.get("main_mac_address"),
+                            "main_interface": data.get("main_interface"),
+                            "southbound": data.get("southbound", "unknown"),
+                            "status": "active",
+                            "cpu_cores": data.get("cpu_cores"),
+                            "virtualization": data.get("virtualization")
+                        }
+                        DeviceRepository.insert_server(server_data)
+                    else:  # router
+                        router_data = {
+                            "device_id": device_id,
+                            "username": data.get("username", "unknown"),
+                            "password": data.get("password", ""),
+                            "identity": data.get("identity", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "board": data.get("board"),
+                            "serial_number": data.get("serial_number"),
+                            "vendor": data.get("vendor", "unknown"),
+                            "main_ip_address": data.get("main_ip_address"),
+                            "main_mac_address": data.get("main_mac_address"),
+                            "main_interface": data.get("main_interface"),
+                            "southbound": data.get("southbound", "unknown"),
+                            "status": "active"
+                        }
+                        DeviceRepository.insert_router(router_data)
+                    
+                    self.core.logger.info(f"Registered new device in database: {device_id}")
+                
+                db_registered = True
+                    
+            except Exception as db_error:
+                self.core.logger.warning(f"Database registration failed, using memory fallback: {db_error}")
+                db_registered = False
 
-            device_type = "Server Agent" if is_server else "Mikrotik/Active"
-            print(f"[CONTROLLER] {device_type} Device registered: {data['id']} - IP: {data.get('ip')} - Hostname: {data.get('hostname', 'unknown')}")
+            # === MEMORY REGISTRY (FALLBACK/COMPATIBILITY) ===
+            memory_registered = False
+            try:
+                # Initialize memory registry if not exists
+                if not hasattr(self.core, 'devices'):
+                    class MemoryDeviceRegistry:
+                        def __init__(self): self.db = {}
+                        def create(self, data): 
+                            self.db[data["id"]] = data
+                            return data
+                        def get(self, did): return self.db.get(did)
+                        def list(self): return list(self.db.values())
+                    
+                    self.core.devices = MemoryDeviceRegistry()
+                
+                # Save to memory registry
+                memory_result = self.core.devices.create(data)
+                memory_registered = True
+                
+                device_type_str = "Server Agent" if is_server else "Mikrotik/Active"
+                self.core.logger.info(f"{device_type_str} Device registered in memory: {device_id}")
 
-            body = json.dumps({
+            except Exception as memory_error:
+                self.core.logger.error(f"Memory registration also failed: {memory_error}")
+                memory_registered = False
+
+            # === SUCCESS RESPONSE ===
+            response_data = {
                 "status": "ok",
-                "device": result,
-                "registration_type": "server_agent" if is_server else "active_discovery",
-                "device_id": data["id"]
-            })
+                "device": { 
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "southbound": data.get("southbound", "unknown"),
+                    "hostname": data.get("hostname", "unknown"),
+                    "main_ip_address": data.get("main_ip_address"),
+                    "status": "active"
+                },
+                "registration_type": registration_mode,
+                "database_registered": db_registered,
+                "memory_registered": memory_registered
+            }
+
+            return self._resp(req, json.dumps(response_data), 200)
 
         except Exception as e:
             import traceback
             self.core.logger.error(f"Device registration failed: {str(e)}\n{traceback.format_exc()}")
-            body = json.dumps({
+            return self._resp(req, json.dumps({
                 "status": "error",
                 "error": str(e)
-            })
-
-        if isinstance(body, str):
-            body = body.encode('utf-8')
-
-        return Response(
-            content_type='application/json',
-            body=body,
-            status=200
-        )
+            }), 500)
 
     def _resp(self, req, body, status=200):
         if isinstance(body, str):
@@ -615,51 +597,124 @@ class NorthboundApi(ControllerBase):
 
     @route('devices', '/devices', methods=['GET'])
     def list_devices(self, req, **kwargs):
-        devices = self.core.devices.list()
-
-        # ubah setiap device biar lebih clean ( ini yg bakal tampil saat curl device )
-        clean_devices = []
-        for dev in devices:
-            clean_dev = {
-                "id": dev.get("id"),
-                "status": dev.get("status", "ok"),
-                "hostname": dev.get("hostname"),
-                "main_username": dev.get("main_username"),
-                "architecture": dev.get("architecture"),
-                "architecture_bits": dev.get("architecture_bits"),
-                "processor_type": dev.get("processor_type"),
-                "cpu_cores": dev.get("cpu_cores"),
-                "main_ip": dev.get("ip"),
-                "main_interface": dev.get("main_interface"),
-                "main_mac_address": dev.get("main_mac_address"),
-                "vendor": dev.get("vendor"),
-                "os": dev.get("os"),
-                "southbound": dev.get("southbound"),
-                "last_seen": dev.get("last_seen"),   
-            }
-        
-            # Hanya tambahkan meta jika ada data penting ( yg ditambahkan di meta )
-            meta = dev.get("meta", {})
-            if meta:
-                clean_meta = {}
+        try:
+            # Prioritaskan database dengan error handling
+            try:
+                db_devices = DeviceRepository.list_all()
                 
-                # Include important meta fields
-                if meta.get("detected_ips"):
-                    clean_meta["detected_ips"] = meta["detected_ips"]
-                if meta.get("interface_details"):
-                    clean_meta["interface_details"] = meta["interface_details"]
-                if meta.get("interfaces"):
-                    clean_meta["interfaces"] = meta["interfaces"]
-                if meta.get("virtualization"):
-                    clean_meta["virtualization"] = meta["virtualization"]
-    
-                if clean_meta:
-                    clean_dev["meta"] = clean_meta
+                # Jika ada devices di database, format sesuai skema
+                if db_devices:
+                    clean_devices = []
+                    for i, dev in enumerate(db_devices, 1):
+                        # Base device info dari network_devices
+                        clean_dev = {
+                            "id": i,
+                            "device_id": dev.get("device_id"),
+                            "device_type": dev.get("device_type", "unknown"),
+                            "southbound": dev.get("southbound", "unknown"),
+                            "status": dev.get("status", "active"),
+                            "created_at": dev.get("created_at"),
+                            "updated_at": dev.get("updated_at"),
+                            "last_seen": dev.get("last_seen")
+                        }
+                        
+                        # Tambahkan field spesifik berdasarkan device_type
+                        if dev.get("device_type") == "server":
+                            clean_dev.update({
+                                "hostname": dev.get("hostname", "unknown"),
+                                "main_username": dev.get("main_username", "unknown"),
+                                "os_version": dev.get("os_version", "unknown"),
+                                "architecture": dev.get("architecture"),
+                                "architecture_bits": dev.get("architecture_bits"),
+                                "processor_type": dev.get("processor_type"),
+                                "vendor": dev.get("vendor", "unknown"),
+                                "main_ip_address": dev.get("main_ip_address"),
+                                "main_mac_address": dev.get("main_mac_address"),
+                                "main_interface": dev.get("main_interface"),
+                                "cpu_cores": dev.get("cpu_cores"),
+                                "memory_total": dev.get("memory_total"),
+                                "disk_total": dev.get("disk_total"),
+                                "virtualization": dev.get("virtualization")
+                            })
+                        elif dev.get("device_type") == "router":
+                            clean_dev.update({
+                                "username": dev.get("username", "unknown"),
+                                "identity": dev.get("identity", "unknown"),
+                                "os_version": dev.get("os_version", "unknown"),
+                                "board": dev.get("board"),
+                                "serial_number": dev.get("serial_number"),
+                                "vendor": dev.get("vendor", "unknown"),
+                                "main_ip_address": dev.get("main_ip_address"),
+                                "main_mac_address": dev.get("main_mac_address"),
+                                "main_interface": dev.get("main_interface")
+                            })
+                        
+                        clean_devices.append(clean_dev)
+                    
+                    self.core.logger.info(f"Listed {len(clean_devices)} devices from database")
+                    return self._resp(req, json.dumps(clean_devices))
+                    
+            except Exception as db_error:
+                self.core.logger.warning(f"Database access failed: {db_error}. Using memory registry.")
             
-            clean_devices.append(clean_dev)
+            # Fallback ke memory registry
+            if hasattr(self.core, 'devices'):
+                memory_devices = self.core.devices.list()
+                clean_devices = []
+                for i, dev in enumerate(memory_devices, 1):
+                    # Convert memory format ke database format
+                    device_type = "server" if dev.get("southbound") == "server_api" else "router"
+                    
+                    clean_dev = {
+                        "id": i,
+                        "device_id": dev.get("id"),
+                        "device_type": device_type,
+                        "southbound": dev.get("southbound", "unknown"),
+                        "status": dev.get("status", "active"),
+                        "last_seen": dev.get("last_seen")
+                    }
+                    
+                    if device_type == "server":
+                        clean_dev.update({
+                            "hostname": dev.get("hostname", "unknown"),
+                            "main_username": dev.get("main_username", "unknown"),
+                            "os_version": dev.get("os", "unknown"),
+                            "architecture": dev.get("architecture"),
+                            "architecture_bits": dev.get("architecture_bits"),
+                            "processor_type": dev.get("processor_type"),
+                            "vendor": dev.get("vendor", "unknown"),
+                            "main_ip_address": dev.get("main_ip_address"),
+                            "main_mac_address": dev.get("main_mac_address"),
+                            "main_interface": dev.get("main_interface"),
+                            "cpu_cores": dev.get("cpu_cores"),
+                            "virtualization": dev.get("virtualization")
+                        })
+                    else:  # router
+                        clean_dev.update({
+                            "username": dev.get("username", "unknown"),
+                            "identity": dev.get("identity", dev.get("hostname", "unknown")),
+                            "os_version": dev.get("version", "unknown"),
+                            "board": dev.get("board"),
+                            "serial_number": dev.get("serial-number"),
+                            "vendor": dev.get("vendor", "unknown"),
+                            "main_ip_address": dev.get("ip"),
+                            "main_mac_address": dev.get("mac-address"),
+                            "main_interface": dev.get("main_interface")
+                        })
+                    
+                    clean_devices.append(clean_dev)
+                
+                self.core.logger.info(f"Listed {len(clean_devices)} devices from memory registry")
+                return self._resp(req, json.dumps(clean_devices))
+            
+            # No devices found
+            return self._resp(req, json.dumps([]))
+            
+        except Exception as e:
+            self.core.logger.error(f"Error listing devices: {e}")
+            return self._resp(req, json.dumps({"error": str(e)}), 500)
+            
         
-        body = json.dumps(clean_devices)
-        return self._resp(req, body)
     
     # Panggil device berdasarkan ID
     @route('devices', '/devices/{device_id}', methods=['GET'])
