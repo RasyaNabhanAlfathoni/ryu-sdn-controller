@@ -4,9 +4,11 @@ from drivers.linux.firewall import ServerFirewallDriver
 from drivers.linux.service import ServerServiceDriver
 from drivers.linux.system import ServerSystemDriver
 from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+from drivers.linux.lldp import LLDPDriver
 import psutil
 import subprocess
 import json
+import datetime
 
 app = Flask(__name__)
 
@@ -16,6 +18,7 @@ firewall_driver = ServerFirewallDriver()
 service_driver = ServerServiceDriver()
 system_driver = ServerSystemDriver()
 wazuh_dispatcher = WazuhDispatcher()
+lldp_driver = LLDPDriver()
 
 def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)
@@ -555,6 +558,72 @@ def service_status(service):
     except Exception as e:
         log_message(f"Error in service_status: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+# === LLDP ENDPOINTS ===
+
+@app.route('/api/network/lldp/neighbors', methods=['GET', 'POST'])
+def get_lldp_neighbors():
+    """Get LLDP neighbors information"""
+    try:
+        data = request.json if request.method == 'POST' else {}
+        log_message(f"{request.method} /api/network/lldp/neighbors - {data}")
+        
+        if 'iface' in data:
+            result = lldp_driver.get_interface_neighbors(data['iface'])
+        else:
+            result = lldp_driver.get_neighbors()
+            
+        return jsonify({
+            "status": "success",
+            "data": result,
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+    except Exception as e:
+        log_message(f"Error in get_lldp_neighbors: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/network/lldp/statistics', methods=['GET'])
+def get_lldp_statistics():
+    """Get LLDP statistics"""
+    try:
+        log_message("GET /api/network/lldp/statistics")
+        result = lldp_driver.get_lldp_statistics()
+        return jsonify({
+            "status": "success",
+            "data": result,
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+    except Exception as e:
+        log_message(f"Error in get_lldp_statistics: {e}")
+        return jsonify({
+            "status": "error", 
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        }), 500
+
+@app.route('/api/network/lldp/status', methods=['GET'])
+def get_lldp_status():
+    """Get LLDP daemon status"""
+    try:
+        log_message("GET /api/network/lldp/status")
+        result = lldp_driver.get_lldp_status()
+        return jsonify({
+            "status": "success",
+            "data": result,
+            "timestamp": datetime.datetime.now().isoformat()
+        })
+    except Exception as e:
+        log_message(f"Error in get_lldp_status: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.datetime.now().isoformat()
+        }), 500
 
 
 # === SYSTEM ENDPOINTS ===

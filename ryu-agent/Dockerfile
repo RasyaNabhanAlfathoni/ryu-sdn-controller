@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     nmap \
     traceroute \
     dnsutils \
+    lldpd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements dan install Python packages
@@ -22,6 +23,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy semua file agent
 COPY . .
+
+# Create directory untuk lldpd socket
+RUN mkdir -p /var/run/lldpd
 
 # Expose port untuk agent API (informational saja)
 EXPOSE 8080

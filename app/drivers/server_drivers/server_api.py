@@ -1,5 +1,6 @@
 import requests
 import json
+from typing import Dict, List, Optional
 
 class ServerAPI:
     name = "AgentClient"  # Ganti nama untuk clarity
@@ -285,6 +286,57 @@ class ServerAPI:
     def service_status(self, service, logger=None):
         """Get service status"""
         return self._call_agent(f"/api/system/service/{service}/status", logger=logger)
+    
+
+    # ===  LLDPD Methods
+
+    def get_lldp_neighbors(self, iface: str = None, logger=None) -> Dict:
+        """Get LLDP neighbors from server agent"""
+        endpoint = "/api/network/lldp/neighbors"
+        
+        payload = {}
+        if iface:
+            payload['iface'] = iface
+            
+        try:
+            if logger:
+                logger(f"Fetching LLDP neighbors from agent: {endpoint}")
+                
+            result = self._call_agent(endpoint, payload, logger=logger)
+            return result
+        except Exception as e:
+            error_msg = f"LLDP neighbors error: {str(e)}"
+            if logger:
+                logger(error_msg)
+            return {"status": "error", "error": error_msg}
+    
+    def get_lldp_statistics(self, logger=None) -> Dict:
+        """Get LLDP statistics from server agent"""
+        try:
+            if logger:
+                logger("Fetching LLDP statistics from agent")
+                
+            result = self._call_agent("/api/network/lldp/statistics", logger=logger)
+            return result
+        except Exception as e:
+            error_msg = f"LLDP statistics error: {str(e)}"
+            if logger:
+                logger(error_msg)
+            return {"status": "error", "error": error_msg}
+    
+    def get_lldp_status(self, logger=None) -> Dict:
+        """Get LLDP daemon status from server agent"""
+        try:
+            if logger:
+                logger("Fetching LLDP status from agent")
+                
+            result = self._call_agent("/api/network/lldp/status", logger=logger)
+            return result
+        except Exception as e:
+            error_msg = f"LLDP status error: {str(e)}"
+            if logger:
+                logger(error_msg)
+            return {"status": "error", "error": error_msg}
 
 
     # === System Monitoring Methods ===

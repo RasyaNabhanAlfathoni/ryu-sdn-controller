@@ -294,6 +294,14 @@ class Orchestrator(app_manager.RyuApp):
                 "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
                 "server.network.arp_table": lambda p, logger: d.get_arp_table(logger=logger),
 
+                # LLDP Discovery
+                "server.network.lldp.neighbors": lambda p, logger: d.get_lldp_neighbors(
+                    iface=p.get('iface'), 
+                    logger=logger
+                ),
+                "server.network.lldp.statistics": lambda p, logger: d.get_lldp_statistics(logger=logger),
+                "server.network.lldp.status": lambda p, logger: d.get_lldp_status(logger=logger),
+
                 # Firewall Management - UFW
                 "server.firewall.ufw_status": lambda p, logger: d.ufw_status(logger=logger),
                 "server.firewall.ufw_enable": lambda p, logger: d.ufw_enable(logger=logger),

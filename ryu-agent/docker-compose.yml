@@ -36,13 +36,21 @@ services:
       - /etc/network:/etc/network:rw # Debian Network Manager
       - /etc/systemd/network:/etc/systemd/network:rw # Systemd-Networkd Network Manager
       - /etc/sysconfig/network-scripts:/etc/sysconfig/network-scripts:rw # RHEL/CentOS Network Manager
-
+      - /var/run/lldpd:/var/run/lldpd:rw # Akses ke network host untuk LLDPd
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
     privileged: true # Untuk Akses command system pada Server
     network_mode: host # Untuk Scanning real network pada Server
     restart: unless-stopped
-    command: python3 agent_api.py --verbose
+    # command: python3 agent_api.py --verbose
+    command: >
+      sh -c "
+      echo 'Starting LLDP daemon...' &&
+      lldpd -d &
+      sleep 3 &&
+      echo 'Starting Agent API...' &&
+      exec python3 agent_api.py --verbose
+      "
 
   node-exporter:
     image: prom/node-exporter:latest
