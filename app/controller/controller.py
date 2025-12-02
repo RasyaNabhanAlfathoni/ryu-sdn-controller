@@ -1,17 +1,21 @@
-import os, sys, threading
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import os, sys
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(BASE_DIR)
 
 from ryu.base import app_manager
 from ryu.app.wsgi import WSGIApplication, ControllerBase, route
 from ryu.lib import hub
 from webob import Response
 import json, uuid, time, datetime
+import socket
 
 # === Database Integration ===
 from database.device_repository import DeviceRepository
 
-# === MikroTik Driver ===
+# === SNMP Driver ===
 from drivers.snmp_file_manager import SNMPFileManager
+
+# === Router Driver ===
 from drivers.router_drivers.mikrotik.routeros_api import RouterOSApiDriver
 from actions.routers.mikrotik import MikrotikRouterActions
 
@@ -355,7 +359,7 @@ class NorthboundApi(ControllerBase):
                 
                 # Data langsung dari payload (bukan dari meta)
                 server_data = {
-                    "hostname": data.get("hostname", "unknown"),
+                    "hostname": data.get("identity", data.get("hostname", "unknown")),
                     "main_ip_address": data.get("main_ip_address"),
                     "main_interface": data.get("main_interface", "unknown"),
                     "main_mac_address": data.get("main_mac_address", "unknown"),
@@ -409,14 +413,16 @@ class NorthboundApi(ControllerBase):
                 # Map MikroTik specific fields
                 data.update({
                     "username": data.get("username", "admin"),
-                    "identity": data.get("identity", data.get("hostname", "mikrotik")),
-                    "os_version": data.get("version", "unknown"),
-                    "board": data.get("board-name", ""),
-                    "serial_number": data.get("serial-number", ""),
+                    "identity": info.get("identity"),
+                    "os_version": info.get("version"),
+                    "board": info.get("board-name"),
+                    "serial_number": info.get("serial-number"),
                     "vendor": "MikroTik",
                     "main_ip_address": data.get("ip"),
-                    "main_mac_address": data.get("mac-address", ""),
-                    "main_interface": data.get("main_interface", "ether1")
+                    "main_mac_address": info.get("mac-address"),
+                    "main_interface": info.get("main_interface"),
+                    "southbound": "routeros_api",
+                    "status": "active"
                 })
                 
             else:
@@ -448,7 +454,7 @@ class NorthboundApi(ControllerBase):
                     if device_type == "server":
                         server_data = {
                             "device_id": device_id,
-                            "hostname": data.get("hostname", "unknown"),
+                            "hostname": data.get("identity", data.get("hostname", "unknown")),
                             "main_username": data.get("main_username", "unknown"),
                             "os_version": data.get("os_version", "unknown"),
                             "architecture": data.get("architecture"),
@@ -471,14 +477,14 @@ class NorthboundApi(ControllerBase):
                             "username": data.get("username", "unknown"),
                             "password": data.get("password", ""),
                             "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "board": data.get("board"),
-                            "serial_number": data.get("serial_number"),
-                            "vendor": data.get("vendor", "unknown"),
-                            "main_ip_address": data.get("main_ip_address"),
-                            "main_mac_address": data.get("main_mac_address"),
+                            "os_version": data.get("version") or data.get("os_version", "unknown"),
+                            "board": data.get("board") or data.get("board-name"),
+                            "serial_number": data.get("serial_number") or data.get("serial-number"),
+                            "vendor": data.get("vendor", "MikroTik"),
+                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
+                            "main_mac_address": data.get("main_mac_address") or data.get("mac-address"),
                             "main_interface": data.get("main_interface"),
-                            "southbound": data.get("southbound", "unknown"),
+                            "southbound": data.get("southbound", "routeros_api"),
                             "status": "active",
                             "last_seen": time.time()
                         }
@@ -495,7 +501,7 @@ class NorthboundApi(ControllerBase):
                     if device_type == "server":
                         server_data = {
                             "device_id": device_id,
-                            "hostname": data.get("hostname", "unknown"),
+                            "hostname": data.get("identity", data.get("hostname", "unknown")),
                             "main_username": data.get("main_username", "unknown"),
                             "os_version": data.get("os_version", "unknown"),
                             "architecture": data.get("architecture"),
@@ -518,14 +524,14 @@ class NorthboundApi(ControllerBase):
                             "password": data.get("password", ""),
                             "identity": data.get("identity", "unknown"),
                             "os_version": data.get("os_version", "unknown"),
-                            "board": data.get("board"),
-                            "serial_number": data.get("serial_number"),
-                            "vendor": data.get("vendor", "unknown"),
-                            "main_ip_address": data.get("main_ip_address"),
-                            "main_mac_address": data.get("main_mac_address"),
+                            "board": data.get("board") or data.get("board-name"),
+                            "serial_number": data.get("serial_number") or data.get("serial-number"),
+                            "vendor": data.get("vendor", "MikroTik"),
+                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
+                            "main_mac_address": data.get("main_mac_address") or data.get("mac-address"),
                             "main_interface": data.get("main_interface"),
-                            "southbound": data.get("southbound", "unknown"),
-                            "status": "active"
+                            "southbound": data.get("southbound", "routeros_api"),
+                            "status": "active",
                         }
                         DeviceRepository.insert_router(router_data)
                     
@@ -570,7 +576,7 @@ class NorthboundApi(ControllerBase):
                     "device_id": device_id,
                     "device_type": device_type,
                     "southbound": data.get("southbound", "unknown"),
-                    "hostname": data.get("hostname", "unknown"),
+                    "hostname": data.get("identity", data.get("hostname", "unknown")),
                     "main_ip_address": data.get("main_ip_address"),
                     "status": "active"
                 },
@@ -794,7 +800,3 @@ class NorthboundApi(ControllerBase):
             # Return empty array jika error
             body = json.dumps([])
             return self._resp(req, body)
-    
-    
-    
-
