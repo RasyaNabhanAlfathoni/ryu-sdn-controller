@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     traceroute \
     dnsutils \
     lldpd \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements dan install Python packages

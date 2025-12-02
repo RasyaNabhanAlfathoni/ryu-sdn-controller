@@ -87,20 +87,20 @@ class ServerActions:
                 # === Wazuh Agent Command ===
                 "wazuh.agent.list": lambda p, logger: wazuh_api.get_agents(),
                 "server.wazuh.install": lambda p, logger: wazuh_api.install_agent(
-                    device_id=p.get("device_id"),
+                    device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                     manager_ip=p.get("manager_ip"), 
                     logger=logger
                 ),
                 "server.wazuh.uninstall": lambda p, logger: wazuh_api.uninstall_agent(
-                    device_id=p.get("device_id"),
+                    device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                     logger=logger
                 ),
                 "server.wazuh.status": lambda p, logger: wazuh_api.get_agent_status(
-                    device_id=p.get("device_id"),
+                    device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                     logger=logger
                 ),
                 "server.wazuh.security.overview": lambda p, logger: wazuh_api.get_security_overview(
-                    device_id=p.get("device_id"),
+                    device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                     logger=logger
                 ),
                 "server.wazuh.security.vulnerabilities": lambda p, logger: wazuh_api.get_vulnerabilities(

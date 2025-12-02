@@ -54,39 +54,36 @@ class RouterOSApiDriver:
             pool.disconnect()
             
     def get_device_info(self):
-        """
-        Ambil informasi detail router:
-        - identity
-        - version
-        - board-name
-        - mac-address dari interface yang punya IP sama dengan dev["ip"]
-        """
         pool, api = self.get_api()
         try:
-            # Ambil system identity dan resource
+            # Ambil identity & system resource
             identity = api.get_resource('/system/identity').get()[0]["name"]
             resource = api.get_resource('/system/resource').get()[0]
             version = resource.get("version")
             board = resource.get("board-name")
 
-            # Ambil daftar IP address
+            # Ambil serial number dari routerboard
+            rb = api.get_resource('/system/routerboard').get()[0]
+            serial = rb.get("serial-number")
+
+            # Ambil daftar IP address (untuk main interface)
             ip_addrs = api.get_resource('/ip/address').get()
             dev_ip = self.host
             matched_iface = None
 
-            # 🧠 Cek interface mana yang punya IP yang sama dengan IP device ini
+            # Cari interface dengan IP yg sama
             for ipr in ip_addrs:
                 addr = ipr.get("address", "")
-                if dev_ip in addr:  # contoh: '9.9.9.1/24'
+                if dev_ip in addr:
                     matched_iface = ipr.get("interface")
                     break
 
-            # Fallback: kalau gak ketemu, ambil interface pertama
+            # Fallback interface
             interfaces = api.get_resource('/interface/ethernet').get()
             if not matched_iface and interfaces:
                 matched_iface = interfaces[0].get("name")
 
-            # Ambil MAC address dari interface itu
+            # Ambil mac address
             mac = None
             for iface in interfaces:
                 if iface.get("name") == matched_iface:
@@ -96,10 +93,13 @@ class RouterOSApiDriver:
             return {
                 "identity": identity,
                 "version": version,
-                "board": board,
+                # "board-name": "RouterOS",
+                "board-name": board,
+                # "serial-number": "h1h1h1h1",
+                "serial-number": serial,
                 "vendor": "MikroTik",
-                "mac_address": mac,
-                "main_interface": matched_iface
+                "mac-address": mac,
+                "main_interface": matched_iface,
             }
 
         finally:

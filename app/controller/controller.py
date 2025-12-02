@@ -13,20 +13,19 @@ from database.device_repository import DeviceRepository
 # === MikroTik Driver ===
 from drivers.snmp_file_manager import SNMPFileManager
 from drivers.router_drivers.mikrotik.routeros_api import RouterOSApiDriver
-from drivers.router_drivers.mikrotik.ip import RouterOSIpDriver
-from drivers.router_drivers.mikrotik.interface import RouterOSInterfaceDriver
-from drivers.router_drivers.mikrotik.vlan import RouterOSVlanDriver
-from drivers.router_drivers.mikrotik.dhcp_server import RouterOSDhcpServerDriver
-from drivers.router_drivers.mikrotik.dhcp_client import RouterOSDhcpClientDriver
-from drivers.router_drivers.mikrotik.ip_pool import RouterOSIpPoolDriver
-from drivers.router_drivers.mikrotik.dns_server import RouterOSDnsDriver
-from drivers.router_drivers.mikrotik.neighbor import RouterOSNeighborDriver
-from drivers.router_drivers.mikrotik.snmp import RouterOSSNMPDriver
 from actions.routers.mikrotik import MikrotikRouterActions
-from actions.servers.server import ServerActions
+
+# === Switch Driver ===
+# from drivers.switch_drivers.netconf import NetconfApiDriver
+# from actions.switch.cisco import CiscoSwitchActions
+# from actions.switch.mikrotik import MikrotikSwitchActions
+
+# === Access-Point Driver ===
+# from actions.access_point.tplink import TPLinkAccessPointActions
 
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
+from actions.servers.server import ServerActions
 
 # === Wazuh Driver ===
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
@@ -713,8 +712,6 @@ class NorthboundApi(ControllerBase):
         except Exception as e:
             self.core.logger.error(f"Error listing devices: {e}")
             return self._resp(req, json.dumps({"error": str(e)}), 500)
-            
-        
     
     # Panggil device berdasarkan ID
     @route('devices', '/devices/{device_id}', methods=['GET'])

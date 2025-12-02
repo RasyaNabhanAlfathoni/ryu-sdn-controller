@@ -9,12 +9,16 @@ from typing import Dict, List, Optional
 class WazuhDriver:
     def __init__(self, logger=print):
         self.logger = logger
+        self.host_root = "/host-rootfs"
 
     def _execute_on_host(self, command: str) -> Dict:
         """Execute command on Host system (not container)"""
         try:
+            if not os.path.exists("/host-rootfs/bin/sh"):
+                return {"success": False, "error": "host-rootfs not mounted properly"}
+
             # Execute command on host via chroot
-            host_command = f"chroot /host-rootfs {command}"
+            host_command = f"chroot /host-rootfs /bin/bash -c \"{command}\""
             
             self.logger(f"Executing on Host: {command}")
             result = subprocess.run(
@@ -25,6 +29,28 @@ class WazuhDriver:
                 timeout=300
             )
             
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+                "exit_code": result.returncode
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _execute_systemctl(self, command: str) -> Dict:
+        """Untuk eksekusi systemctl menggunakan nsenter"""
+        try:
+            host_cmd = f"nsenter --target 1 --mount --uts --ipc --net --pid {command}"
+            self.logger(f"Executing systemctl on Host: {host_cmd}")
+
+            result = subprocess.run(
+                host_cmd,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+
             return {
                 "success": result.returncode == 0,
                 "output": result.stdout,
@@ -77,7 +103,7 @@ class WazuhDriver:
         """Detect OS family dan version"""
         try:
             # Read host's os-release
-            with open('/host-rootfs/etc/os-release', 'r') as f:
+            with open(f'{self.host_root}/etc/os-release', 'r') as f:
                 os_info = {}
                 for line in f:
                     if '=' in line:
@@ -144,11 +170,16 @@ class WazuhDriver:
         
         commands = []
         
-        # Download command
-        if 'curl' in subprocess.run(['which', 'curl'], capture_output=True).stdout.decode().strip():
+        # Download command (cek di HOST, bukan container)
+        curl_check = self._execute_on_host("command -v curl")
+        wget_check = self._execute_on_host("command -v wget")
+
+        if curl_check["success"] and curl_check.get("output"):
             commands.append(f"curl -o {filename} {package_url}")
-        else:
+        elif wget_check["success"] and wget_check.get("output"):
             commands.append(f"wget -O {filename} {package_url}")
+        else:
+            return {"success": False, "error": "Host has neither curl nor wget installed!"}
         
         # Install commands berdasarkan package manager
         install_commands = {
@@ -207,83 +238,118 @@ class WazuhDriver:
                 
         except Exception as e:
             return {"success": False, "error": f"Connection test failed: {str(e)}"}
-    
+        
+    def detect_host_capabilities(self) -> dict:
+        """Detect capabilities of the Host system before performing operations."""
+        capabilities = {}
+
+        # Check host-rootfs existence
+        capabilities["host_root_mounted"] = os.path.exists("/host-rootfs")
+
+        # Check systemctl (systemd)
+        capabilities["systemd"] = (
+            os.path.exists(f"{self.host_root}/bin/systemctl") or
+            os.path.exists(f"{self.host_root}/usr/bin/systemctl") or
+            os.path.exists(f"{self.host_root}/usr/sbin/systemctl")
+        )
+
+        # Check SysV init
+        res = self._execute_on_host("test -d /etc/init.d && echo ok")
+        capabilities["sysvinit"] = res["success"]
+
+        # Check netplan
+        capabilities["netplan"] = os.path.isdir(f"{self.host_root}/etc/netplan")
+
+        # Check systemd-networkd
+        capabilities["systemd_networkd"] = os.path.isdir(f"{self.host_root}/etc/systemd/network")
+
+        # Check if legacy /etc/network exists (Debian/Ubuntu classic)
+        capabilities["ifupdown"] = os.path.isdir(f"{self.host_root}/etc/network")
+
+        # RHEL network-scripts
+        capabilities["network_scripts"] = os.path.isdir(f"{self.host_root}/etc/sysconfig/network-scripts")
+
+        # curl & wget available?
+        capabilities["curl"] = (
+            os.path.exists(f"{self.host_root}/usr/bin/curl") or
+            os.path.exists(f"{self.host_root}/bin/curl")
+        )
+
+        capabilities["wget"] = (
+            os.path.exists(f"{self.host_root}/usr/bin/wget") or
+            os.path.exists(f"{self.host_root}/bin/wget")
+        )
+
+        # chroot available?
+        capabilities["chroot"] = os.path.exists("/usr/sbin/chroot") or os.path.exists("/bin/chroot")
+
+        return capabilities
+
     def install_wazuh_agent(self, manager_ip: str, agent_key: str, agent_name: str = None, wazuh_version: str = "4.11.2") -> Dict:
-        """Universal Wazuh agent installer"""
         try:
+            cap = self.detect_host_capabilities()
+            self.logger(f"Host Capabilities: {cap}")
+
+            if not cap["host_root_mounted"]:
+                return {"success": False, "error": "host-rootfs is not mounted — cannot continue"}
+
+            if not cap["systemd"] and not cap["sysvinit"]:
+                return {"success": False, "error": "No supported init system (systemd/SysV) detected on host!"}
+
+            if not cap["curl"] and not cap["wget"]:
+                return {"success": False, "error": "Host has neither curl nor wget installed!"}
+
             self.logger("Starting Wazuh agent installation...")
 
-            # Verifikasi instalasi
-            result = self._execute_on_host("ls /var/ossec/bin/wazuh-agent 2>/dev/null && echo 'installed' || echo 'not-installed'")
+            # Check if installed
+            result = self._execute_on_host("test -f /var/ossec/bin/wazuh-agent")
             if "installed" in result.get("output", ""):
-                self.logger("Wazuh already installed on Host, reconfiguring...")
+                self.logger("Wazuh already installed, reconfiguring...")
                 key_result = self._register_agent_key(agent_key, agent_name)
                 if key_result["success"]:
-                    self._execute_on_host("systemctl restart wazuh-agent")
+                    self._execute_systemctl("systemctl restart wazuh-agent")
                     return {"success": True, "message": "Wazuh reconfigured on Host"}
 
-            # Jika agent_name tidak provided, gunakan hostname
+            # Detect hostname
             if not agent_name:
                 result = self._execute_on_host("hostname")
-                agent_name = result.get("output", "").strip() if result["success"] else "unknown"
-            
-            self.logger(f"Installing for agent: {agent_name}, Manager: {manager_ip}")
-            
-            # Detect system information
-            package_manager = self.detect_package_manager()
-            architecture = self.detect_architecture() 
-            os_info = self.detect_os_family()
-            
-            self.logger(f"System info - Package Manager: {package_manager}, Arch: {architecture}, OS: {os_info}")
-            
-            # Get appropriate package URL
-            package_url = self.get_wazuh_package_url(os_info['family'], architecture, wazuh_version)
-            filename = os.path.basename(package_url)
+                agent_name = result.get("output", "").strip() or "unknown"
 
-            # Generate install commands
+            # Detect system
+            package_manager = self.detect_package_manager()
+            architecture = self.detect_architecture()
+            os_info = self.detect_os_family()
+
+            self.logger(f"System info - Package Manager: {package_manager}, Arch: {architecture}, OS: {os_info}")
+
+            # Get package URL
+            package_url = self.get_wazuh_package_url(os_info['family'], architecture, wazuh_version)
+
+            # Generate installation commands
             commands = self.get_install_commands(package_url, package_manager, manager_ip)
-            
-             # Download pada Host
-            self.logger(f"Downloading on Host: {package_url}")
-            download_cmd = f"cd /tmp && curl -L -o {filename} {package_url}"
-            result = self._execute_on_host(download_cmd)
-            if not result["success"]:
-                return {"success": False, "error": f"Download failed on Host: {result.get('error')}"}
-            
-            # Install pada Host dengan WAZUH_MANAGER env
-            self.logger("Installing on Host...")
-            if package_manager in ['apt', 'apt-get']:
-                install_cmd = f"cd /tmp && WAZUH_MANAGER='{manager_ip}' dpkg -i {filename}"
-            else:
-                install_cmd = f"cd /tmp && WAZUH_MANAGER='{manager_ip}' rpm -i {filename}"
-            
-            result = self._execute_on_host(install_cmd)
-            if not result["success"]:
-                self.logger(f"Install issues on Host: {result.get('error')}")
-                # Try fix dependencies
-                if "dependency" in result.get("error", ""):
-                    self._execute_on_host("apt-get install -f -y")
-            
-            # Register key pada Host
+
+            # Execute installation commands
+            self.logger("Executing installation commands on Host...")
+            for cmd in commands:
+                result = self._execute_on_host(f"cd /tmp && {cmd}")
+                if not result["success"]:
+                    return {"success": False, "error": f"Failed at '{cmd}', error: {result.get('error')}"}
+                
+            # Register agent key
             self.logger("Registering agent key on Host...")
-            key_result = self._register_agent_key_on_host(agent_key, agent_name)
+            key_result = self._register_agent_key(agent_key, agent_name)
             if not key_result.get("success"):
                 return {"success": False, "error": key_result["error"]}
-            
-            # Start service pada Host
-            self.logger("Starting service on Host...")
-            self._execute_on_host("systemctl enable wazuh-agent")
-            self._execute_on_host("systemctl start wazuh-agent")
-            
-            # Cleanup
-            self._execute_on_host(f"rm -f /tmp/{filename}")
 
-            # VERIFIKASI FINAL
+            # Restart service to apply key
+            self.logger("Restarting Wazuh agent...")
+            self._execute_systemctl("systemctl restart wazuh-agent")
+
+            # Final verification
             import time
-            time.sleep(5)  # Tunggu connection establish
-            
+            time.sleep(5)
             final_status = self.get_wazuh_agent_status()
-            
+
             return {
                 "success": True,
                 "message": "Wazuh agent installation completed",
@@ -291,17 +357,17 @@ class WazuhDriver:
                 "agent_id": key_result.get("agent_id", "unknown"),
                 "agent_status": final_status,
                 "service_running": final_status.get("active", False),
-                "connection_status": final_status.get("connection_status", "unknown"),
                 "system_info": {
                     "package_manager": package_manager,
                     "architecture": architecture,
                     "os_family": os_info['family']
                 }
             }
-            
+
         except Exception as e:
             self.logger(f"Host installation failed: {str(e)}")
             return {"success": False, "error": f"Host installation failed: {str(e)}"}
+
 
     def _register_agent_key(self, agent_key: str, agent_name: str) -> Dict:
         """Register agent key dengan IP yang benar"""
@@ -342,7 +408,7 @@ class WazuhDriver:
         """Get comprehensive Wazuh agent status"""
         try:
             # Check service status on Host
-            service_result = self._execute_on_host("systemctl is-active wazuh-agent")
+            service_result = self._execute_systemctl("systemctl is-active wazuh-agent")
             service_status = service_result.get("output", "").strip() if service_result["success"] else "unknown"
             
             # Check process on Host
@@ -378,7 +444,7 @@ class WazuhDriver:
             package_manager = self.detect_package_manager()
             
             # Stop service
-            self._execute_on_host("systemctl stop wazuh-agent")
+            self._execute_systemctl("systemctl stop wazuh-agent")
             
             # Uninstall berdasarkan package manager
             uninstall_commands = {
