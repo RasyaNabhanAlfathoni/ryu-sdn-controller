@@ -8,39 +8,75 @@ class SNMPFileManager:
 
     # === DEVICE MANAGEMENT ===
     def add_device(self, data):
-        """
-        data = {
-            "ip": "10.10.10.1",
-            "module": "mikrotik",
-            "device_name": "Router-Branch",
-            "location": "Branch1"
-        }
-        """
         with open(self.snmp_targets_path, "r") as f:
             targets = json.load(f)
+
+        # Cek apakah device_id sudah ada
+        for t in targets:
+            if t["labels"].get("id") == data["device_id"]:
+                raise Exception(f"Device {data['device_id']} already exists in SNMP targets")
 
         new_target = {
             "targets": [data["ip"]],
             "labels": {
+                "id": data["device_id"],
                 "module": data["module"],
                 "device_name": data["device_name"],
                 "location": data["location"]
             }
         }
 
-        # Hindari duplikasi
-        for t in targets:
-            if t["targets"] == [data["ip"]]:
-                raise Exception(f"Device {data['ip']} already exists in targets")
-
+        # Append device baru ke array
         targets.append(new_target)
 
         with open(self.snmp_targets_path, "w") as f:
             json.dump(targets, f, indent=2)
 
-        # Restart Prometheus karena target baru
         self.restart_prometheus()
         return new_target
+
+
+    def delete_device(self, device_id):
+        with open(self.snmp_targets_path, "r") as f:
+            targets = json.load(f)
+
+        new_targets = [t for t in targets if t["id"] != device_id]
+
+        if len(new_targets) == len(targets):
+            raise Exception(f"Device ID {device_id} not found")
+
+        with open(self.snmp_targets_path, "w") as f:
+            json.dump(new_targets, f, indent=2)
+
+        self.restart_prometheus()
+        return True
+
+    def edit_device(self, device_id, new_data):
+        with open(self.snmp_targets_path, "r") as f:
+            targets = json.load(f)
+
+        found = False
+
+        for t in targets:
+            if t["id"] == device_id:
+                if "ip" in new_data:
+                    t["targets"] = [new_data["ip"]]
+                if "module" in new_data:
+                    t["labels"]["module"] = new_data["module"]
+                if "device_name" in new_data:
+                    t["labels"]["device_name"] = new_data["device_name"]
+                if "location" in new_data:
+                    t["labels"]["location"] = new_data["location"]
+                found = True
+
+        if not found:
+            raise Exception(f"Device ID {device_id} not found in SNMP targets")
+
+        with open(self.snmp_targets_path, "w") as f:
+            json.dump(targets, f, indent=2)
+
+        self.restart_prometheus()
+        return True
 
     # === METRIC MANAGEMENT ===
     def add_metric(self, module, metric):
@@ -52,16 +88,27 @@ class SNMPFileManager:
 
         mod = yml["modules"][module]
 
-        # Tambah ke walk
+        # === TYPE: WALK ===
         if metric["type"] == "walk":
             if "walk" not in mod:
                 mod["walk"] = []
+
+            # avoid duplicate OID on walk
+            if metric["oid"] in mod["walk"]:
+                raise Exception(f"OID {metric['oid']} already exists in walk of module {module}")
+
             mod["walk"].append(metric["oid"])
 
-        # Tambah ke metrics
+        # === TYPE: METRICS ===
         elif metric["type"] == "metrics":
+
             if "metrics" not in mod:
                 mod["metrics"] = []
+
+            # Duplicate check (same module + same name)
+            for m in mod["metrics"]:
+                if m["name"] == metric["name"]:
+                    raise Exception(f"Metric '{metric['name']}' already exists in module '{module}'")
 
             new_entry = {
                 "name": metric["name"],
@@ -80,12 +127,67 @@ class SNMPFileManager:
         else:
             raise Exception("Invalid metric type (use 'walk' or 'metrics')")
 
+        # SAVE FILE
         with open(self.snmp_yml_path, "w") as f:
             yaml.dump(yml, f, sort_keys=False)
 
-        # Restart SNMP Exporter karena ada perubahan metric
         self.restart_snmp_exporter()
         return metric
+
+    def delete_metric(self, module, name):
+        with open(self.snmp_yml_path, "r") as f:
+            yml = yaml.safe_load(f)
+
+        # Module exist check
+        if "modules" not in yml or module not in yml["modules"]:
+            raise Exception(f"Module '{module}' does not exist")
+
+        mod = yml["modules"][module]
+
+        if "metrics" not in mod:
+            raise Exception(f"Module '{module}' has no metrics section")
+
+        before = len(mod["metrics"])
+
+        # Keep only metrics whose name != name
+        mod["metrics"] = [m for m in mod["metrics"] if m.get("name") != name]
+
+        if len(mod["metrics"]) == before:
+            raise Exception(f"Metric '{name}' not found in module '{module}'")
+
+        with open(self.snmp_yml_path, "w") as f:
+            yaml.dump(yml, f, sort_keys=False)
+
+        self.restart_snmp_exporter()
+        return True
+
+    def edit_metric(self, module, name, new_values):
+        with open(self.snmp_yml_path, "r") as f:
+            yml = yaml.safe_load(f)
+
+        if module not in yml["modules"]:
+            raise Exception(f"Module '{module}' not found")
+
+        mod = yml["modules"][module]
+        metrics = mod.get("metrics", [])
+
+        found = False
+
+        for m in metrics:
+            if m["name"] == name:
+                # Update existing fields
+                for k, v in new_values.items():
+                    m[k] = v
+                found = True
+
+        if not found:
+            raise Exception(f"Metric '{name}' not found in module '{module}'")
+
+        with open(self.snmp_yml_path, "w") as f:
+            yaml.dump(yml, f, sort_keys=False)
+
+        self.restart_snmp_exporter()
+        return True
 
     # === Restart Functions ===
     def restart_snmp_exporter(self):

@@ -6,7 +6,8 @@ from ryu.base import app_manager
 from ryu.app.wsgi import WSGIApplication, ControllerBase, route
 from ryu.lib import hub
 from webob import Response
-import json, uuid, time, datetime
+import json, uuid, time
+from datetime import datetime
 import socket
 
 # === Database Integration ===
@@ -29,7 +30,6 @@ from actions.routers.mikrotik import MikrotikRouterActions
 
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
-from actions.servers.server import ServerActions
 
 # === Wazuh Driver ===
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
@@ -38,6 +38,11 @@ API_INSTANCE_NAME = 'northbound_api'
 
 # Ini sesuaikan dengan secret key nya (Untuk Server Agent)
 ALLOWED_API_KEYS = set([os.environ.get("RYU_API_KEY", "agent-secret-token-1")])
+
+def to_mysql_datetime(ts):
+    if isinstance(ts, (int, float)):
+        return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+    return ts
 
 def _check_api_key(req):
     # WebOb request: headers accessible via req.headers
@@ -225,9 +230,22 @@ class Orchestrator(app_manager.RyuApp):
     def dispatch(self, d, action, params, jid):
         # Global actions (tidak memerlukan device driver)
         global_actions = {
-            # SNMP Actions
-            "snmp.device.add": lambda p, logger: SNMPFileManager().add_device(p["module"], p),
-            "snmp.metric.add": lambda p, logger: SNMPFileManager().add_metric(p["module"], p),
+            "snmp.metric.add": lambda p, logger: SNMPFileManager().add_metric(
+                module=p["module"],
+                metric=p
+            ),
+            "snmp.metric.delete": lambda p, logger: SNMPFileManager().delete_metric(
+                module=p["module"],
+                name=p["name"]
+            ),
+            "snmp.metric.edit": lambda p, logger: SNMPFileManager().edit_metric(
+                module=p["module"],
+                name=p["name"],
+                new_values=p["new_values"]
+            ),
+            "snmp.device.add": lambda p, logger: SNMPFileManager().add_device(p),
+            "snmp.device.delete": lambda p, logger: SNMPFileManager().delete_device(p["id"]),
+            "snmp.device.edit": lambda p, logger: SNMPFileManager().edit_device(p["id"], p["data"]),
             "snmp.test.oid": lambda p, logger: SNMPFileManager().test_snmp(
                 ip=p["ip"],
                 community=p.get("community", "public"),
@@ -373,7 +391,7 @@ class NorthboundApi(ControllerBase):
                     "cpu_cores": data.get("cpu_cores"),
                     "vendor": data.get("vendor", "unknown"),
                     "connected": True,
-                    "last_seen": time.time()
+                    "last_seen": to_mysql_datetime(time.time())
                 }
 
                 # Hanya ambil dari meta yang diperlukan
@@ -424,6 +442,19 @@ class NorthboundApi(ControllerBase):
                     "southbound": "routeros_api",
                     "status": "active"
                 })
+
+                # AUTO ADD TO SNMP TARGETS
+                try:
+                    snmp = SNMPFileManager()
+                    snmp.add_device({
+                        "device_id": device_id,
+                        "ip": data["ip"],
+                        "module": info.get("vendor", "Unknown").lower(),
+                        "device_name": info.get("identity") or data.get("hostname", device_id),
+                        "location": data.get("location", "Unknown")
+                    })
+                except Exception as e:
+                    data["snmp_target_status"] = f"failed: {str(e)}"
                 
             else:
                 return self._resp(req, json.dumps({
@@ -440,7 +471,7 @@ class NorthboundApi(ControllerBase):
                     "device_type": device_type,
                     "southbound": data.get("southbound", "unknown"),
                     "status": "active",
-                    "last_seen": time.time()
+                    "last_seen": to_mysql_datetime(time.time())
                 }
                 
                 # Check for duplicates by device_id
@@ -468,7 +499,7 @@ class NorthboundApi(ControllerBase):
                             "status": "active",
                             "cpu_cores": data.get("cpu_cores"),
                             "virtualization": data.get("virtualization"),
-                            "last_seen": time.time()
+                            "last_seen": to_mysql_datetime(time.time())
                         }
                         DeviceRepository.update_server(device_id, server_data)
                     else:  # router
@@ -486,7 +517,7 @@ class NorthboundApi(ControllerBase):
                             "main_interface": data.get("main_interface"),
                             "southbound": data.get("southbound", "routeros_api"),
                             "status": "active",
-                            "last_seen": time.time()
+                            "last_seen": to_mysql_datetime(time.time())
                         }
                         DeviceRepository.update_router(device_id, router_data)
                     
@@ -718,6 +749,8 @@ class NorthboundApi(ControllerBase):
         except Exception as e:
             self.core.logger.error(f"Error listing devices: {e}")
             return self._resp(req, json.dumps({"error": str(e)}), 500)
+            
+        
     
     # Panggil device berdasarkan ID
     @route('devices', '/devices/{device_id}', methods=['GET'])
