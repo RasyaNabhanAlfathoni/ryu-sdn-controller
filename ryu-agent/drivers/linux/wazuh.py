@@ -220,27 +220,15 @@ class WazuhDriver:
         install_commands = {
             'apt': [
                 f"WAZUH_MANAGER='{manager_ip}' dpkg -i ./{filename}",
-                "systemctl daemon-reload",
-                "systemctl enable wazuh-agent",
-                "systemctl start wazuh-agent"
             ],
             'yum': [
                 f"WAZUH_MANAGER='{manager_ip}' rpm -ihv {filename}",
-                "systemctl daemon-reload", 
-                "systemctl enable wazuh-agent",
-                "systemctl start wazuh-agent"
             ],
             'dnf': [
                 f"WAZUH_MANAGER='{manager_ip}' dnf install -y {filename}",
-                "systemctl daemon-reload",
-                "systemctl enable wazuh-agent", 
-                "systemctl start wazuh-agent"
             ],
             'zypper': [
                 f"WAZUH_MANAGER='{manager_ip}' zypper install -y {filename}",
-                "systemctl daemon-reload",
-                "systemctl enable wazuh-agent",
-                "systemctl start wazuh-agent"
             ]
         }
         
@@ -374,6 +362,8 @@ class WazuhDriver:
 
             # Cleanup existing installation
             self._cleanup_existing_installation()
+            import time
+            time.sleep(3)
 
             # Detect hostname
             if not agent_name:
@@ -410,13 +400,44 @@ class WazuhDriver:
             key_result = self._register_agent_key(agent_key, agent_name)
             if not key_result.get("success"):
                 return {"success": False, "error": key_result["error"]}
+            
+            # Cek client.keys
+            check_keys = self._execute_on_host("cat /var/ossec/etc/client.keys")
+            if check_keys["success"] and check_keys.get("output", "").strip():
+                self.logger(f"client.keys exists: {check_keys.get('output', '').strip()}")
+            else:
+                self.logger("client.keys is empty or missing!")
 
             # Restart service to apply key
-            self.logger("Restarting Wazuh agent...")
-            self._execute_systemctl("systemctl restart wazuh-agent")
+            self.logger("Starting Wazuh agent...")
+            # List metode start dengan prioritas
+            start_methods = [
+                "service wazuh-agent start",
+                "/etc/init.d/wazuh-agent start",
+                "/var/ossec/bin/wazuh-control start",
+                "cd /var/ossec && ./bin/wazuh-agentd -d"
+            ]
+
+            start_success = False
+            start_output = ""
+            
+            for method in start_methods:
+                self.logger(f"Trying: {method}")
+                result = self._execute_on_host(method)
+                
+                if result["success"]:
+                    self.logger(f"Started with: {method}")
+                    start_success = True
+                    start_output = result.get("output", "")
+                    break
+                else:
+                    error_msg = result.get("error", "").strip()
+                    if error_msg:
+                        self.logger(f"Failed: {method}, Error: {error_msg}")
+                    else:
+                        self.logger(f"Failed: {method} (no error output)")
 
             # Final verification
-            import time
             time.sleep(5)
             final_status = self.get_wazuh_agent_status()
 
