@@ -213,9 +213,9 @@ class DeviceRepository:
         sql = """
             INSERT INTO routers
             (device_id, username, password, identity, os_version,
-             board, serial_number, vendor, main_ip_address,
-             main_mac_address, main_interface, southbound, status,
-             created_at, updated_at, last_seen)
+            board, serial_number, vendor, main_ip_address,
+            main_mac_address, main_interface, southbound, status,
+            created_at, updated_at, last_seen)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
         """
 
@@ -224,13 +224,13 @@ class DeviceRepository:
             dev.get("username", "admin"),
             dev.get("password", ""),
             dev.get("identity", "unknown"),
-            dev.get("os_version", "unknown"),
-            dev.get("board", ""),
-            dev.get("serial_number", ""),
+            dev.get("os_version", "unknown"),         
+            dev.get("board", ""),                     
+            dev.get("serial_number", ""),             
             dev.get("vendor", "unknown"),
-            dev.get("main_ip_address"),
-            dev.get("main_mac_address", ""),
-            dev.get("main_interface", "ether1"),
+            dev.get("main_ip_address", ""),
+            dev.get("main_mac_address", ""),          
+            dev.get("main_interface", "ether1"),      
             dev.get("southbound", "routeros_api"),
             dev.get("status", "active")
         ))
@@ -258,16 +258,16 @@ class DeviceRepository:
             dev.get("username", "admin"),
             dev.get("password", ""),
             dev.get("identity", "unknown"),
-            dev.get("os_version", "unknown"),
-            dev.get("board", ""),
-            dev.get("serial_number", ""),
+            dev.get("os_version", "unknown"),         
+            dev.get("board", ""),                     
+            dev.get("serial_number", ""),             
             dev.get("vendor", "unknown"),
-            dev.get("main_ip_address"),
-            dev.get("main_mac_address", ""),
-            dev.get("main_interface", "ether1"),
+            dev.get("main_ip_address", ""),
+            dev.get("main_mac_address", ""),          
+            dev.get("main_interface", "ether1"),      
             dev.get("southbound", "routeros_api"),
             dev.get("status", "active"),
-            dev.get("last_seen"),
+            dev.get("last_seen", ""),
             device_id
         ))
 

@@ -3,17 +3,17 @@ global:
   evaluation_interval: 10s
 
 scrape_configs:
-  - job_name: "snmp"
+  - job_name: 'snmp'
     metrics_path: /snmp
-    params:
-      module: [mikrotik]
     file_sd_configs:
       - files:
           - snmp_targets.json
     relabel_configs:
+      - source_labels: [id]
+        target_label: device_id
       - source_labels: [__address__]
         target_label: __param_target
-      - source_labels: [__param_module]
+      - source_labels: [module]
         target_label: __param_module
       - source_labels: [__param_target]
         target_label: instance

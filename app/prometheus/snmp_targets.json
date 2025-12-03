@@ -2,6 +2,7 @@
   {
     "targets": ["172.100.86.19"],
     "labels": {
+      "id": "dev_22b4769d28",
       "module": "mikrotik",
       "device_name": "R1",
       "location": "DC"
@@ -10,6 +11,7 @@
   {
     "targets": ["172.100.86.20"],
     "labels": {
+      "id": "dev_ce6c032b55",
       "module": "mikrotik",
       "device_name": "R1",
       "location": "DC"
