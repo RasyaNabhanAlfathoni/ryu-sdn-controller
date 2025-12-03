@@ -513,60 +513,129 @@ class WazuhDriver:
             return {"success": False, "error": f"Key registration failed: {str(e)}"}
         
     def _update_ossec_config(self, manager_ip: str) -> Dict:
-        """Update ossec.conf dengan IP manager yang benar"""
+        """Update ossec.conf dengan IP manager yang benar - FIX XML structure"""
         try:
-            # Path ke ossec.conf di host
             ossec_conf_path = "/var/ossec/etc/ossec.conf"
             
-            # Backup config asli
-            backup_cmd = f"cp {ossec_conf_path} {ossec_conf_path}.bak"
-            self._execute_on_host(backup_cmd)
+            # Backup original
+            self._execute_on_host(f"cp {ossec_conf_path} {ossec_conf_path}.backup.$(date +%s)")
             
-            # Baca config
+            # Baca original config (sebelum kita modif)
             read_cmd = f"cat {ossec_conf_path}"
             result = self._execute_on_host(read_cmd)
             
             if not result["success"]:
                 return {"success": False, "error": f"Cannot read ossec.conf: {result.get('error')}"}
             
-            config_content = result["output"]
+            original_content = result["output"]
             
-            # Replace MANAGER_IP dengan IP yang sebenarnya
-            updated_content = config_content.replace(
-                '<address>MANAGER_IP</address>',
-                f'<address>{manager_ip}</address>'
+            # Debug: lihat struktur asli
+            self.logger(f"DEBUG: Original config length: {len(original_content)} chars")
+            
+            # Method 1: Simple replace manager IP
+            # Cari tag <address> dan ganti isinya
+            import re
+            
+            # Pattern untuk mencari <address> tag
+            address_pattern = r'<address>[^<]+</address>'
+            
+            # Replace dengan IP baru
+            updated_content = re.sub(
+                address_pattern, 
+                f'<address>{manager_ip}</address>', 
+                original_content,
+                count=1  # Hanya ganti yang pertama
             )
             
-            # Juga replace jika ada format lain
-            if '<address>0.0.0.0</address>' in updated_content:
-                updated_content = updated_content.replace(
-                    '<address>0.0.0.0</address>',
-                    f'<address>{manager_ip}</address>'
-                )
+            # Cek apakah replacement berhasil
+            if f'<address>{manager_ip}</address>' not in updated_content:
+                # Method 2: Jika regex gagal, coba replace string sederhana
+                if '<address>MANAGER_IP</address>' in original_content:
+                    updated_content = original_content.replace(
+                        '<address>MANAGER_IP</address>',
+                        f'<address>{manager_ip}</address>'
+                    )
+                elif '<address>0.0.0.0</address>' in original_content:
+                    updated_content = original_content.replace(
+                        '<address>0.0.0.0</address>',
+                        f'<address>{manager_ip}</address>'
+                    )
+                else:
+                    # Method 3: Insert manual
+                    lines = original_content.split('\n')
+                    updated_lines = []
+                    for line in lines:
+                        if '<address>' in line and '</address>' in line:
+                            updated_lines.append(f'      <address>{manager_ip}</address>')
+                        else:
+                            updated_lines.append(line)
+                    updated_content = '\n'.join(updated_lines)
             
-            # Write kembali ke file
-            temp_file = "/tmp/ossec.conf.tmp"
-            write_temp = f"echo '{updated_content}' > {temp_file}"
-            self._execute_on_host(write_temp)
+            # VALIDASI: Cek XML structure
+            # Pastikan hanya ada satu <ossec_config> tag pembuka dan penutup
+            opening_tags = updated_content.count('<ossec_config>')
+            closing_tags = updated_content.count('</ossec_config>')
             
-            # Copy ke lokasi asli
+            if opening_tags != 1 or closing_tags != 1:
+                self.logger(f"WARNING: XML structure issue - opening: {opening_tags}, closing: {closing_tags}")
+                
+                # Fix: Ambil hanya bagian dalam ossec_config yang pertama
+                if '<ossec_config>' in updated_content and '</ossec_config>' in updated_content:
+                    start = updated_content.find('<ossec_config>')
+                    end = updated_content.find('</ossec_config>', start) + len('</ossec_config>')
+                    updated_content = updated_content[start:end]
+                    self.logger("Fixed XML structure - took first ossec_config block")
+            
+            # Tulis ke file temporary
+            temp_file = "/tmp/ossec.conf.fixed"
+            # Gunakan base64 untuk menghindari escaping issues
+            import base64
+            encoded_content = base64.b64encode(updated_content.encode()).decode()
+            write_cmd = f"echo '{encoded_content}' | base64 -d > {temp_file}"
+            
+            write_result = self._execute_on_host(write_cmd)
+            if not write_result["success"]:
+                return {"success": False, "error": f"Failed to write temp file: {write_result.get('error')}"}
+            
+            # Validate XML dengan xmllint jika ada
+            validate_cmd = f"which xmllint && xmllint --noout {temp_file} 2>&1 || echo 'xmllint not available'"
+            validate_result = self._execute_on_host(validate_cmd)
+            
+            if 'xmllint not available' not in validate_result.get("output", ""):
+                if "parses OK" not in validate_result.get("output", "") and "validates" not in validate_result.get("output", ""):
+                    self.logger(f"XML validation warning: {validate_result.get('output', '')}")
+                    # Tapi kita tetap lanjutkan
+            
+            # Copy ke final location
             copy_cmd = f"cp {temp_file} {ossec_conf_path} && chmod 640 {ossec_conf_path} && chown root:wazuh {ossec_conf_path}"
             copy_result = self._execute_on_host(copy_cmd)
+            
+            if not copy_result["success"]:
+                return {"success": False, "error": f"Failed to copy config: {copy_result.get('error')}"}
             
             # Cleanup
             self._execute_on_host(f"rm -f {temp_file}")
             
-            # Verifikasi perubahan
-            verify_cmd = f"grep -n '{manager_ip}' {ossec_conf_path}"
+            # Verifikasi final
+            verify_cmd = f"cat {ossec_conf_path} | grep -c '<address>{manager_ip}</address>'"
             verify_result = self._execute_on_host(verify_cmd)
             
-            if verify_result["success"]:
+            if verify_result["success"] and verify_result.get("output", "").strip() == "1":
                 self.logger(f"✓ Updated ossec.conf with manager IP: {manager_ip}")
+                
+                # Cek XML structure akhir
+                final_check = f"grep -c '^<ossec_config>$' {ossec_conf_path} || true"
+                final_result = self._execute_on_host(final_check)
+                self.logger(f"Final structure check: {final_result.get('output', '')}")
+                
                 return {"success": True, "message": f"Config updated with {manager_ip}"}
             else:
                 return {"success": False, "error": "Failed to verify config update"}
                 
         except Exception as e:
+            self.logger(f"Config update failed: {str(e)}")
+            import traceback
+            self.logger(f"Traceback: {traceback.format_exc()}")
             return {"success": False, "error": f"Config update failed: {str(e)}"}
 
     def get_wazuh_agent_status(self) -> Dict:
