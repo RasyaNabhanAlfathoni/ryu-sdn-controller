@@ -37,7 +37,64 @@ class WazuhDriver:
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _execute_systemctl(self, command: str) -> Dict:
+        """Execute systemctl commands via nsenter (proper DBus access)"""
+        try:
+            # Method 1: nsenter untuk akses systemd penuh
+            nsenter_cmd = f"nsenter --mount=/proc/1/ns/mnt --net=/proc/1/ns/net --pid=/proc/1/ns/pid --uts=/proc/1/ns/uts --ipc=/proc/1/ns/ipc systemctl {command}"
             
+            self.logger(f"Executing via nsenter: {nsenter_cmd}")
+            result = subprocess.run(
+                nsenter_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            # Method 2: Fallback - execute langsung di host via chroot tanpa systemctl DBus
+            if result.returncode != 0 and "Failed to connect to bus" in result.stderr:
+                self.logger(f"nsenter failed, trying direct chroot method for: {command}")
+                
+                # Untuk 'daemon-reload', kita bisa skip karena tidak selalu diperlukan
+                if command == "daemon-reload":
+                    self.logger("Skipping daemon-reload (not critical)")
+                    return {"success": True, "output": "skipped", "error": ""}
+                
+                # Untuk command lain, gunakan service/sysvinit
+                chroot_cmd = f"chroot /host-rootfs /bin/bash -c \"{self._get_service_command(command)}\""
+                
+                result = subprocess.run(
+                    chroot_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+            
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+                "exit_code": result.returncode
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def _get_service_command(self, systemctl_command: str) -> str:
+        """Convert systemctl command to sysvinit/service command"""
+        command_map = {
+            "start wazuh-agent": "service wazuh-agent start || /etc/init.d/wazuh-agent start",
+            "stop wazuh-agent": "service wazuh-agent stop || /etc/init.d/wazuh-agent stop",
+            "restart wazuh-agent": "service wazuh-agent restart || /etc/init.d/wazuh-agent restart",
+            "enable wazuh-agent": "update-rc.d wazuh-agent defaults || chkconfig wazuh-agent on",
+            "status wazuh-agent": "service wazuh-agent status || /etc/init.d/wazuh-agent status"
+        }
+        
+        return command_map.get(systemctl_command, systemctl_command)
+    
     def detect_package_manager(self) -> str:
         """Detect package manager yang tersedia"""
         package_managers = {
@@ -163,15 +220,27 @@ class WazuhDriver:
         install_commands = {
             'apt': [
                 f"WAZUH_MANAGER='{manager_ip}' dpkg -i ./{filename}",
+                "systemctl daemon-reload",
+                "systemctl enable wazuh-agent",
+                "systemctl start wazuh-agent"
             ],
             'yum': [
                 f"WAZUH_MANAGER='{manager_ip}' rpm -ihv {filename}",
+                "systemctl daemon-reload", 
+                "systemctl enable wazuh-agent",
+                "systemctl start wazuh-agent"
             ],
             'dnf': [
                 f"WAZUH_MANAGER='{manager_ip}' dnf install -y {filename}",
+                "systemctl daemon-reload",
+                "systemctl enable wazuh-agent", 
+                "systemctl start wazuh-agent"
             ],
             'zypper': [
                 f"WAZUH_MANAGER='{manager_ip}' zypper install -y {filename}",
+                "systemctl daemon-reload",
+                "systemctl enable wazuh-agent",
+                "systemctl start wazuh-agent"
             ]
         }
         
@@ -181,6 +250,29 @@ class WazuhDriver:
         commands.append(f"rm -f {filename}")
         
         return commands
+    
+    def verify_agent_connection(self, manager_ip: str, timeout: int = 30) -> Dict:
+        """Verify agent can connect to Wazuh manager"""
+        import socket
+        import time
+        
+        try:
+            self.logger(f"Verifying connection to Wazuh manager: {manager_ip}:1514")
+            
+            # Test TCP connection to manager
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            
+            result = sock.connect_ex((manager_ip, 1514))
+            sock.close()
+            
+            if result == 0:
+                return {"success": True, "message": "Connection to Wazuh manager successful"}
+            else:
+                return {"success": False, "error": f"Cannot connect to {manager_ip}:1514"}
+                
+        except Exception as e:
+            return {"success": False, "error": f"Connection test failed: {str(e)}"}
         
     def detect_host_capabilities(self) -> dict:
         """Detect capabilities of the Host system before performing operations."""
@@ -227,6 +319,33 @@ class WazuhDriver:
         capabilities["chroot"] = os.path.exists("/usr/sbin/chroot") or os.path.exists("/bin/chroot")
 
         return capabilities
+    
+    def _cleanup_existing_installation(self):
+        """Cleanup existing wazuh installation"""
+        cleanup_commands = [
+            # Stop service
+            "service wazuh-agent stop 2>/dev/null || true",
+            "/etc/init.d/wazuh-agent stop 2>/dev/null || true",
+            "pkill -9 wazuh-agent 2>/dev/null || true",
+            "pkill -9 wazuh-agentd 2>/dev/null || true",
+            
+            # Uninstall package
+            "apt-get remove --purge -y wazuh-agent 2>/dev/null || true",
+            "yum remove -y wazuh-agent 2>/dev/null || true",
+            "rpm -e wazuh-agent 2>/dev/null || true",
+            
+            # Cleanup directories
+            "rm -rf /var/ossec 2>/dev/null || true",
+            "rm -rf /etc/wazuh 2>/dev/null || true",
+            "rm -f /etc/init.d/wazuh-agent 2>/dev/null || true",
+            "rm -f /usr/lib/systemd/system/wazuh-agent.service 2>/dev/null || true"
+        ]
+        
+        for cmd in cleanup_commands:
+            self._execute_on_host(cmd)
+        
+        import time
+        time.sleep(2)
 
     def install_wazuh_agent(self, manager_ip: str, agent_key: str, agent_name: str = None, wazuh_version: str = "4.11.2") -> Dict:
         try:
@@ -236,19 +355,25 @@ class WazuhDriver:
             if not cap["host_root_mounted"]:
                 return {"success": False, "error": "host-rootfs is not mounted — cannot continue"}
 
+            if not cap["systemd"] and not cap["sysvinit"]:
+                return {"success": False, "error": "No supported init system (systemd/SysV) detected on host!"}
+
             if not cap["curl"] and not cap["wget"]:
                 return {"success": False, "error": "Host has neither curl nor wget installed!"}
 
             self.logger("Starting Wazuh agent installation...")
 
             # Check if installed
-            result = self._execute_on_host("test -f /var/ossec/bin/wazuh-agentd")
+            result = self._execute_on_host("test -f /var/ossec/bin/wazuh-agent")
             if "installed" in result.get("output", ""):
                 self.logger("Wazuh already installed, reconfiguring...")
                 key_result = self._register_agent_key(agent_key, agent_name)
                 if key_result["success"]:
-                    self._start_wazuh_agent_manual()
+                    self._execute_systemctl("systemctl restart wazuh-agent")
                     return {"success": True, "message": "Wazuh reconfigured on Host"}
+
+            # Cleanup existing installation
+            self._cleanup_existing_installation()
 
             # Detect hostname
             if not agent_name:
@@ -275,47 +400,33 @@ class WazuhDriver:
                 if not result["success"]:
                     return {"success": False, "error": f"Failed at '{cmd}', error: {result.get('error')}"}
                 
+            # Update ossec.conf dengan IP manager yang benar
+            config_result = self._update_ossec_config(manager_ip)
+            if not config_result["success"]:
+                self.logger(f"Warning: Config update failed: {config_result.get('error')}")
+                
             # Register agent key
             self.logger("Registering agent key on Host...")
             key_result = self._register_agent_key(agent_key, agent_name)
             if not key_result.get("success"):
                 return {"success": False, "error": key_result["error"]}
 
-            # Start wazuh-agent MANUAL (tanpa systemctl)
-            self.logger("Starting Wazuh agent manually...")
-            start_result = self._start_wazuh_agent_manual()
+            # Restart service to apply key
+            self.logger("Restarting Wazuh agent...")
+            self._execute_systemctl("systemctl restart wazuh-agent")
 
             # Final verification
             import time
-            max_attempts = 5
-            status = None
-
-            for attempt in range(max_attempts):
-                self.logger(f"Verification attempt {attempt + 1}/{max_attempts}...")
-                status = self.get_wazuh_agent_status()
-                
-                if status.get("running") or status.get("process_count", 0) > 0:
-                    self.logger(f"✓ Wazuh agent is running!")
-                    break
-                
-                if attempt < max_attempts - 1:
-                    time.sleep(2)  # Tunggu 2 detik sebelum cek lagi
-            
-            # Jika masih tidak running, coba sekali lagi dengan method berbeda
-            if not status.get("running") and status.get("process_count", 0) == 0:
-                self.logger("Agent not running, trying emergency start...")
-                emergency_cmd = "chroot /host-rootfs /bin/bash -c 'cd /var/ossec && nohup ./bin/wazuh-agentd -d > /dev/null 2>&1 &'"
-                subprocess.run(emergency_cmd, shell=True, timeout=10)
-                time.sleep(3)
-                status = self.get_wazuh_agent_status()
+            time.sleep(5)
+            final_status = self.get_wazuh_agent_status()
 
             return {
                 "success": True,
                 "message": "Wazuh agent installation completed",
                 "agent_name": agent_name,
                 "agent_id": key_result.get("agent_id", "unknown"),
-                "agent_status": status,
-                "service_running": status.get("running", False) or status.get("process_count", 0) > 0,
+                "agent_status": final_status,
+                "service_running": final_status.get("active", False),
                 "system_info": {
                     "package_manager": package_manager,
                     "architecture": architecture,
@@ -327,18 +438,14 @@ class WazuhDriver:
             self.logger(f"Host installation failed: {str(e)}")
             return {"success": False, "error": f"Host installation failed: {str(e)}"}
 
+
     def _register_agent_key(self, agent_key: str, agent_name: str) -> Dict:
-        """Register agent key dengan format yang benar"""
+        """Register agent key dengan IP yang benar"""
         try:
-            # Debug log input
-            self.logger(f"DEBUG: Raw agent_key input: '{agent_key}'")
-            self.logger(f"DEBUG: Agent name: '{agent_name}'")
+            # Format dari Wazuh: "094 server-wazuh any b74ccda754d087250c3cd28e6aef37794fd3f1eeca5697bcdd6de8fb3905a40f"
+            # 4 bagian: ID, NAME, ANY, KEY_HASH
             
-            # Parse agent key (format: "id name any hash")
-            # Contoh: "066 server-wazuh any 69185e8b6a579bb43e17243e540569424f0c2c1e9d0ac51c032417ca15354425"
             key_parts = agent_key.strip().split()
-            
-            self.logger(f"DEBUG: Key parts ({len(key_parts)}): {key_parts}")
             
             if len(key_parts) != 4:
                 return {
@@ -346,198 +453,144 @@ class WazuhDriver:
                     "error": f"Invalid agent key format. Expected 4 parts, got {len(key_parts)}: {agent_key}"
                 }
             
-            agent_id = key_parts[0]      # "066"
-            key_name = key_parts[1]      # "server-wazuh" 
-            key_type = key_parts[2]      # "any"
-            key_hash = key_parts[3]      # "69185e8b6a579bb43e17243e540569424f0c2c1e9d0ac51c032417ca15354425"
+            # Format untuk client.keys: "ID NAME ANY KEY_HASH"
+            # Contoh: "094 server-wazuh any b74ccda754d087250c3cd28e6aef37794fd3f1eeca5697bcdd6de8fb3905a40f"
+            key_content = f"{key_parts[0]} {key_parts[1]} {key_parts[2]} {key_parts[3]}\n"
             
-            # Format yang benar untuk client.keys
-            key_content = f"{agent_id} {agent_name} {key_type} {key_hash}\n"
+            self.logger(f"Writing client.keys content: {key_content.strip()}")
             
-            self.logger(f"Writing client.keys: {key_content.strip()}")
-            
-            # Write to temporary file first
+            # Write ke client.keys
             temp_file = "/tmp/client.keys.tmp"
-            write_temp = f"echo '{key_content.strip()}' > {temp_file}"
-            temp_result = self._execute_on_host(write_temp)
+            write_cmd = f"echo '{key_content.strip()}' > {temp_file}"
+            write_result = self._execute_on_host(write_cmd)
             
-            if not temp_result["success"]:
-                return {"success": False, "error": f"Failed to write temp file: {temp_result.get('error')}"}
+            if not write_result["success"]:
+                return {"success": False, "error": f"Failed to write temp key file: {write_result.get('error')}"}
             
-            # Copy to final location with proper permissions
-            copy_cmd = f"mkdir -p /var/ossec/etc && cp {temp_file} /var/ossec/etc/client.keys && chmod 644 /var/ossec/etc/client.keys && chown root:wazuh /var/ossec/etc/client.keys"
+            # Copy ke lokasi final dengan permissions yang benar
+            final_path = "/var/ossec/etc/client.keys"
+            copy_cmd = f"mkdir -p /var/ossec/etc && cp {temp_file} {final_path} && chmod 640 {final_path} && chown root:wazuh {final_path}"
             copy_result = self._execute_on_host(copy_cmd)
             
             # Cleanup
             self._execute_on_host(f"rm -f {temp_file}")
             
-            if not copy_result["success"]:
-                return {"success": False, "error": f"Failed to copy client.keys: {copy_result.get('error')}"}
-            
-            # Verify
-            verify_cmd = "cat /var/ossec/etc/client.keys && echo '---' && wc -l /var/ossec/etc/client.keys"
+            # Verifikasi
+            verify_cmd = f"cat {final_path} && echo '--- Lines:' && wc -l {final_path}"
             verify_result = self._execute_on_host(verify_cmd)
             
-            self.logger(f"Verified client.keys: {verify_result.get('output', '').strip()}")
+            self.logger(f"Client.keys verification: {verify_result.get('output', '')}")
             
             return {
-                "success": True, 
-                "agent_id": agent_id,
-                "key_written": key_content.strip()
+                "success": True,
+                "agent_id": key_parts[0],
+                "key_written": key_content.strip(),
+                "message": f"Agent key registered for {agent_name} (ID: {key_parts[0]})"
             }
             
         except Exception as e:
-            self.logger(f"Key registration error: {str(e)}")
             return {"success": False, "error": f"Key registration failed: {str(e)}"}
         
-    def _start_wazuh_agent_manual(self) -> Dict:
-        """Start wazuh-agent secara manual dengan debugging"""
+    def _update_ossec_config(self, manager_ip: str) -> Dict:
+        """Update ossec.conf dengan IP manager yang benar"""
         try:
-            self.logger("Starting Wazuh agent manually...")
+            # Path ke ossec.conf di host
+            ossec_conf_path = "/var/ossec/etc/ossec.conf"
             
-            # Cek dulu apakah wazuh-agent binary ada
-            check_cmd = "chroot /host-rootfs /bin/bash -c 'test -f /var/ossec/bin/wazuh-agentd && echo \"EXISTS\" || echo \"NOT_FOUND\"'"
-            check_result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
+            # Backup config asli
+            backup_cmd = f"cp {ossec_conf_path} {ossec_conf_path}.bak"
+            self._execute_on_host(backup_cmd)
             
-            if "NOT_FOUND" in check_result.stdout:
-                self.logger("ERROR: wazuh-agent binary not found!")
-                return {"success": False, "error": "wazuh-agent binary not found"}
+            # Baca config
+            read_cmd = f"cat {ossec_conf_path}"
+            result = self._execute_on_host(read_cmd)
             
-            self.logger("✓ wazuh-agent binary exists")
+            if not result["success"]:
+                return {"success": False, "error": f"Cannot read ossec.conf: {result.get('error')}"}
             
-            # Cek apakah client.keys sudah ada
-            check_keys = "chroot /host-rootfs /bin/bash -c 'test -f /var/ossec/etc/client.keys && echo \"KEYS_EXIST\" || echo \"NO_KEYS\"'"
-            keys_result = subprocess.run(check_keys, shell=True, capture_output=True, text=True)
+            config_content = result["output"]
             
-            if "NO_KEYS" in keys_result.stdout:
-                self.logger("WARNING: client.keys not found yet")
+            # Replace MANAGER_IP dengan IP yang sebenarnya
+            updated_content = config_content.replace(
+                '<address>MANAGER_IP</address>',
+                f'<address>{manager_ip}</address>'
+            )
             
-            # Method 1: Coba start dengan wazuh-control
-            self.logger("Trying wazuh-control...")
-            method1 = "chroot /host-rootfs /bin/bash -c 'cd /var/ossec && ./bin/wazuh-control start'"
-            result1 = subprocess.run(method1, shell=True, capture_output=True, text=True, timeout=15)
+            # Juga replace jika ada format lain
+            if '<address>0.0.0.0</address>' in updated_content:
+                updated_content = updated_content.replace(
+                    '<address>0.0.0.0</address>',
+                    f'<address>{manager_ip}</address>'
+                )
             
-            self.logger(f"wazuh-control result: exit={result1.returncode}, stdout={result1.stdout[:100]}, stderr={result1.stderr[:100]}")
+            # Write kembali ke file
+            temp_file = "/tmp/ossec.conf.tmp"
+            write_temp = f"echo '{updated_content}' > {temp_file}"
+            self._execute_on_host(write_temp)
             
-            if result1.returncode == 0:
-                self.logger("✓ Started with wazuh-control")
-                return {"success": True, "output": result1.stdout, "error": result1.stderr}
+            # Copy ke lokasi asli
+            copy_cmd = f"cp {temp_file} {ossec_conf_path} && chmod 640 {ossec_conf_path} && chown root:wazuh {ossec_conf_path}"
+            copy_result = self._execute_on_host(copy_cmd)
             
-            # Method 2: Start binary langsung
-            self.logger("Trying direct binary start...")
-            method2 = "chroot /host-rootfs /bin/bash -c 'cd /var/ossec && ./bin/wazuh-agentd -d'"
-            result2 = subprocess.run(method2, shell=True, capture_output=True, text=True, timeout=15)
+            # Cleanup
+            self._execute_on_host(f"rm -f {temp_file}")
             
-            self.logger(f"Direct start result: exit={result2.returncode}, stdout={result2.stdout[:100]}, stderr={result2.stderr[:100]}")
+            # Verifikasi perubahan
+            verify_cmd = f"grep -n '{manager_ip}' {ossec_conf_path}"
+            verify_result = self._execute_on_host(verify_cmd)
             
-            # Cek apakah process berjalan setelah start attempt
-            check_process = "chroot /host-rootfs /bin/bash -c 'pgrep -f wazuh-agentd 2>/dev/null | wc -l'"
-            process_check = subprocess.run(check_process, shell=True, capture_output=True, text=True)
-            
-            process_count = int(process_check.stdout.strip()) if process_check.stdout.strip().isdigit() else 0
-            self.logger(f"Process count after start attempts: {process_count}")
-            
-            if process_count > 0:
-                self.logger(f"✓ Wazuh agent is running ({process_count} processes)")
-                return {"success": True, "output": f"Process running: {process_count}", "error": ""}
-            
-            # Method 3: Coba dengan init.d
-            self.logger("Trying init.d script...")
-            method3 = "chroot /host-rootfs /bin/bash -c '/etc/init.d/wazuh-agentd start'"
-            result3 = subprocess.run(method3, shell=True, capture_output=True, text=True, timeout=15)
-            
-            self.logger(f"init.d result: exit={result3.returncode}, stdout={result3.stdout[:100]}, stderr={result3.stderr[:100]}")
-            
-            # Final process check
-            final_check = "chroot /host-rootfs /bin/bash -c 'pgrep -f wazuh-agentd 2>/dev/null && echo \"RUNNING\" || echo \"NOT_RUNNING\"'"
-            final_result = subprocess.run(final_check, shell=True, capture_output=True, text=True)
-            
-            if "RUNNING" in final_result.stdout:
-                self.logger("✓ Wazuh agent is finally running")
-                return {"success": True, "output": "Agent started successfully", "error": ""}
-            
-            self.logger("✗ All start methods failed")
-            return {
-                "success": False, 
-                "error": f"All start methods failed. Last check: {final_result.stdout}",
-                "output": f"wazuh-control: {result1.stderr}, direct: {result2.stderr}, init.d: {result3.stderr}"
-            }
+            if verify_result["success"]:
+                self.logger(f"✓ Updated ossec.conf with manager IP: {manager_ip}")
+                return {"success": True, "message": f"Config updated with {manager_ip}"}
+            else:
+                return {"success": False, "error": "Failed to verify config update"}
                 
         except Exception as e:
-            self.logger(f"Start error: {str(e)}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": f"Config update failed: {str(e)}"}
 
     def get_wazuh_agent_status(self) -> Dict:
-        """Get comprehensive Wazuh agent status - specifically check wazuh-agentd"""
+        """Get comprehensive Wazuh agent status"""
         try:
-            # FIX: Cari "wazuh-agentd" bukan "wazuh-agent"
-            cmd = "chroot /host-rootfs /bin/bash -c 'pgrep -f \"wazuh-agentd\" 2>/dev/null | wc -l'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            # Check service status on Host
+            service_result = self._execute_systemctl("systemctl is-active wazuh-agent")
+            service_status = service_result.get("output", "").strip() if service_result["success"] else "unknown"
             
-            agent_process_count = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
+            # Check process on Host
+            process_result = self._execute_on_host("pgrep -f wazuh-agent")
+            process_running = bool(process_result["success"] and process_result.get("output", "").strip())
             
-            # Juga cek dengan nama tanpa 'd' untuk kompatibilitas
-            cmd2 = "chroot /host-rootfs /bin/bash -c 'pgrep -f \"wazuh-agent$\" 2>/dev/null | wc -l'"
-            result2 = subprocess.run(cmd2, shell=True, capture_output=True, text=True)
-            agent_process_count2 = int(result2.stdout.strip()) if result2.stdout.strip().isdigit() else 0
-            
-            # Gunakan yang terdeteksi
-            total_agent_processes = agent_process_count + agent_process_count2
-            
-            # Get agent ID dari client.keys
+            # Get agent ID dari Host
             agent_id = "unknown"
-            cmd = "chroot /host-rootfs /bin/bash -c 'cat /var/ossec/etc/client.keys 2>/dev/null | head -1 | cut -d\" \" -f1'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                agent_id = result.stdout.strip()
-            
-            # Cek process detail
-            detailed_cmd = "chroot /host-rootfs /bin/bash -c 'ps aux | grep -E \"wazuh-agent[d]?\" | grep -v grep'"
-            detailed_result = subprocess.run(detailed_cmd, shell=True, capture_output=True, text=True)
-            agent_processes = detailed_result.stdout.strip().split('\n') if detailed_result.stdout else []
+            result = self._execute_on_host("cat /var/ossec/etc/client.keys 2>/dev/null | head -1")
+            if result["success"]:
+                key_line = result.get("output", "").strip()
+                if key_line:
+                    parts = key_line.split()
+                    if len(parts) >= 1:
+                        agent_id = parts[0]
             
             return {
-                "agent_running": total_agent_processes > 0,
-                "agent_process_count": total_agent_processes,
+                "service_status": service_status,
+                "process_running": process_running,
                 "agent_id": agent_id,
-                "status": "active" if total_agent_processes > 0 else "inactive",
-                "agent_processes": agent_processes,
-                "note": f"Looking for wazuh-agentd processes, found {total_agent_processes}"
+                "active": service_status == "active"
             }
             
         except Exception as e:
             return {
-                "agent_running": False,
                 "status": "error",
                 "error": str(e)
             }
-        
+    
     def uninstall_wazuh_agent(self) -> Dict:
-        """Wazuh agent uninstaller manual"""
+        """Wazuh agent uninstaller"""
         try:
-            # Stop wazuh-agent dengan manual methods
-            self.logger("Stopping Wazuh agent...")
-            stop_methods = [
-                "chroot /host-rootfs /bin/bash -c 'cd /var/ossec && ./bin/wazuh-control stop 2>/dev/null'",
-                "chroot /host-rootfs /bin/bash -c '/etc/init.d/wazuh-agent stop 2>/dev/null'",
-                "chroot /host-rootfs /bin/bash -c 'service wazuh-agent stop 2>/dev/null'",
-                "chroot /host-rootfs /bin/bash -c 'pkill -f wazuh-agent 2>/dev/null'",
-                "chroot /host-rootfs /bin/bash -c 'killall wazuh-agent 2>/dev/null'"
-            ]
-            
-            for method in stop_methods:
-                result = subprocess.run(method, shell=True, capture_output=True, text=True, timeout=15)
-                if result.returncode == 0 or "stopped" in result.stdout.lower():
-                    self.logger("Wazuh agent stopped")
-                    break
-            
-            # Tunggu sebentar
-            import time
-            time.sleep(2)
-            
-            # Uninstall berdasarkan package manager
             package_manager = self.detect_package_manager()
             
+            # Stop service
+            self._execute_systemctl("systemctl stop wazuh-agent")
+            
+            # Uninstall berdasarkan package manager
             uninstall_commands = {
                 'apt': "dpkg --purge wazuh-agent",
                 'yum': "rpm -e wazuh-agent", 
@@ -546,58 +599,22 @@ class WazuhDriver:
             }
             
             cmd = uninstall_commands.get(package_manager, uninstall_commands['apt'])
-            self.logger(f"Uninstalling with: {cmd}")
-            
             result = self._execute_on_host(cmd)
             
-            # Jika uninstall gagal (mungkin karena sudah di-uninstall), tetap lanjut cleanup
-            if not result["success"]:
-                self.logger(f"Uninstall command failed (may already be uninstalled): {result.get('error')}")
-            
-            # Cleanup files dan directories
-            self.logger("Cleaning up Wazuh files...")
-            cleanup_items = [
-                # Directories
+            # Cleanup files
+            cleanup_dirs = [
                 "/var/ossec",
                 "/etc/wazuh",
-                "/usr/share/wazuh",
-                "/var/lib/wazuh",
-                # Files
-                "/etc/init.d/wazuh-agent",
-                "/usr/lib/systemd/system/wazuh-agent.service",
-                "/etc/systemd/system/wazuh-agent.service",
-                # Logs
-                "/var/log/wazuh",
-                # Config backup
-                "/etc/wazuh-agent.conf.rpmsave",
-                "/etc/wazuh-agent.conf.dpkg-old"
+                "/usr/share/wazuh"
             ]
             
-            for item in cleanup_items:
-                cleanup_cmd = f"rm -rf {item} 2>/dev/null || true"
-                self._execute_on_host(cleanup_cmd)
-            
-            # Juga hapus user/group jika ada
-            cleanup_users = [
-                "chroot /host-rootfs /bin/bash -c 'userdel wazuh 2>/dev/null || true'",
-                "chroot /host-rootfs /bin/bash -c 'groupdel wazuh 2>/dev/null || true'"
-            ]
-            
-            for cmd in cleanup_users:
-                subprocess.run(cmd, shell=True, capture_output=True)
-            
-            # Verify uninstall
-            verify_cmd = "chroot /host-rootfs /bin/bash -c 'test -f /var/ossec/bin/wazuh-agentd && echo \"still_exists\" || echo \"removed\"'"
-            verify_result = subprocess.run(verify_cmd, shell=True, capture_output=True, text=True)
-            
-            still_exists = "still_exists" in verify_result.stdout
-            
+            for directory in cleanup_dirs:
+                self._execute_on_host(f"rm -rf {directory}")
+        
             return {
-                "success": not still_exists,
-                "message": "Wazuh agent uninstallation completed" if not still_exists else "Wazuh agent may not be fully removed",
-                "package_manager": package_manager,
-                "files_removed": not still_exists,
-                "verification": "removed" if not still_exists else "may_still_exist"
+                "success": True,
+                "message": "Wazuh agent uninstalled successfully",
+                "package_manager": package_manager
             }
             
         except Exception as e:

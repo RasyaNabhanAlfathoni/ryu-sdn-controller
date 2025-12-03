@@ -56,6 +56,9 @@ services:
       echo 'Starting Agent API...' &&
       exec python3 agent_api.py --verbose
       "
+    cap_add:
+      - SYS_ADMIN # Untuk nsenter
+      - SYS_PTRACE
 
   node-exporter:
     image: prom/node-exporter:latest
