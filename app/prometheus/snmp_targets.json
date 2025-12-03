@@ -1,18 +1,18 @@
 [
   {
-    "targets": ["9.9.9.1"],
+    "targets": ["172.100.86.19"],
     "labels": {
       "module": "mikrotik",
-      "device_name": "Router-Core",
+      "device_name": "R1",
       "location": "DC"
     }
   },
   {
-    "targets": ["10.10.10.2"],
+    "targets": ["172.100.86.20"],
     "labels": {
       "module": "mikrotik",
-      "device_name": "Router-Lab",
-      "location": "LAB"
+      "device_name": "R1",
+      "location": "DC"
     }
   }
 ]
