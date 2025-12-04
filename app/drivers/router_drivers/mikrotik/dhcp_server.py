@@ -235,3 +235,82 @@ class RouterOSDhcpServerDriver:
             raise Exception(f"Failed to delete DHCP server: {str(e)}")
         finally:
             pool.disconnect()
+
+    def list_servers(self, p=None, logger=print):
+        """
+        List semua DHCP server:
+        /ip/dhcp-server print
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/dhcp-server')
+            data = res.get()
+
+            out = []
+            for item in data:
+                row = dict(item)
+                
+                # Normalize ID
+                row["id"] = item.get(".id") or item.get("id")
+
+                # Normalize disabled
+                row["disabled"] = item.get("disabled", "no")
+
+                out.append(row)
+
+            logger("dhcp.server.list completed")
+            return out
+
+        finally:
+            pool.disconnect()
+
+    def list_networks(self, p=None, logger=print):
+        """
+        List DHCP networks:
+        /ip/dhcp-server/network print
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/dhcp-server/network')
+            data = res.get()
+
+            out = []
+            for item in data:
+                row = dict(item)
+                row["id"] = item.get(".id") or item.get("id")
+
+                out.append(row)
+
+            logger("dhcp.network.list completed")
+            return out
+
+        finally:
+            pool.disconnect()
+
+    def list_leases(self, p=None, logger=print):
+        """
+        List DHCP leases:
+        /ip/dhcp-server/lease print
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/dhcp-server/lease')
+            data = res.get()
+
+            out = []
+            for item in data:
+                row = dict(item)
+
+                # Normalize ID
+                row["id"] = item.get(".id") or item.get("id")
+
+                # Normalize status
+                row["status"] = item.get("status", item.get("active", "unknown"))
+
+                out.append(row)
+
+            logger("dhcp.lease.list completed")
+            return out
+
+        finally:
+            pool.disconnect()

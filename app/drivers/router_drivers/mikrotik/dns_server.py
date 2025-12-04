@@ -261,3 +261,56 @@ class RouterOSDnsDriver:
             raise Exception(f"Failed to delete DNS static: {str(e)}")
         finally:
             pool.disconnect()
+
+    def list_static(self, p=None, logger=print):
+        pool, api = self.core.get_api()
+        try:
+            dns_static = api.get_resource('/ip/dns/static')
+            data = dns_static.get()
+
+            out = []
+            for item in data:
+                row = {
+                    "id": item.get(".id") or item.get("id"),
+                    "name": item.get("name"),
+                    "type": item.get("type"),
+                    "address": item.get("address"),
+                    "cname": item.get("cname"),
+                    "text": item.get("text"),
+                    "regexp": item.get("regexp"),
+                    "forward_to": item.get("forward-to"),
+                    "ttl": item.get("ttl"),
+                    "comment": item.get("comment"),
+                    "disabled": item.get("disabled"),
+                }
+
+                # DNS MX Fields
+                if "mx-exchange" in item:
+                    row["mx_exchange"] = item["mx-exchange"]
+                if "mx-preference" in item:
+                    row["mx_preference"] = item["mx-preference"]
+
+                # SRV Fields
+                if "srv-target" in item:
+                    row["srv_target"] = item["srv-target"]
+                if "srv-port" in item:
+                    row["srv_port"] = item["srv-port"]
+                if "srv-priority" in item:
+                    row["srv_priority"] = item["srv-priority"]
+                if "srv-weight" in item:
+                    row["srv_weight"] = item["srv-weight"]
+
+                # RouterOS v7 exclusive fields
+                if "match-subdomain" in item:
+                    row["match_subdomain"] = item["match-subdomain"]
+                if "address-list" in item:
+                    row["address_list"] = item["address-list"]
+
+                out.append(row)
+
+            logger("dns.static.list completed")
+            return out
+
+        finally:
+            pool.disconnect()
+
