@@ -125,3 +125,31 @@ class RouterOSDhcpClientDriver:
             raise Exception(f"Failed to comment DHCP Client: {str(e)}")
         finally:
             pool.disconnect()
+
+    def list_client(self, p=None, logger=print):
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/dhcp-client')
+            data = res.get()
+
+            out = []
+            for item in data:
+                row = {
+                    "id": item.get(".id") or item.get("id"),
+                    "interface": item.get("interface"),
+                    "status": item.get("status"),
+                    "address": item.get("address"),
+                    "gateway": item.get("gateway"),
+                    "use-peer-dns": item.get("use-peer-dns"),
+                    "use-peer-ntp": item.get("use-peer-ntp"),
+                    "add-default-route": item.get("add-default-route"),
+                    "comment": item.get("comment"),
+                    "disabled": item.get("disabled"),
+                }
+                out.append(row)
+
+            logger("dhcp.client.list completed")
+            return out
+
+        finally:
+            pool.disconnect()
