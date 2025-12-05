@@ -24,23 +24,36 @@ services:
     build: .
     container_name: ryu-agent-api
     volumes:
+      # Mount proses system
       - /proc:/host/proc:ro # Akses process info host
       - /sys:/host/sys:ro # Akses system info host
       - /var/run/dbus:/var/run/dbus:rw # Akses D-Bus host
+      - /run:/run:rw
+      # Mount system info
       - /etc/machine-id:/etc/machine-id:ro # Machine ID host
       - /etc/os-release:/etc/host-os-release:ro # OS info host
       - /etc/lsb-release:/etc/host-lsb-release:ro # Distro info host
       - /var/run/docker.sock:/var/run/docker.sock # Mount docker socket
+      # Mount host-server root
       - /:/host-rootfs:rw # Mount host filesystem
+      # Mount network host-server
       - /etc/netplan:/etc/netplan:rw # Netplan Network Manager
       - /etc/network:/etc/network:rw # Debian Network Manager
       - /etc/systemd/network:/etc/systemd/network:rw # Systemd-Networkd Network Manager
       - /etc/sysconfig/network-scripts:/etc/sysconfig/network-scripts:rw # RHEL/CentOS Network Manager
+      # Mount LLDPD host-server
       - /var/run/lldpd:/var/run/lldpd:rw # Akses ke network host untuk LLDPd
+      # Mount wazuh host-server
       - /var/ossec:/var/ossec:rw # Wazuh Installation & config
       - /etc/wazuh:/etc/wazuh:rw # Wazuh Configuration
       - /tmp:/tmp:rw # Untuk Wazuh Downloads
+      # Mount runner command host-server (Bin)
       - /run/systemd/system:/run/systemd/system:rw # Systemd runtime
+      - /usr/sbin/netplan:/usr/sbin/netplan
+      - /usr/bin/systemctl:/usr/bin/systemctl
+      - /usr/bin/ip:/usr/bin/ip
+      - /usr/sbin/ifconfig:/usr/sbin/ifconfig
+      # Mount nsenter
       - /usr/bin/nsenter:/usr/bin/nsenter:ro
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
@@ -57,23 +70,24 @@ services:
       exec python3 agent_api.py --verbose
       "
     cap_add:
-      - SYS_ADMIN # Untuk nsenter
-      - SYS_PTRACE
+      - SYS_ADMIN # Untuk system operations
+      - NET_ADMIN # Untuk system operations
+      - SYS_CHROOT
 
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: node-exporter
-    restart: unless-stopped
-    ports:
-      - "9100:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - "--path.procfs=/host/proc"
-      - "--path.rootfs=/rootfs"
-      - "--path.sysfs=/host/sys"
-      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-      - "--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
-    network_mode: host
+  # node-exporter:
+  #   image: prom/node-exporter:latest
+  #   container_name: node-exporter
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9100:9100"
+  #   volumes:
+  #     - /proc:/host/proc:ro
+  #     - /sys:/host/sys:ro
+  #     - /:/rootfs:ro
+  #   command:
+  #     - "--path.procfs=/host/proc"
+  #     - "--path.rootfs=/rootfs"
+  #     - "--path.sysfs=/host/sys"
+  #     - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+  #     - "--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
+  #   network_mode: host

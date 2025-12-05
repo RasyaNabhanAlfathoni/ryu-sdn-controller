@@ -50,28 +50,6 @@ def remove_ip():
         log_message(f"Error in remove_ip: {e}")
         return jsonify({"error": str(e)}), 500
     
-@app.route('/api/network/interfaces', methods=['GET'])
-def list_interfaces():
-    # Get list network interfaces
-    try:
-        log_message("GET /api/network/interfaces")
-        result = network_driver.list_interfaces()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in list_interfaces: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interfaces/detail', methods=['GET'])
-def interfaces_detail():
-    # Get detailed network interfaces
-    try:
-        log_message("GET /api/network/interfaces/detail")
-        result = network_driver.get_interface_details()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in interfaces_detail: {e}")
-        return jsonify({"error": str(e)}), 500
-    
 @app.route('/api/network/interface/configure', methods=['POST'])
 def configure_interface():
     # Network interface configuration
@@ -116,17 +94,6 @@ def disable_interface():
         log_message(f"Error in disable_interface: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/network/interface/<iface>/ips', methods=['GET'])
-def get_interface_ips(iface):
-    # Get IP addresses for specific interface
-    try:
-        log_message(f"GET /api/network/interface/{iface}/ips")
-        result = network_driver.get_interface_ips(iface)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_interface_ips: {e}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/api/network/interface/<iface>/info', methods=['GET'])
 def get_ip_info(iface):
     # Get IP info for specific interface
@@ -136,39 +103,6 @@ def get_ip_info(iface):
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_ip_info: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interface/<iface>/status', methods=['GET'])
-def get_interface_status(iface):
-    # Get interface status
-    try:
-        log_message(f"GET /api/network/interface/{iface}/status")
-        result = network_driver.get_interface_status(iface)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_interface_status: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/connections', methods=['GET'])
-def get_network_connections():
-    # Get active network connections (simpel version
-    try:
-        log_message("GET /api/network/connections")
-        result = network_driver.get_network_connections()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_network_connections: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interface/<iface>/counters', methods=['GET'])
-def get_interface_counters(iface):
-    # Get interface counters (simpel version)
-    try:
-        log_message(f"GET /api/network/interface/{iface}/counters")
-        result = network_driver.get_interface_counters(iface)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_interface_counters: {e}")
         return jsonify({"error": str(e)}), 500
 
 # === Network Advanced ENDPOINTS ===
@@ -227,17 +161,6 @@ def set_dns():
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in set_dns: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/arp', methods=['GET'])
-def get_arp_table():
-    # Get ARP table via driver
-    try:
-        log_message("GET /api/network/arp")
-        result = network_driver.get_arp_table()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_arp_table: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/network/portscan', methods=['POST'])
@@ -627,39 +550,6 @@ def get_lldp_status():
 
 
 # === SYSTEM ENDPOINTS ===
-
-@app.route('/api/system/utilization', methods=['GET'])
-def get_utilization():
-    # Get system utilization via driver
-    try:
-        log_message("GET /api/system/utilization")
-        result = system_driver.get_utilization()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_utilization: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/system/utilization/detailed', methods=['GET'])
-def get_detailed_utilization():
-    # Get detailed system utilization
-    try:
-        log_message("GET /api/system/utilization/detailed")
-        result = system_driver.get_detailed_utilization()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_detailed_utilization: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/system/info', methods=['GET'])
-def get_system_info():
-    # Get system information
-    try:
-        log_message("GET /api/system/info")
-        result = system_driver.get_system_info()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_system_info: {e}")
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/system/logs', methods=['GET'])
 def get_logs():

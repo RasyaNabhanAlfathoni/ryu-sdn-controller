@@ -4,6 +4,8 @@ psutil>=5.9.0
 requests>=2.25.0
 netifaces>=0.11.0
 PyYAML==6.0.1
+paramiko
+cryptography
 
 # Additional utilities
 python-dotenv>=0.19.0

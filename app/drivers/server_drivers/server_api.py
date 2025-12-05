@@ -56,18 +56,6 @@ class ServerAPI:
 
 
     # === IP Management Methods ===
-
-    def list_interfaces(self, logger=None):
-        """Get list of network interfaces from agent"""
-        return self._call_agent("/api/network/interfaces", logger=logger)
-    
-    def get_interface_details(self, logger=None):
-        """Get detailed interface information from agent"""
-        return self._call_agent("/api/network/interfaces/detail", logger=logger)
-    
-    def show_all(self, logger=None):
-        """Show all interfaces with details"""
-        return self.get_interface_details(logger=logger)
     
     def add_ip(self, iface, ip_cidr, logger=None):
         """Add IP address to interface on agent"""
@@ -105,26 +93,10 @@ class ServerAPI:
         return self._call_agent("/api/network/interface/disable", {
             "interface": iface
         }, logger=logger)
-    
-    def get_interface_ips(self, iface, logger=None):
-        """Get IP addresses for specific interface from agent"""
-        return self._call_agent(f"/api/network/interface/{iface}/ips", logger=logger)
 
     def get_ip_info(self, iface, logger=None):
         """Get IP info for specific interface from agent"""
         return self._call_agent(f"/api/network/interface/{iface}/info", logger=logger)
-
-    def get_interface_status(self, iface, logger=None):
-        """Get interface status from agent"""
-        return self._call_agent(f"/api/network/interface/{iface}/status", logger=logger)
-    
-    def get_network_connections(self, logger=None):
-        """Get active network connections from agent"""
-        return self._call_agent("/api/network/connections", logger=logger)
-    
-    def get_interface_counters(self, interface, logger=None):
-        """Get interface counters from agent"""
-        return self._call_agent(f"/api/network/interface/{interface}/counters", logger=logger)
     
 
     # === Advanced Network Management Methods ===
@@ -139,11 +111,7 @@ class ServerAPI:
     def get_routing_table(self, logger=None):
         """Get routing table"""
         return self._call_agent("/api/network/routing", logger=logger)
-
-    def get_arp_table(self, logger=None):
-        """Get ARP table"""
-        return self._call_agent("/api/network/arp", logger=logger)
-
+    
     
     # === Firewall UFW Management Methods ===
     
@@ -340,18 +308,6 @@ class ServerAPI:
 
 
     # === System Monitoring Methods ===
-    
-    def get_utilization(self, logger=None):
-        """Get system utilization from agent"""
-        return self._call_agent("/api/system/utilization", logger=logger)
-
-    def get_detailed_utilization(self, logger=None):
-        """Get system utilization detailed from agent"""
-        return self._call_agent("/api/system/utilization/detailed", logger=logger)
-    
-    def get_system_info(self, logger=None):
-        """Get system info from agent"""
-        return self._call_agent("/api/system/info", logger=logger)
     
     def get_logs(self, n=50, logger=None):
         """Get system logs from agent"""

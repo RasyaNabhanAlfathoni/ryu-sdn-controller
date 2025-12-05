@@ -110,6 +110,19 @@
 # 1) curl -X POST http://192.168.221.133:8080/jobs -H "Content-Type: application/json" -d '{"device_id": "r43199a56", "action": "server.ip.disable_interface", "params": {"iface": "ens33"}}'
 # 2) curl http://192.168.221.133:8080/jobs/<job_id> | jq
 
+## Test configure interface
+# 1) curl -X POST http://localhost:8080/jobs -H "Content-Type: application/json" -d '{"device_id": "<>", "action": "server.network.interface.configure", 
+    "params": {
+      "iface": "eth0",
+      "ip_cidr": "192.168.1.100/24",
+      "gateway": "192.168.1.1",
+      "dns_servers": ["8.8.8.8", "8.8.4.4"],
+      "onboot": true,
+      "dhcp": false
+    }
+  }'
+# note: onboot itu hanya digunakan untuk redhat/centos (RHEL)
+
 ### 7 - Inisialisasi dashboard
 # 1) pip3 install flask requests
 # 2) cd ~/ryu-sdn/app/dashboard
