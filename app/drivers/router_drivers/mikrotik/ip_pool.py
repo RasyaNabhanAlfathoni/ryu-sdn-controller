@@ -121,3 +121,30 @@ class RouterOSIpPoolDriver:
             raise Exception(f"Failed to update pool comment: {str(e)}")
         finally:
             pool.disconnect()
+
+    def list_pool(self, p=None, logger=print):
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/pool')
+            data = res.get()
+
+            out = []
+            for item in data:
+                row = dict(item)
+
+                # Normalize ID
+                row["id"] = item.get(".id") or item.get("id")
+
+                # Normalize fields
+                row["name"] = item.get("name")
+                row["ranges"] = item.get("ranges")
+                row["next_pool"] = item.get("next-pool")
+                row["comment"] = item.get("comment")
+
+                out.append(row)
+
+            logger("ip.pool.list completed")
+            return out
+
+        finally:
+            pool.disconnect()

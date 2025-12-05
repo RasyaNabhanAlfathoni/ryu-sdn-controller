@@ -34,6 +34,7 @@ class MikrotikRouterActions:
             "ip.pool.edit": lambda p, logger: RouterOSIpPoolDriver(d).edit_pool(p, logger),
             "ip.pool.delete": lambda p, logger: RouterOSIpPoolDriver(d).delete_pool(p, logger),
             "ip.pool.comment": lambda p, logger: RouterOSIpPoolDriver(d).comment_pool(p, logger),
+            "ip.pool.list": lambda p, logger: RouterOSIpPoolDriver(d).list_pool(p, logger),
 
             # Interface Management
             "interface.edit": lambda p, logger: RouterOSInterfaceDriver(d).edit_interface(p, logger),
@@ -56,7 +57,10 @@ class MikrotikRouterActions:
             "dhcp.server.enable": lambda p, logger: RouterOSDhcpServerDriver(d).enable_server(p, logger),
             "dhcp.server.disable": lambda p, logger: RouterOSDhcpServerDriver(d).disable_server(p, logger),
             "dhcp.server.delete": lambda p, logger: RouterOSDhcpServerDriver(d).delete_server(p, logger),
+            "dhcp.server.list": lambda p, logger: RouterOSDhcpServerDriver(d).list_servers(p, logger),
             "dhcp.network.edit": lambda p, logger: RouterOSDhcpServerDriver(d).edit_network(p, logger),
+            "dhcp.network.list": lambda p, logger: RouterOSDhcpServerDriver(d).list_networks(p, logger),
+            "dhcp.lease.list": lambda p, logger: RouterOSDhcpServerDriver(d).list_leases(p, logger),
 
             # DHCP CLIENT
             "dhcp.client.add": lambda p, logger: RouterOSDhcpClientDriver(d).add_client(p, logger),
@@ -65,6 +69,7 @@ class MikrotikRouterActions:
             "dhcp.client.disable": lambda p, logger: RouterOSDhcpClientDriver(d).disable_client(p, logger),
             "dhcp.client.delete": lambda p, logger: RouterOSDhcpClientDriver(d).delete_client(p, logger),
             "dhcp.client.comment": lambda p, logger: RouterOSDhcpClientDriver(d).comment_client(p, logger),
+            "dhcp.client.list": lambda p, logger: RouterOSDhcpClientDriver(d).list_client(p, logger),
 
             # DNS Configuration
             "dns.edit": lambda p, logger: RouterOSDnsDriver(d).edit_dns(p, logger),
@@ -75,6 +80,7 @@ class MikrotikRouterActions:
             "dns.static.disable": lambda p, logger: RouterOSDnsDriver(d).disable_static(p, logger),
             "dns.static.comment": lambda p, logger: RouterOSDnsDriver(d).comment_static(p, logger),
             "dns.static.delete": lambda p, logger: RouterOSDnsDriver(d).delete_static(p, logger),
+            "dns.static.list": lambda p, logger: RouterOSDnsDriver(d).list_static(p, logger),
 
             # Neighbor
             "neighbor.get": lambda p, logger: RouterOSNeighborDriver(d).get_neighbors(p, logger),
