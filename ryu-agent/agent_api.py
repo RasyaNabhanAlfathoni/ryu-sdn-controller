@@ -568,13 +568,72 @@ def get_logs():
 def wazuh_install():
     """Install Wazuh agent"""
     try:
-        data = request.json
-        log_message(f"POST /api/wazuh/install - {data}")
-        result = wazuh_dispatcher.dispatch("server.wazuh.install", data)
+        import sys 
+        import traceback
+        # Debug 1: Log bahwa endpoint dipanggil
+        print("=== DEBUG: /api/wazuh/install called ===", file=sys.stderr)
+        print(f"Headers: {dict(request.headers)}", file=sys.stderr)
+        
+        # Debug 2: Cek data JSON
+        if not request.is_json:
+            print("ERROR: Request is not JSON", file=sys.stderr)
+            return jsonify({"error": "Request must be JSON", "success": False}), 400
+        
+        data = request.get_json(silent=True)  # silent=True untuk menghindari error parsing
+        print(f"DEBUG: Raw data: {data}", file=sys.stderr)
+        print(f"DEBUG: Type of data: {type(data)}", file=sys.stderr)
+        
+        if data is None:
+            print("ERROR: JSON data is None or invalid", file=sys.stderr)
+            return jsonify({"error": "Invalid JSON data", "success": False}), 400
+        
+        # Debug 3: Validasi data adalah dict
+        if not isinstance(data, dict):
+            print(f"ERROR: data is not dict, it's {type(data)}", file=sys.stderr)
+            return jsonify({"error": f"Data must be dictionary, got {type(data)}", "success": False}), 400
+        
+        # Debug 4: Log semua parameter
+        print(f"DEBUG: manager_ip = {data.get('manager_ip')}", file=sys.stderr)
+        print(f"DEBUG: agent_key = {data.get('agent_key')}", file=sys.stderr)
+        print(f"DEBUG: agent_name = {data.get('agent_name')}", file=sys.stderr)
+        
+        # Debug 5: Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Debug 6: Create dispatcher
+        try:
+            dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+            print("DEBUG: WazuhDispatcher created", file=sys.stderr)
+        except Exception as e:
+            print(f"ERROR: Cannot create WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Cannot create dispatcher: {e}", "success": False}), 500
+        
+        # Debug 7: Dispatch action
+        print("DEBUG: Dispatching action...", file=sys.stderr)
+        result = dispatcher.dispatch("server.wazuh.install", data)
+        
+        # Debug 8: Log result
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
+        print(f"DEBUG: Type of result: {type(result)}", file=sys.stderr)
+        
+        # Debug 9: Validasi result
+        if not isinstance(result, dict):
+            print(f"ERROR: Result is not dict, it's {type(result)}", file=sys.stderr)
+            return jsonify({"error": f"Dispatcher returned non-dict: {type(result)}", "success": False}), 500
+        
+        # Debug 10: Return result
+        print("DEBUG: Returning JSON response", file=sys.stderr)
         return jsonify(result)
+        
     except Exception as e:
-        log_message(f"Error in wazuh_install: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"CRITICAL ERROR in wazuh_install: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
 @app.route('/api/wazuh/uninstall', methods=['POST'])
 def wazuh_uninstall():

@@ -13,6 +13,11 @@ class WazuhDispatcher:
     def dispatch(self, action: str, params: dict) -> dict:
         """Dispatch commands to appropriate handlers"""
         self.logger(f"[WazuhDispatcher] Dispatching action: {action} with params: {params}")
+
+        # Validasi params
+        if not isinstance(params, dict):
+            self.logger(f"[WazuhDispatcher] ERROR: params is not dict, it's {type(params)}")
+            return {"success": False, "error": f"Invalid params type: {type(params)}"}
         
         if action == "server.wazuh.install":
             return self.wazuh_driver.install_wazuh_agent(

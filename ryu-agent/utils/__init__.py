@@ -179,29 +179,33 @@ def execute_command(cmd, timeout=30):
         return {"success": False, "error": str(e)}
 
 def detect_os_family():
-    """Detect OS family dari host"""
+    """Detect OS family dari host - Return DICT bukan string"""
     try:
         result = execute_on_host("cat /etc/os-release 2>/dev/null || cat /etc/redhat-release 2>/dev/null || echo ''")
         if result["success"] and result["stdout"]:
             content = result["stdout"].lower()
             
+            os_family = 'unknown'
             if 'ubuntu' in content:
-                return 'ubuntu'
+                os_family = 'ubuntu'
             elif 'debian' in content:
-                return 'debian'
+                os_family = 'debian'
             elif 'centos' in content:
-                return 'centos'
+                os_family = 'centos'
             elif 'rhel' in content or 'red hat' in content:
-                return 'rhel'
+                os_family = 'rhel'
             elif 'fedora' in content:
-                return 'fedora'
+                os_family = 'fedora'
             elif 'suse' in content or 'opensuse' in content:
-                return 'suse'
+                os_family = 'suse'
+            
+            return {'family': os_family, 'name': os_family}
                 
-    except:
-        pass
+    except Exception as e:
+        print(f"ERROR in detect_os_family: {e}")
     
-    return 'unknown'
+    # Default return sebagai dictionary
+    return {'family': 'unknown', 'name': 'unknown'}
 
 def detect_network_manager():
     """Detect active network configuration manager - HOST VERSION"""

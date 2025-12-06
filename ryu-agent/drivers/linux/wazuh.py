@@ -4,7 +4,9 @@ import requests
 import tempfile
 import platform
 import re
+import traceback
 from typing import Dict, List, Optional
+from utils import detect_os_family, execute_on_ssh, execute_on_host
 
 class WazuhDriver:
     def __init__(self, logger=print):
@@ -12,77 +14,27 @@ class WazuhDriver:
         self.host_root = "/host-rootfs"
 
     def _execute_on_host(self, command: str) -> Dict:
-        """Execute command on Host system (not container)"""
+        """Execute command on Host system (not container) - Using utils"""
         try:
-            if not os.path.exists("/host-rootfs/bin/sh"):
-                return {"success": False, "error": "host-rootfs not mounted properly"}
-
-            # Execute command on host via chroot
-            host_command = f"chroot /host-rootfs /bin/bash -c \"{command}\""
+            # Untuk systemctl commands, gunakan SSH bukan chroot
+            if command.startswith("systemctl") or command.startswith("service "):
+                self.logger(f"[DEBUG] Using SSH for system command: {command}")
+                return self._execute_ssh(command)
             
-            self.logger(f"Executing on Host: {command}")
-            result = subprocess.run(
-                host_command, 
-                shell=True, 
-                capture_output=True, 
-                text=True,
-                timeout=300
-            )
-            
-            return {
-                "success": result.returncode == 0,
-                "output": result.stdout,
-                "error": result.stderr,
-                "exit_code": result.returncode
-            }
+            # Untuk lainnya gunakan execute_on_host biasa
+            result = execute_on_host(command)
+            return result
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "stdout": "", "stderr": ""}
 
-    def _execute_systemctl(self, command: str) -> Dict:
-        """Execute systemctl commands via nsenter (proper DBus access)"""
+    def _execute_ssh(self, command: str, timeout: int = 300) -> Dict:
+        """Execute command via SSH - Using utils"""
         try:
-            # Method 1: nsenter untuk akses systemd penuh
-            nsenter_cmd = f"nsenter --mount=/proc/1/ns/mnt --net=/proc/1/ns/net --pid=/proc/1/ns/pid --uts=/proc/1/ns/uts --ipc=/proc/1/ns/ipc systemctl {command}"
-            
-            self.logger(f"Executing via nsenter: {nsenter_cmd}")
-            result = subprocess.run(
-                nsenter_cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            # Method 2: Fallback - execute langsung di host via chroot tanpa systemctl DBus
-            if result.returncode != 0 and "Failed to connect to bus" in result.stderr:
-                self.logger(f"nsenter failed, trying direct chroot method for: {command}")
-                
-                # Untuk 'daemon-reload', kita bisa skip karena tidak selalu diperlukan
-                if command == "daemon-reload":
-                    self.logger("Skipping daemon-reload (not critical)")
-                    return {"success": True, "output": "skipped", "error": ""}
-                
-                # Untuk command lain, gunakan service/sysvinit
-                chroot_cmd = f"chroot /host-rootfs /bin/bash -c \"{self._get_service_command(command)}\""
-                
-                result = subprocess.run(
-                    chroot_cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-            
-            return {
-                "success": result.returncode == 0,
-                "output": result.stdout,
-                "error": result.stderr,
-                "exit_code": result.returncode
-            }
-            
+            result = execute_on_ssh(command, timeout=timeout)
+            return result
         except Exception as e:
-            return {"success": False, "error": str(e)}
-    
+            return {"success": False, "error": str(e), "stdout": "", "stderr": ""}
+        
     def _get_service_command(self, systemctl_command: str) -> str:
         """Convert systemctl command to sysvinit/service command"""
         command_map = {
@@ -94,7 +46,7 @@ class WazuhDriver:
         }
         
         return command_map.get(systemctl_command, systemctl_command)
-    
+
     def detect_package_manager(self) -> str:
         """Detect package manager yang tersedia"""
         package_managers = {
@@ -117,7 +69,7 @@ class WazuhDriver:
     def detect_architecture(self) -> str:
         """Detect system architecture"""
         result = self._execute_on_host("uname -m")
-        arch = result.get("output", "").strip().lower() if result["success"] else "unknown"
+        arch = result.get("stdout", "").strip().lower() if result["success"] else "unknown"
         
         arch_map = {
             'x86_64': 'x86_64',
@@ -136,35 +88,7 @@ class WazuhDriver:
     
     def detect_os_family(self) -> dict:
         """Detect OS family dan version"""
-        try:
-            # Read host's os-release
-            with open(f'{self.host_root}/etc/os-release', 'r') as f:
-                os_info = {}
-                for line in f:
-                    if '=' in line:
-                        key, value = line.strip().split('=', 1)
-                        os_info[key] = value.strip('"')
-                
-                name = os_info.get('NAME', '').lower()
-                version_id = os_info.get('VERSION_ID', '')
-                
-                if 'ubuntu' in name:
-                    return {'family': 'ubuntu', 'version': version_id}
-                elif 'debian' in name:
-                    return {'family': 'debian', 'version': version_id}
-                elif 'centos' in name:
-                    return {'family': 'centos', 'version': version_id}
-                elif 'rhel' in name or 'red hat' in name:
-                    return {'family': 'rhel', 'version': version_id}
-                elif 'fedora' in name:
-                    return {'family': 'fedora', 'version': version_id}
-                elif 'suse' in name or 'opensuse' in name:
-                    return {'family': 'suse', 'version': version_id}
-        
-        except Exception as e:
-            self.logger(f"Error detecting HOST OS: {e}")
-        
-        return {'family': 'unknown', 'version': 'unknown'}
+        return detect_os_family()
     
     def get_wazuh_package_url(self, os_family: str, architecture: str, wazuh_version: str = "4.11.2") -> str:
         """Generate Wazuh package URL berdasarkan OS dan architecture"""
@@ -206,15 +130,16 @@ class WazuhDriver:
         commands = []
         
         # Download command (cek di HOST, bukan container)
-        curl_check = self._execute_on_host("command -v curl")
-        wget_check = self._execute_on_host("command -v wget")
+        curl_check = self._execute_ssh("command -v curl")
+        wget_check = self._execute_ssh("command -v wget")
 
-        if curl_check["success"] and curl_check.get("output"):
+        if curl_check["success"] and curl_check.get("stdout"):
             commands.append(f"curl -o {filename} {package_url}")
-        elif wget_check["success"] and wget_check.get("output"):
+        elif wget_check["success"] and wget_check.get("stdout"):
             commands.append(f"wget -O {filename} {package_url}")
         else:
-            return {"success": False, "error": "Host has neither curl nor wget installed!"}
+            self.logger("error: Host has neither curl nor wget installed!")
+            return []
         
         # Install commands berdasarkan package manager
         install_commands = {
@@ -276,9 +201,20 @@ class WazuhDriver:
             os.path.exists(f"{self.host_root}/usr/sbin/systemctl")
         )
 
-        # Check SysV init
-        res = self._execute_on_host("test -d /etc/init.d && echo ok")
-        capabilities["sysvinit"] = res["success"]
+        # Check systemctl via SSH
+        systemctl_check = self._execute_ssh("which systemctl 2>/dev/null || echo 'not-found'")
+        capabilities["systemd"] = systemctl_check["success"] and "not-found" not in systemctl_check.get("stdout", "")
+        
+        # Check SysV init via SSH
+        initd_check = self._execute_ssh("test -d /etc/init.d && echo ok || echo 'not-found'")
+        capabilities["sysvinit"] = initd_check["success"] and "ok" in initd_check.get("stdout", "")
+        
+        # Check curl & wget via SSH
+        curl_check = self._execute_ssh("which curl 2>/dev/null || echo 'not-found'")
+        capabilities["curl"] = curl_check["success"] and "not-found" not in curl_check.get("stdout", "")
+        
+        wget_check = self._execute_ssh("which wget 2>/dev/null || echo 'not-found'")
+        capabilities["wget"] = wget_check["success"] and "not-found" not in wget_check.get("stdout", "")
 
         # Check netplan
         capabilities["netplan"] = os.path.isdir(f"{self.host_root}/etc/netplan")
@@ -291,17 +227,6 @@ class WazuhDriver:
 
         # RHEL network-scripts
         capabilities["network_scripts"] = os.path.isdir(f"{self.host_root}/etc/sysconfig/network-scripts")
-
-        # curl & wget available?
-        capabilities["curl"] = (
-            os.path.exists(f"{self.host_root}/usr/bin/curl") or
-            os.path.exists(f"{self.host_root}/bin/curl")
-        )
-
-        capabilities["wget"] = (
-            os.path.exists(f"{self.host_root}/usr/bin/wget") or
-            os.path.exists(f"{self.host_root}/bin/wget")
-        )
 
         # chroot available?
         capabilities["chroot"] = os.path.exists("/usr/sbin/chroot") or os.path.exists("/bin/chroot")
@@ -330,7 +255,7 @@ class WazuhDriver:
         ]
         
         for cmd in cleanup_commands:
-            self._execute_on_host(cmd)
+            self._execute_ssh(cmd)
         
         import time
         time.sleep(2)
@@ -352,12 +277,12 @@ class WazuhDriver:
             self.logger("Starting Wazuh agent installation...")
 
             # Check if installed
-            result = self._execute_on_host("test -f /var/ossec/bin/wazuh-agent")
-            if "installed" in result.get("output", ""):
+            result = self._execute_ssh("test -f /var/ossec/bin/wazuh-agent")
+            if "installed" in result.get("stdout", ""):
                 self.logger("Wazuh already installed, reconfiguring...")
                 key_result = self._register_agent_key(agent_key, agent_name)
                 if key_result["success"]:
-                    self._execute_systemctl("systemctl restart wazuh-agent")
+                    self._execute_ssh("systemctl restart wazuh-agent")
                     return {"success": True, "message": "Wazuh reconfigured on Host"}
 
             # Cleanup existing installation
@@ -368,7 +293,7 @@ class WazuhDriver:
             # Detect hostname
             if not agent_name:
                 result = self._execute_on_host("hostname")
-                agent_name = result.get("output", "").strip() or "unknown"
+                agent_name = result.get("stdout", "").strip() or "unknown"
 
             # Detect system
             package_manager = self.detect_package_manager()
@@ -382,13 +307,16 @@ class WazuhDriver:
 
             # Generate installation commands
             commands = self.get_install_commands(package_url, package_manager, manager_ip)
+            if not commands:
+                return {"success": False, "error": "Host has neither curl nor wget installed!"}
 
             # Execute installation commands
             self.logger("Executing installation commands on Host...")
             for cmd in commands:
-                result = self._execute_on_host(f"cd /tmp && {cmd}")
+                result = self._execute_ssh(f"cd /tmp && {cmd}")
                 if not result["success"]:
-                    return {"success": False, "error": f"Failed at '{cmd}', error: {result.get('error')}"}
+                    error_msg = result.get("stderr") or result.get("error") or "Unknown error"
+                    return {"success": False, "error": f"Failed at '{cmd}', error: {error_msg}"}
                 
             # Update ossec.conf dengan IP manager yang benar
             config_result = self._update_ossec_config(manager_ip)
@@ -402,9 +330,9 @@ class WazuhDriver:
                 return {"success": False, "error": key_result["error"]}
             
             # Cek client.keys
-            check_keys = self._execute_on_host("cat /var/ossec/etc/client.keys")
-            if check_keys["success"] and check_keys.get("output", "").strip():
-                self.logger(f"client.keys exists: {check_keys.get('output', '').strip()}")
+            check_keys = self._execute_ssh("cat /var/ossec/etc/client.keys")
+            if check_keys["success"] and check_keys.get("stdout", "").strip():
+                self.logger(f"client.keys exists: {check_keys.get('stdout', '').strip()}")
             else:
                 self.logger("client.keys is empty or missing!")
 
@@ -412,6 +340,7 @@ class WazuhDriver:
             self.logger("Starting Wazuh agent...")
             # List metode start dengan prioritas
             start_methods = [
+                "systemctl daemon-reload && systemctl enable wazuh-agent && systemctl start wazuh-agent",
                 "service wazuh-agent start",
                 "/etc/init.d/wazuh-agent start",
                 "/var/ossec/bin/wazuh-control start",
@@ -419,23 +348,25 @@ class WazuhDriver:
             ]
 
             start_success = False
-            start_output = ""
-            
+            start_method_used = None
             for method in start_methods:
                 self.logger(f"Trying: {method}")
-                result = self._execute_on_host(method)
                 
+                # Tentukan apakah method ini butuh SSH atau chroot
+                if method.startswith("systemctl") or method.startswith("service "):
+                    result = self._execute_ssh(method)
+                else:
+                    result = self._execute_on_host(method)
+                    
                 if result["success"]:
                     self.logger(f"Started with: {method}")
                     start_success = True
-                    start_output = result.get("output", "")
+                    start_method_used = method
                     break
                 else:
-                    error_msg = result.get("error", "").strip()
+                    error_msg = result.get("stderr", "").strip()
                     if error_msg:
                         self.logger(f"Failed: {method}, Error: {error_msg}")
-                    else:
-                        self.logger(f"Failed: {method} (no error output)")
 
             # Final verification
             time.sleep(5)
@@ -456,8 +387,9 @@ class WazuhDriver:
             }
 
         except Exception as e:
-            self.logger(f"Host installation failed: {str(e)}")
-            return {"success": False, "error": f"Host installation failed: {str(e)}"}
+            self.logger(f"Installation failed: {str(e)}")
+            self.logger(f"Traceback: {traceback.format_exc()}")
+            return {"success": False, "error": f"Installation failed: {str(e)}"}
 
 
     def _register_agent_key(self, agent_key: str, agent_name: str) -> Dict:
@@ -486,7 +418,8 @@ class WazuhDriver:
             write_result = self._execute_on_host(write_cmd)
             
             if not write_result["success"]:
-                return {"success": False, "error": f"Failed to write temp key file: {write_result.get('error')}"}
+                error_msg = write_result.get("stderr") or write_result.get("error") or "Unknown error"
+                return {"success": False, "error": f"Failed to write temp key file: {error_msg}"}
             
             # Copy ke lokasi final dengan permissions yang benar
             final_path = "/var/ossec/etc/client.keys"
@@ -500,7 +433,7 @@ class WazuhDriver:
             verify_cmd = f"cat {final_path} && echo '--- Lines:' && wc -l {final_path}"
             verify_result = self._execute_on_host(verify_cmd)
             
-            self.logger(f"Client.keys verification: {verify_result.get('output', '')}")
+            self.logger(f"Client.keys verification: {verify_result.get('stdout', '')}")
             
             return {
                 "success": True,
@@ -525,9 +458,10 @@ class WazuhDriver:
             result = self._execute_on_host(read_cmd)
             
             if not result["success"]:
-                return {"success": False, "error": f"Cannot read ossec.conf: {result.get('error')}"}
+                error_msg = result.get("stderr") or result.get("error") or "Cannot read ossec.conf"
+                return {"success": False, "error": error_msg}
             
-            original_content = result["output"]
+            original_content = result["stdout"]
             
             # Debug: lihat struktur asli
             self.logger(f"DEBUG: Original config length: {len(original_content)} chars")
@@ -595,23 +529,16 @@ class WazuhDriver:
             
             write_result = self._execute_on_host(write_cmd)
             if not write_result["success"]:
-                return {"success": False, "error": f"Failed to write temp file: {write_result.get('error')}"}
-            
-            # Validate XML dengan xmllint jika ada
-            validate_cmd = f"which xmllint && xmllint --noout {temp_file} 2>&1 || echo 'xmllint not available'"
-            validate_result = self._execute_on_host(validate_cmd)
-            
-            if 'xmllint not available' not in validate_result.get("output", ""):
-                if "parses OK" not in validate_result.get("output", "") and "validates" not in validate_result.get("output", ""):
-                    self.logger(f"XML validation warning: {validate_result.get('output', '')}")
-                    # Tapi kita tetap lanjutkan
+                error_msg = write_result.get("stderr") or write_result.get("error") or "Failed to write temp file"
+                return {"success": False, "error": error_msg}
             
             # Copy ke final location
             copy_cmd = f"cp {temp_file} {ossec_conf_path} && chmod 640 {ossec_conf_path} && chown root:wazuh {ossec_conf_path}"
             copy_result = self._execute_on_host(copy_cmd)
             
             if not copy_result["success"]:
-                return {"success": False, "error": f"Failed to copy config: {copy_result.get('error')}"}
+                error_msg = copy_result.get("stderr") or copy_result.get("error") or "Failed to copy config"
+                return {"success": False, "error": error_msg}
             
             # Cleanup
             self._execute_on_host(f"rm -f {temp_file}")
@@ -620,13 +547,13 @@ class WazuhDriver:
             verify_cmd = f"cat {ossec_conf_path} | grep -c '<address>{manager_ip}</address>'"
             verify_result = self._execute_on_host(verify_cmd)
             
-            if verify_result["success"] and verify_result.get("output", "").strip() == "1":
+            if verify_result["success"] and verify_result.get("stdout", "").strip() == "1":
                 self.logger(f"✓ Updated ossec.conf with manager IP: {manager_ip}")
                 
                 # Cek XML structure akhir
                 final_check = f"grep -c '^<ossec_config>$' {ossec_conf_path} || true"
                 final_result = self._execute_on_host(final_check)
-                self.logger(f"Final structure check: {final_result.get('output', '')}")
+                self.logger(f"Final structure check: {final_result.get('stdout', '')}")
                 
                 return {"success": True, "message": f"Config updated with {manager_ip}"}
             else:
@@ -642,18 +569,18 @@ class WazuhDriver:
         """Get comprehensive Wazuh agent status"""
         try:
             # Check service status on Host
-            service_result = self._execute_systemctl("systemctl is-active wazuh-agent")
-            service_status = service_result.get("output", "").strip() if service_result["success"] else "unknown"
+            service_result = self._execute_ssh("systemctl is-active wazuh-agent")
+            service_status = service_result.get("stdout", "").strip() if service_result["success"] else "unknown"
             
             # Check process on Host
             process_result = self._execute_on_host("pgrep -f wazuh-agent")
-            process_running = bool(process_result["success"] and process_result.get("output", "").strip())
+            process_running = bool(process_result["success"] and process_result.get("stdout", "").strip())
             
             # Get agent ID dari Host
             agent_id = "unknown"
             result = self._execute_on_host("cat /var/ossec/etc/client.keys 2>/dev/null | head -1")
             if result["success"]:
-                key_line = result.get("output", "").strip()
+                key_line = result.get("stdout", "").strip()
                 if key_line:
                     parts = key_line.split()
                     if len(parts) >= 1:
@@ -678,7 +605,7 @@ class WazuhDriver:
             package_manager = self.detect_package_manager()
             
             # Stop service
-            self._execute_systemctl("systemctl stop wazuh-agent")
+            self._execute_ssh("systemctl stop wazuh-agent")
             
             # Uninstall berdasarkan package manager
             uninstall_commands = {
