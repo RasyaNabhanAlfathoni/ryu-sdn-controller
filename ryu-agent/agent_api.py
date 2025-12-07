@@ -635,39 +635,67 @@ def wazuh_install():
         print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
         return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
-@app.route('/api/wazuh/uninstall', methods=['POST'])
+@app.route('/api/wazuh/uninstall', methods=['GET'])
 def wazuh_uninstall():
     """Uninstall Wazuh agent"""
     try:
-        log_message("POST /api/wazuh/uninstall")
-        result = wazuh_dispatcher.dispatch("server.wazuh.uninstall", {})
+        import sys
+        import traceback
+        
+        print("=== DEBUG: /api/wazuh/uninstall called ===", file=sys.stderr)
+        
+        # Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Create dispatcher
+        dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+        
+        # Dispatch action
+        result = dispatcher.dispatch("server.wazuh.uninstall", {})
+        
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
         return jsonify(result)
+        
     except Exception as e:
-        log_message(f"Error in wazuh_uninstall: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"CRITICAL ERROR in wazuh_uninstall: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
 @app.route('/api/wazuh/status', methods=['GET'])
 def wazuh_status():
     """Get Wazuh agent status"""
     try:
-        log_message("GET /api/wazuh/status")
-        result = wazuh_dispatcher.dispatch("server.wazuh.status", {})
+        import sys
+        import traceback
+        
+        print("=== DEBUG: /api/wazuh/status called ===", file=sys.stderr)
+        
+        # Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Create dispatcher
+        dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+        
+        # Dispatch action
+        result = dispatcher.dispatch("server.wazuh.status", {})
+        
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
         return jsonify(result)
+        
     except Exception as e:
-        log_message(f"Error in wazuh_status: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/wazuh/security/overview', methods=['POST'])
-def wazuh_security_overview():
-    """Get security overview"""
-    try:
-        data = request.json
-        log_message(f"POST /api/wazuh/security/overview - {data}")
-        result = wazuh_dispatcher.dispatch("server.wazuh.security.overview", data)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in wazuh_security_overview: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"CRITICAL ERROR in wazuh_status: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
 # Health check
 @app.route('/health', methods=['GET'])

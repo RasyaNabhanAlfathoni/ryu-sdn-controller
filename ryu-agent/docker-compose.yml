@@ -51,8 +51,6 @@ services:
       - /run/systemd/system:/run/systemd/system:rw # Systemd runtime
       - /usr/sbin/netplan:/usr/sbin/netplan
       - /usr/bin/systemctl:/usr/bin/systemctl
-      - /usr/bin/ip:/usr/bin/ip
-      - /usr/sbin/ifconfig:/usr/sbin/ifconfig
       # Mount nsenter
       - /usr/bin/nsenter:/usr/bin/nsenter:ro
     environment:

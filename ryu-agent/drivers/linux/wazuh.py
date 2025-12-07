@@ -4,6 +4,7 @@ import requests
 import tempfile
 import platform
 import re
+import datetime
 import traceback
 from typing import Dict, List, Optional
 from utils import detect_os_family, execute_on_ssh, execute_on_host
@@ -378,7 +379,7 @@ class WazuhDriver:
                 "agent_name": agent_name,
                 "agent_id": key_result.get("agent_id", "unknown"),
                 "agent_status": final_status,
-                "service_running": final_status.get("active", False),
+                "service_running": final_status.get("status", False),
                 "system_info": {
                     "package_manager": package_manager,
                     "architecture": architecture,
@@ -566,210 +567,279 @@ class WazuhDriver:
             return {"success": False, "error": f"Config update failed: {str(e)}"}
 
     def get_wazuh_agent_status(self) -> Dict:
-        """Get comprehensive Wazuh agent status"""
+        """Get Wazuh agent status"""
         try:
-            # Check service status on Host
-            service_result = self._execute_ssh("systemctl is-active wazuh-agent")
-            service_status = service_result.get("stdout", "").strip() if service_result["success"] else "unknown"
+            import datetime
             
-            # Check process on Host
-            process_result = self._execute_on_host("pgrep -f wazuh-agent")
-            process_running = bool(process_result["success"] and process_result.get("stdout", "").strip())
+            self.logger("[WazuhDriver] Checking local Wazuh agent status...")
             
-            # Get agent ID dari Host
-            agent_id = "unknown"
-            result = self._execute_on_host("cat /var/ossec/etc/client.keys 2>/dev/null | head -1")
-            if result["success"]:
-                key_line = result.get("stdout", "").strip()
-                if key_line:
-                    parts = key_line.split()
-                    if len(parts) >= 1:
-                        agent_id = parts[0]
+            # 1. Cek installasi
+            installed_result = self._execute_ssh(
+                "test -f /var/ossec/bin/wazuh-agentd || "
+                "test -f /usr/bin/wazuh-agent || "
+                "test -f /opt/wazuh/bin/wazuh-agent && echo 'installed' || echo 'not_installed'"
+            )
+            is_installed = "installed" in installed_result.get("stdout", "")
+            
+            if not is_installed:
+                return {
+                    "success": True,  # Successfully determined status
+                    "installed": False,
+                    "status": "not_installed",
+                    "message": "Wazuh agent is not installed on this server",
+                    "source": "local_agent",
+                    "timestamp": datetime.datetime.now().isoformat()
+                }
+            
+            # 2. Cek service status (simplified)
+            service_result = self._execute_ssh(
+                "systemctl is-active wazuh-agent 2>/dev/null || "
+                "service wazuh-agent status 2>/dev/null | grep -q 'active' && echo 'active' || echo 'inactive'"
+            )
+            service_active = "active" in service_result.get("stdout", "")
+            
+            # 3. Cek process
+            process_result = self._execute_ssh(
+                "pgrep -f 'wazuh-agent|ossec-agent' 2>/dev/null | wc -l"
+            )
+            process_count = int(process_result.get("stdout", "0").strip())
+            has_process = process_count > 0
+            
+            # 4. Cek agent ID (jika ada)
+            agent_id = None
+            key_result = self._execute_ssh(
+                "cat /var/ossec/etc/client.keys 2>/dev/null | head -1 | awk '{print $1}' || echo ''"
+            )
+            if key_result["success"]:
+                agent_id = key_result.get("stdout", "").strip()
+                if not agent_id:
+                    agent_id = None
+            
+            # 5. Cek koneksi (simplified)
+            connection_result = self._execute_ssh(
+                "ss -tn state established 2>/dev/null | grep ':1514' || "
+                "netstat -tn 2>/dev/null | grep ':1514' || echo 'not_connected'"
+            )
+            is_connected = "not_connected" not in connection_result.get("stdout", "")
+            
+            # 6. Get basic info
+            manager_ip = self._execute_ssh(
+                "grep -oP '<address>\\K[^<]+' /var/ossec/etc/ossec.conf 2>/dev/null | head -1 || echo 'unknown'"
+            ).get("stdout", "").strip()
+            
+            version = self._execute_ssh(
+                "/var/ossec/bin/wazuh-agentd -V 2>&1 | grep 'Wazuh v'"
+            ).get("stdout", "").strip()[:50]
+            
+            # 7. Determine overall status
+            if service_active and has_process:
+                status = "healthy"
+                health = "good"
+                message = "Wazuh agent is running properly"
+            elif has_process and not service_active:
+                status = "process_running"
+                health = "warning"
+                message = "Process is running but service might not be properly managed"
+            elif service_active and not has_process:
+                status = "service_active_no_process"
+                health = "warning"
+                message = "Service is active but no process found"
+            else:
+                status = "inactive"
+                health = "critical"
+                message = "Wazuh agent is not running"
             
             return {
-                "service_status": service_status,
-                "process_running": process_running,
-                "agent_id": agent_id,
-                "active": service_status == "active"
+                "success": True,
+                "installed": True,
+                "status": status,
+                "health": health,
+                "message": message,
+                "source": "local_agent",
+                "details": {
+                    "service_active": service_active,
+                    "process_count": process_count,
+                    "agent_id": agent_id,
+                    "connected_to_manager": is_connected,
+                    "manager_ip": manager_ip,
+                    "version": version
+                },
+                "timestamp": datetime.datetime.now().isoformat()
             }
             
         except Exception as e:
+            self.logger(f"[WazuhDriver] Error checking local status: {e}")
             return {
-                "status": "error",
-                "error": str(e)
+                "success": False,
+                "error": str(e),
+                "source": "local_agent",
+                "timestamp": datetime.datetime.now().isoformat()
             }
     
     def uninstall_wazuh_agent(self) -> Dict:
         """Wazuh agent uninstaller"""
         try:
-            package_manager = self.detect_package_manager()
+            self.logger("Starting Wazuh agent uninstallation...")
             
-            # Stop service
-            self._execute_ssh("systemctl stop wazuh-agent")
-            
-            # Uninstall berdasarkan package manager
-            uninstall_commands = {
-                'apt': "dpkg --purge wazuh-agent",
-                'yum': "rpm -e wazuh-agent", 
-                'dnf': "dnf remove -y wazuh-agent",
-                'zypper': "zypper remove -y wazuh-agent"
-            }
-            
-            cmd = uninstall_commands.get(package_manager, uninstall_commands['apt'])
-            result = self._execute_on_host(cmd)
-            
-            # Cleanup files
-            cleanup_dirs = [
-                "/var/ossec",
-                "/etc/wazuh",
-                "/usr/share/wazuh"
+            # First check if installed
+            check_commands = [
+                # Cek binary
+                "test -f /var/ossec/bin/wazuh-agent && echo 'installed-binary'",
+                "test -f /var/ossec/bin/wazuh-agentd && echo 'installed-agentd'",
+                "which wazuh-agent 2>/dev/null && echo 'installed-which'",
+                # Cek package
+                "dpkg -l | grep -q wazuh-agent && echo 'installed-dpkg'",
+                "rpm -qa | grep -q wazuh-agent && echo 'installed-rpm'",
+                # Cek service file
+                "test -f /lib/systemd/system/wazuh-agent.service && echo 'installed-systemd'",
+                "test -f /etc/init.d/wazuh-agent && echo 'installed-initd'"
             ]
             
-            for directory in cleanup_dirs:
-                self._execute_on_host(f"rm -rf {directory}")
-        
-            return {
-                "success": True,
-                "message": "Wazuh agent uninstalled successfully",
-                "package_manager": package_manager
+            installed_evidence = []
+            for cmd in check_commands:
+                result = self._execute_ssh(cmd)
+                if result["success"] and "installed" in result.get("stdout", ""):
+                    evidence = result.get("stdout", "").strip()
+                    installed_evidence.append(evidence)
+                    self.logger(f"Installation evidence: {evidence}")
+            
+            if not installed_evidence:
+                self.logger("No evidence of Wazuh installation found")
+                return {
+                    "success": True,
+                    "message": "Wazuh agent is not installed",
+                    "already_uninstalled": True
+                }
+            
+            # Stop service
+            self.logger("Stopping Wazuh agent service...")
+            stop_commands = [
+                "systemctl stop wazuh-agent",
+                "service wazuh-agent stop",
+                "/etc/init.d/wazuh-agent stop",
+                "/var/ossec/bin/wazuh-control stop",
+                # Kill processes
+                "pkill -9 wazuh-agent",
+                "pkill -9 wazuh-agentd",
+                "pkill -9 wazuh-execd",
+                "pkill -9 wazuh-syscheckd",
+                "pkill -9 wazuh-logcollectd",
+                "pkill -9 wazuh-modulesd",
+                # Kill all related processes
+                "killall wazuh-agent wazuh-agentd wazuh-execd wazuh-syscheckd wazuh-logcollectd wazuh-modulesd 2>/dev/null || true"
+            ]
+            
+            for cmd in stop_commands:
+                result = self._execute_ssh(cmd)
+                if result["success"]:
+                    self.logger(f"Stopped with: {cmd}")
+                    break
+            
+            # Detect package manager for uninstall
+            package_manager = self.detect_package_manager()
+            
+            # Uninstall based on package manager
+            uninstall_commands = {
+                'apt': [
+                    "apt-get remove --purge -y wazuh-agent",
+                    "dpkg --purge wazuh-agent",
+                    "apt-get autoremove -y"
+                ],
+                'yum': [
+                    "yum remove -y wazuh-agent",
+                    "dnf remove -y wazuh-agent",
+                    "rpm -e wazuh-agent"
+                ],
+                'dnf': ["dnf remove -y wazuh-agent"],
+                'zypper': ["zypper remove -y wazuh-agent"]
             }
             
+            uninstalled = False
+            commands = uninstall_commands.get(package_manager, [])
+            
+            for cmd in commands:
+                result = self._execute_on_host(cmd)
+                if result["success"]:
+                    uninstalled = True
+                    self.logger(f"Uninstalled with: {cmd}")
+                    break
+            
+            # Cleanup files even if uninstall failed
+            self.logger("Cleaning up residual files...")
+            cleanup_items = [
+                # Directories
+                "/var/ossec",
+                "/etc/wazuh",
+                "/usr/share/wazuh",
+                "/var/lib/wazuh",
+                "/var/log/wazuh",
+                "/opt/wazuh",
+                "/usr/local/wazuh",
+                # Config files
+                "/etc/ossec.conf",
+                "/etc/wazuh-agent.conf",
+                # Service files
+                "/lib/systemd/system/wazuh-agent.service",
+                "/etc/systemd/system/wazuh-agent.service",
+                "/usr/lib/systemd/system/wazuh-agent.service",
+                "/etc/init.d/wazuh-agent",
+                "/etc/default/wazuh-agent",
+                # Log files
+                "/var/log/wazuh*",
+                "/var/log/ossec*",
+                # Temporary files
+                "/tmp/wazuh*",
+                "/tmp/ossec*"
+            ]
+            
+            for item in cleanup_items:
+                result = self._execute_on_host(f"rm -rf {item} 2>/dev/null || true")
+                if result["success"]:
+                    self.logger(f"Cleaned: {item}")
+            
+            # Remove service files
+            service_files = [
+                "/etc/init.d/wazuh-agent",
+                "/usr/lib/systemd/system/wazuh-agent.service",
+                "/lib/systemd/system/wazuh-agent.service",
+                "/etc/systemd/system/wazuh-agent.service"
+            ]
+            
+            for service_file in service_files:
+                self._execute_on_host(f"rm -f {service_file} 2>/dev/null || true")
+
+            # Try systemctl daemon reload
+            reload_commands = [
+                "systemctl daemon-reload",
+                "systemctl reset-failed wazuh-agent 2>/dev/null || true"
+            ]
+            
+            for cmd in reload_commands:
+                result = self._execute_ssh(cmd)
+                if result["success"]:
+                    self.logger(f"{cmd}")
+                else:
+                    self.logger(f"{cmd} failed: {result.get('stderr', '')}")
+            
+            # Final verification
+            verify_result = self._execute_ssh("test -f /var/ossec/bin/wazuh-agentd && echo 'still-installed' || echo 'uninstalled'")
+            if "uninstalled" in verify_result.get("stdout", ""):
+                return {
+                    "success": True,
+                    "message": "Wazuh agent uninstalled successfully",
+                    "package_manager": package_manager,
+                    "files_cleaned": True
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Wazuh agent files still exist after uninstall",
+                    "package_manager": package_manager
+                }
+                
         except Exception as e:
+            self.logger(f"Error uninstalling Wazuh agent: {e}")
             return {
                 "success": False,
-                "error": str(e)
+                "error": f"Uninstall failed: {str(e)}"
             }
-        
-    def get_security_overview(self, agent_id: str) -> Dict:
-        """Get security overview dari Wazuh manager"""
-        if not self.wazuh_api:
-            return {"status": "error", "error": "Wazuh API client not available"}
-        
-        try:
-            self.logger(f"Getting security overview for agent {agent_id}...")
-            
-            # Use existing method dari wazuh_api
-            result = self.wazuh_api.get_security_overview(agent_id)
-            self.logger(f"Security overview retrieved for {agent_id}")
-            return result
-            
-        except Exception as e:
-            error_msg = f"Failed to get security overview: {str(e)}"
-            self.logger(f"{error_msg}")
-            return {"status": "error", "error": error_msg}
-    
-    def get_vulnerabilities(self, agent_id: str, limit: int = 50) -> Dict:
-        """Get vulnerabilities dari Wazuh manager"""
-        if not self.wazuh_api:
-            return {"status": "error", "error": "Wazuh API client not available"}
-        
-        try:
-            self.logger(f"Getting vulnerabilities for agent {agent_id}...")
-            
-            vulnerabilities = self.wazuh_api.get_vulnerabilities(agent_id)
-            result = {
-                "status": "success",
-                "agent_id": agent_id,
-                "total_vulnerabilities": len(vulnerabilities),
-                "vulnerabilities": vulnerabilities[:limit],
-                "summary": {
-                    "critical": len([v for v in vulnerabilities if v.get('severity') == 'critical']),
-                    "high": len([v for v in vulnerabilities if v.get('severity') == 'high']),
-                    "medium": len([v for v in vulnerabilities if v.get('severity') == 'medium']),
-                    "low": len([v for v in vulnerabilities if v.get('severity') == 'low'])
-                }
-            }
-            
-            self.logger(f"Found {len(vulnerabilities)} vulnerabilities for {agent_id}")
-            return result
-            
-        except Exception as e:
-            error_msg = f"Failed to get vulnerabilities: {str(e)}"
-            self.logger(f"{error_msg}")
-            return {"status": "error", "error": error_msg}
-    
-    def get_fim_data(self, agent_id: str) -> Dict:
-        """Get FIM data dari Wazuh manager"""
-        if not self.wazuh_api:
-            return {"status": "error", "error": "Wazuh API client not available"}
-        
-        try:
-            self.logger(f"Getting FIM data for agent {agent_id}...")
-            
-            fim_data = self.wazuh_api.get_fim_data(agent_id)
-            result = {
-                "status": "success",
-                "agent_id": agent_id,
-                "total_files": len(fim_data),
-                "fim_data": fim_data[:50],  # Limit to 50 items
-                "summary": {
-                    "alerts": len([f for f in fim_data if f.get('alert')]),
-                    "changes": len([f for f in fim_data if f.get('type') == 'modified']),
-                    "additions": len([f for f in fim_data if f.get('type') == 'added']),
-                    "deletions": len([f for f in fim_data if f.get('type') == 'deleted'])
-                }
-            }
-            
-            self.logger(f"FIM data: {len(fim_data)} files monitored")
-            return result
-            
-        except Exception as e:
-            error_msg = f"Failed to get FIM data: {str(e)}"
-            self.logger(f"{error_msg}")
-            return {"status": "error", "error": error_msg}
-    
-    def get_agent_security_events(self, agent_id: str, limit: int = 50) -> Dict:
-        """Get security events dari Wazuh manager"""
-        if not self.wazuh_api:
-            return {"status": "error", "error": "Wazuh API client not available"}
-        
-        try:
-            self.logger(f"Getting security events for agent {agent_id}...")
-            
-            events = self.wazuh_api.get_agent_security_events(agent_id, limit=limit)
-            result = {
-                "status": "success",
-                "agent_id": agent_id,
-                "total_events": len(events),
-                "events": events,
-                "summary": {
-                    "high_severity": len([e for e in events if e.get('level', 0) >= 10]),
-                    "recent_events": len(events)
-                }
-            }
-            
-            self.logger(f"Found {len(events)} security events for {agent_id}")
-            return result
-            
-        except Exception as e:
-            error_msg = f"Failed to get security events: {str(e)}"
-            self.logger(f"{error_msg}")
-            return {"status": "error", "error": error_msg}
-    
-    def get_agents(self) -> Dict:
-        """Get semua agents dari Wazuh manager"""
-        if not self.wazuh_api:
-            return {"status": "error", "error": "Wazuh API client not available"}
-        
-        try:
-            self.logger("Getting all Wazuh agents...")
-            
-            agents = self.wazuh_api.get_agents()
-            result = {
-                "status": "success",
-                "total_agents": len(agents),
-                "agents": agents,
-                "summary": {
-                    "active": len([a for a in agents if a.get('status') == 'active']),
-                    "disconnected": len([a for a in agents if a.get('status') == 'disconnected']),
-                    "pending": len([a for a in agents if a.get('status') == 'pending'])
-                }
-            }
-            
-            self.logger(f"Found {len(agents)} Wazuh agents")
-            return result
-            
-        except Exception as e:
-            error_msg = f"Failed to get agents: {str(e)}"
-            self.logger(f"{error_msg}")
-            return {"status": "error", "error": error_msg}

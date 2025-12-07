@@ -32,30 +32,5 @@ class WazuhDispatcher:
         elif action == "server.wazuh.status":
             return self.wazuh_driver.get_wazuh_agent_status()
             
-        elif action == "server.wazuh.security.overview":
-            return self.wazuh_driver.get_security_overview(
-                agent_id=params.get("agent_id")
-            )
-            
-        elif action == "server.wazuh.security.vulnerabilities":
-            return self.wazuh_driver.get_vulnerabilities(
-                agent_id=params.get("agent_id"),
-                limit=params.get("limit", 50)
-            )
-            
-        elif action == "server.wazuh.security.fim":
-            return self.wazuh_driver.get_fim_data(
-                agent_id=params.get("agent_id")
-            )
-            
-        elif action == "server.wazuh.security.events":
-            return self.wazuh_driver.get_agent_security_events(
-                agent_id=params.get("agent_id"),
-                limit=params.get("limit", 50)
-            )
-            
-        elif action == "wazuh.agent.list":
-            return self.wazuh_driver.get_agents()
-            
         else:
             return {"error": f"Unknown Wazuh action: {action}"}

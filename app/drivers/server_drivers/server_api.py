@@ -326,33 +326,6 @@ class ServerAPI:
         """Trigger Wazuh agent uninstallation via agent API"""
         return self._call_agent("/api/wazuh/uninstall", logger=logger)
 
-    def wazuh_status(self, logger=None):
+    def wazuh_agent_status(self, logger=None):
         """Get Wazuh agent status via agent API"""
         return self._call_agent("/api/wazuh/status", logger=logger)
-
-    def wazuh_security_overview(self, agent_id, logger=None):
-        """Get security overview via agent API"""
-        return self._call_agent("/api/wazuh/security/overview", {
-            "agent_id": agent_id
-        }, logger=logger)
-    
-    def wazuh_security_vulnerabilities(self, agent_id, limit=50, logger=None):
-        """Get vulnerabilities via agent API"""
-        return self._call_agent("/api/wazuh/security/vulnerabilities", {
-            "agent_id": agent_id,
-            "limit": limit
-        }, logger=logger)
-
-    def wazuh_security_fim(self, agent_id, logger=None):
-        """Get FIM data via agent API"""
-        return self._call_agent("/api/wazuh/security/fim", {
-            "agent_id": agent_id
-        }, logger=logger)
-
-    def wazuh_security_events(self, agent_id, limit=50, logger=None):
-        """Get security events via agent API"""
-        return self._call_agent("/api/wazuh/security/events", {
-            "agent_id": agent_id,
-            "limit": limit
-        }, logger=logger)
-    

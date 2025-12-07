@@ -149,12 +149,60 @@ class WazuhAPI:
             'Content-Type': 'application/json'
         }
 
+    def _make_request(self, method: str, endpoint: str, params: Dict = None, data: Dict = None) -> Dict:
+        """Generic request handler"""
+        try:
+            url = f"{self.base_url}/{endpoint.lstrip('/')}"
+            headers = self._get_headers()
+            
+            self._log(f"Request: {method} {url}")
+            
+            if method.upper() == 'GET':
+                response = self.session.get(url, headers=headers, params=params, verify=False, timeout=30)
+            elif method.upper() == 'POST':
+                response = self.session.post(url, headers=headers, json=data, params=params, verify=False, timeout=30)
+            elif method.upper() == 'PUT':
+                response = self.session.put(url, headers=headers, json=data, params=params, verify=False, timeout=30)
+            elif method.upper() == 'DELETE':
+                response = self.session.delete(url, headers=headers, params=params, verify=False, timeout=30)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+            
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            self._log(f"Request failed: {e}")
+            raise
+
     def install_agent(self, device_id: str, manager_ip: str, logger=None) -> Dict:
         """COMPLETE Wazuh installation flow: Register + Trigger Agent Installation"""
         log = logger or self._log
         
-        # Get device info
-        device = self.core.devices.get(device_id) if self.core and hasattr(self.core, 'devices') else None
+        # Get device info - IMPORTANT: Get from database, not just memory
+        device = None
+        
+        # Coba dari memory registry dulu
+        if self.core and hasattr(self.core, 'devices'):
+            device = self.core.devices.get(device_id)
+        
+        # Jika tidak ada di memory, coba dari database
+        if not device:
+            try:
+                from controller.database.device_repository import DeviceRepository
+                dev_row = DeviceRepository.find_by_device_id(device_id)
+                if dev_row:
+                    device = {
+                        "id": dev_row["device_id"],
+                        "device_id": dev_row["device_id"],
+                        "ip": dev_row.get("main_ip_address"),
+                        "main_ip_address": dev_row.get("main_ip_address"),
+                        "hostname": dev_row.get("hostname", f"{device_id}"),
+                        "meta": dev_row.get("meta", {})
+                    }
+                    log(f"DEBUG: Found device in database: {device.get('hostname')}")
+            except Exception as e:
+                log(f"DEBUG: Database lookup failed: {e}")
+        
         if not device:
             return {"status": "error", "error": f"Device {device_id} not found"}
         
@@ -164,7 +212,7 @@ class WazuhAPI:
         log(f"Starting COMPLETE Wazuh installation for {agent_name}...")
         
         try:
-            #  Register agent di Wazuh Manager
+            # Register agent di Wazuh Manager
             log(f"Registering agent in Wazuh manager: {agent_name}")
             agent_info = self.add_agent(agent_name, agent_ip)
             agent_id = agent_info['id']
@@ -181,20 +229,55 @@ class WazuhAPI:
                 log(f"Failed to decode agent key: {e}")
                 log(f"Using agent key as-is: {agent_key_decoded}")
 
-            # Update device metadata
-            device["meta"] = device.get("meta", {})
-            device["meta"].update({
-                "wazuh_agent_id": agent_id,
-                "wazuh_agent_name": agent_name,
-                "wazuh_manager_ip": manager_ip,
-                "wazuh_agent_key": agent_key_decoded,
-                "wazuh_registered_at": datetime.datetime.now().isoformat()
-            })
+            # === SIMPAN METADATA KE DATABASE ===
+            try:
+                from controller.database.device_repository import DeviceRepository
+                
+                # Prepare metadata update
+                new_meta = device.get("meta", {})
+                new_meta.update({
+                    "wazuh_agent_id": agent_id,
+                    "wazuh_agent_name": agent_name,
+                    "wazuh_manager_ip": manager_ip,
+                    "wazuh_agent_key": agent_key_decoded,
+                    "wazuh_registered_at": datetime.datetime.now().isoformat()
+                })
+                
+                # Update database
+                update_result = DeviceRepository.update_device_meta(device_id, new_meta)
+                log(f"DEBUG: Database metadata update result: {update_result}")
+                
+            except Exception as db_error:
+                log(f"WARNING: Failed to save metadata to database: {db_error}")
             
-            # Trigger agent side installation via ServerAPI 
+            # === SIMPAN METADATA KE MEMORY REGISTRY ===
+            if self.core and hasattr(self.core, 'devices'):
+                # Pastikan device ada di memory registry
+                memory_device = self.core.devices.get(device_id)
+                if memory_device:
+                    if "meta" not in memory_device:
+                        memory_device["meta"] = {}
+                    
+                    memory_device["meta"].update({
+                        "wazuh_agent_id": agent_id,
+                        "wazuh_agent_name": agent_name,
+                        "wazuh_manager_ip": manager_ip,
+                        "wazuh_agent_key": agent_key_decoded,
+                        "wazuh_registered_at": datetime.datetime.now().isoformat()
+                    })
+                    log(f"DEBUG: Updated metadata in memory registry")
+                else:
+                    # Jika device tidak ada di memory, tambahkan
+                    device["meta"] = new_meta
+                    try:
+                        self.core.devices.create(device)
+                        log(f"DEBUG: Added device to memory registry with metadata")
+                    except:
+                        pass
+            
+            # Trigger agent side installation
             log(f"Triggering agent side installation for {agent_name}...")
             
-            # Gunakan ServerAPI untuk komunikasi dengan agent
             server_api = ServerAPI(device)
             installation_result = server_api.wazuh_install(
                 manager_ip=manager_ip,
@@ -205,7 +288,7 @@ class WazuhAPI:
             
             log(f"Agent side installation result: {installation_result}")
             
-            # Return comprehensive result
+            # Return result
             result = {
                 "status": "success",
                 "agent_id": agent_id,
@@ -282,116 +365,24 @@ class WazuhAPI:
             error_msg = f"Wazuh uninstall failed: {str(e)}"
             log(f"{error_msg}")
             return {"status": "error", "error": error_msg}
-    
-    def get_agent_status(self, device_id: str, logger=None) -> Dict:
-        """Get agent status"""
-        log = logger or self._log
-        
-        device = self.core.devices.get(device_id) if self.core else None
-        if not device:
-            return {"status": "error", "error": f"Device {device_id} not found"}
-        
-        agent_id = device.get("meta", {}).get("wazuh_agent_id")
-        
-        status = {
-            "device_id": device_id,
-            "device_name": device.get('hostname'),
-            "registered": bool(agent_id),
-            "agent_id": agent_id,
-            "manager_status": None,
-            "installation_status": "unknown"  # Akan di-update oleh ryu-agent
-        }
-        
-        # Check Wazuh manager status
-        if agent_id:
-            try:
-                agents = self.get_agents()
-                manager_agent = next((a for a in agents if a['id'] == agent_id), None)
-                
-                if manager_agent:
-                    status["manager_status"] = {
-                        "status": manager_agent.get('status', 'unknown'),
-                        "connected": manager_agent.get('status') == 'active',
-                        "last_keepalive": manager_agent.get('lastKeepAlive'),
-                        "version": manager_agent.get('version'),
-                        "ip": manager_agent.get('ip')
-                    }
-                    log(f"Agent {agent_id} status: {manager_agent.get('status')}")
-                else:
-                    status["manager_status"] = {"status": "not_found"}
-                    log(f"Agent {agent_id} not found in Wazuh manager")
-                    
-            except Exception as e:
-                status["manager_status"] = {"error": str(e)}
-                log(f"Error checking manager status: {e}")
-        
-        return status
-    
-    def get_security_overview(self, device_id: str, logger=None) -> Dict:
-        """Get security overview"""
-        log = logger or self._log
-        
-        device = self.core.devices.get(device_id) if self.core else None
-        if not device:
-            return {"status": "error", "error": f"Device {device_id} not found"}
-        
-        agent_id = device.get("meta", {}).get("wazuh_agent_id")
-        if not agent_id:
-            return {"status": "error", "error": "Device not registered with Wazuh"}
-        
-        log(f"Getting security overview for agent {agent_id}...")
-        
-        try:
-            vulnerabilities = self.get_vulnerabilities(agent_id)
-            fim_data = self.get_fim_data(agent_id)
-            syscollector_data = self.get_agent_security_events(agent_id, limit=50)
-            
-            # Calculate risk level
-            critical_vulns = [v for v in vulnerabilities if v.get('severity', '').lower() == 'critical']
-            high_vulns = [v for v in vulnerabilities if v.get('severity', '').lower() == 'high']
-            total_risk = (len(critical_vulns) * 3) + (len(high_vulns) * 2) + len(fim_data)
-            
-            risk_level = "CRITICAL" if total_risk >= 10 else "HIGH" if total_risk >= 5 else "MEDIUM" if total_risk >= 2 else "LOW"
-            
-            overview = {
-                "status": "success",
-                "agent_id": agent_id,
-                "device_name": device.get('hostname'),
-                "summary": {
-                    "vulnerabilities": len(vulnerabilities),
-                    "critical_vulnerabilities": len(critical_vulns),
-                    "high_vulnerabilities": len(high_vulns),
-                    "fim_alerts": len(fim_data),
-                    "system_inventory": len(syscollector_data)
-                },
-                "risk_level": risk_level,
-                "last_updated": datetime.datetime.now().isoformat()
-            }
-            
-            log(f"Security overview generated for {agent_id}")
-            return overview
-            
-        except Exception as e:
-            error_msg = f"Failed to get security overview: {str(e)}"
-            log(f"{error_msg}")
-            return {"status": "error", "error": error_msg}
-    
+
     # Only Register, nanti dipanggil pada function install_agent()
-    def add_agent(self, agent_name: str, agent_ip: str) -> Dict:
+    def add_agent(self, agent_name: str, agent_ip: str, logger=None) -> Dict:
         """Add new agent ke Wazuh"""
+        log = logger or self._log
         try:
             url = f"{self.base_url}/agents"
             payload = {
                 "name": agent_name
             }
             
-            self._log(f"🔍 DEBUG - URL: {url}")
-            self._log(f"🔍 DEBUG - Payload: {payload}")
-            self._log(f"🔍 DEBUG - Headers: {self._get_headers()}")
-            self._log(f"🔍 DEBUG - Token: {self.token[:50]}...")  # Log partial token
+            log(f"DEBUG - URL: {url}")
+            log(f"DEBUG - Payload: {payload}")
+            log(f"DEBUG - Headers: {self._get_headers()}")
+            log(f"DEBUG - Token: {self.token[:50]}...")  # Log partial token
             
             # Test dengan requests langsung dulu
-            self._log("🔍 DEBUG - Testing with direct requests...")
+            log("DEBUG - Testing with direct requests...")
             response_direct = requests.post(
                 url, 
                 headers=self._get_headers(),
@@ -399,11 +390,11 @@ class WazuhAPI:
                 verify=False,
                 timeout=30
             )
-            self._log(f"🔍 DEBUG - Direct requests status: {response_direct.status_code}")
-            self._log(f"🔍 DEBUG - Direct requests response: {response_direct.text}")
+            log(f"DEBUG - Direct requests status: {response_direct.status_code}")
+            log(f"DEBUG - Direct requests response: {response_direct.text}")
             
             # Test dengan session
-            self._log("🔍 DEBUG - Testing with session...")
+            log("DEBUG - Testing with session...")
             response_session = self.session.post(
                 url, 
                 headers=self._get_headers(),
@@ -411,61 +402,48 @@ class WazuhAPI:
                 verify=False,
                 timeout=30
             )
-            self._log(f"🔍 DEBUG - Session status: {response_session.status_code}")
-            self._log(f"🔍 DEBUG - Session response: {response_session.text}")
+            log(f"DEBUG - Session status: {response_session.status_code}")
+            log(f"DEBUG - Session response: {response_session.text}")
             
             # Gunakan yang berhasil
             if response_direct.status_code == 200:
-                self._log("Using direct requests (SUCCESS)")
+                log("Using direct requests (SUCCESS)")
                 agent_data = response_direct.json()['data']
             elif response_session.status_code == 200:
-                self._log("Using session (SUCCESS)")
+                log("Using session (SUCCESS)")
                 agent_data = response_session.json()['data']
             else:
-                self._log("Both methods failed")
+                log("Both methods failed")
                 raise Exception(f"Direct: {response_direct.status_code} - {response_direct.text}, Session: {response_session.status_code} - {response_session.text}")
             
-            self._log(f"Wazuh agent added: {agent_data}")
+            log(f"Wazuh agent added: {agent_data}")
             return agent_data
             
         except Exception as e:
-            self._log(f"Failed to add Wazuh agent: {e}")
+            log(f"Failed to add Wazuh agent: {e}")
             import traceback
-            self._log(f"Traceback: {traceback.format_exc()}")
+            log(f"Traceback: {traceback.format_exc()}")
             raise
     
     # Only Deregister, nanti dipanggil pada function uninstall_agent()
-    def delete_agent(self, agent_id: str) -> Dict:
+    def delete_agent(self, agent_id: str, logger=None) -> Dict:
         """Delete agent dari Wazuh Manager"""
+        log = logger or self._log
         try:
             url = f"{self.base_url}/agents/{agent_id}"
             response = self.session.delete(url, headers=self._get_headers())
             response.raise_for_status()
             
-            self._log(f"Agent {agent_id} deleted from Wazuh manager")
+            log(f"Agent {agent_id} deleted from Wazuh manager")
             return {"status": "success", "message": f"Agent {agent_id} deleted"}
             
         except Exception as e:
-            self._log(f"Failed to delete agent: {e}")
-            raise
-
-    def get_agent_config(self, agent_id: str) -> Dict:
-        """Get agent configuration untuk download"""
-        try:
-            url = f"{self.base_url}/agents/{agent_id}/config"
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                verify=False
-            )
-            response.raise_for_status()
-            return response.json()['data']
-        except Exception as e:
-            self._log(f"Failed to get agent config: {e}")
+            log(f"Failed to delete agent: {e}")
             raise
     
-    def get_agent_key(self, agent_id: str) -> str:
+    def get_agent_key(self, agent_id: str, logger=None) -> str:
         """Get agent authentication key"""
+        log = logger or self._log
         try:
             url = f"{self.base_url}/agents/{agent_id}/key"
             response = self.session.get(
@@ -475,15 +453,15 @@ class WazuhAPI:
                 timeout=30
             )
             
-            self._log(f"Key response status: {response.status_code}")
-            self._log(f"Key response text: {response.text}")
+            log(f"Key response status: {response.status_code}")
+            log(f"Key response text: {response.text}")
             
             if response.status_code != 200:
-                self._log(f"Error getting key: {response.text}")
+                log(f"Error getting key: {response.text}")
                 response.raise_for_status()
             
             response_data = response.json()
-            self._log(f"Key response data: {response_data}")
+            log(f"Key response data: {response_data}")
             
             # Handle new response format
             if ('data' in response_data and 
@@ -494,86 +472,403 @@ class WazuhAPI:
                 
                 if 'key' in affected_item:
                     key = affected_item['key']
-                    self._log(f"Agent key obtained (new format): {key}")
+                    log(f"Agent key obtained (new format): {key}")
                     return key
                 else:
-                    self._log(f"No 'key' field in affected_items: {affected_item}")
+                    log(f"No 'key' field in affected_items: {affected_item}")
                     raise Exception(f"No 'key' field in response: {affected_item}")
             
             # Fallback untuk format lama
             elif 'data' in response_data and 'key' in response_data['data']:
                 key = response_data['data']['key']
-                self._log(f"Agent key obtained (old format): {key}")
+                log(f"Agent key obtained (old format): {key}")
                 return key
             
             elif 'key' in response_data:
                 key = response_data['key']
-                self._log(f"Agent key obtained (direct): {key}")
+                log(f"Agent key obtained (direct): {key}")
                 return key
             
             else:
-                self._log(f"Unexpected key response format: {response_data}")
+                log(f"Unexpected key response format: {response_data}")
                 raise Exception(f"Unexpected key response format: {response_data}")
         except Exception as e:
-            self._log(f"Failed to get agent key: {e}")
+            log(f"Failed to get agent key: {e}")
             raise
     
-    def get_agents(self) -> List[Dict]:
-        """Get semua agents dari Wazuh"""
+    def get_manager_info(self, logger=None) -> Dict:
+        """Get Wazuh manager information"""
+        log = logger or self._log
+        log("Getting manager info...")
+        
         try:
-            url = f"{self.base_url}/agents"
+            result = self._make_request('GET', '/manager/status')
+            return {
+                "status": "success",
+                "manager": result.get('data', {}),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_manager_stats(self, logger=None) -> Dict:
+        """Get manager statistics"""
+        log = logger or self._log
+        log("Getting manager stats...")
+        
+        try:
+            result = self._make_request('GET', '/manager/stats')
+            return {
+                "status": "success",
+                "stats": result.get('data', {}),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+        
+    def get_manager_configuration(self, logger=None) -> Dict:
+        """Get configuration assessment"""
+        log = logger or self._log
+        log("Getting configuration assessment...")
+        
+        try:
+            # Get manager configuration
+            manager_config = self._make_request('GET', '/manager/configuration')
+            
+            # Get active configuration
+            active_config = self._make_request('GET', '/manager/configuration?active=true')
+            
+            return {
+                "status": "success",
+                "config_assessment": {
+                    "manager_config": manager_config.get('data', {}),
+                    "active_config": active_config.get('data', {}),
+                    "assessment_time": datetime.datetime.now().isoformat()
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_agents(self, filters: Dict = None, logger=None) -> Dict:
+        """Get all agents with optional filtering"""
+        log = logger or self._log
+        log("Getting agents...")
+        
+        try:
+            params = filters or {}
+            result = self._make_request('GET', '/agents', params=params)
+            
+            agents = result.get('data', {}).get('affected_items', [])
+            
+            summary = {
+                "total": len(agents),
+                "active": len([a for a in agents if a.get('status') == 'active']),
+                "disconnected": len([a for a in agents if a.get('status') == 'disconnected']),
+                "never_connected": len([a for a in agents if a.get('status') == 'never_connected']),
+                "pending": len([a for a in agents if a.get('status') == 'pending'])
+            }
+            
+            return {
+                "status": "success",
+                "agents": agents,
+                "summary": summary,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_agent_detail(self, agent_id: str, logger=None) -> Dict:
+        """Get detailed information for specific agent"""
+        log = logger or self._log
+        log(f"Getting agent detail for {agent_id}...")
+        
+        try:
+            result = self._make_request('GET', f'/agents/{agent_id}/stats/agent')
+            return {
+                "status": "success",
+                "agent": result.get('data', {}),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+        
+    def get_agent_status(self, agent_id: str, logger=None) -> Dict:
+        """Get agent status FROM WAZUH MANAGER (not local)"""
+        log = logger or self._log
+        
+        if not agent_id:
+            return {
+                "status": "error",
+                "error": "agent_id parameter is required",
+                "source": "wazuh_manager"
+            }
+        
+        log(f"Checking agent {agent_id} status in Wazuh manager...")
+        
+        try:
+            # Get agents response
+            agents_response = self.get_agents()
+            
+            # Check if response is successful
+            if agents_response.get("status") != "success":
+                return {
+                    "status": "error",
+                    "error": f"Failed to get agents list: {agents_response.get('error', 'Unknown error')}",
+                    "source": "wazuh_manager"
+                }
+            
+            # Extract agents list from response
+            agents_data = agents_response.get("data", {})
+            agents_list = agents_data.get("agents", [])
+            
+            if not agents_list:
+                return {
+                    "status": "error",
+                    "error": "No agents found in Wazuh manager",
+                    "source": "wazuh_manager"
+                }
+            
+            # Find the specific agent
+            manager_agent = None
+            for agent in agents_list:
+                # Agent ID bisa string atau integer di response Wazuh
+                agent_id_str = str(agent.get('id', ''))
+                if agent_id_str == str(agent_id):
+                    manager_agent = agent
+                    break
+            
+            if not manager_agent:
+                # Coba lagi dengan pencarian case-insensitive
+                for agent in agents_list:
+                    agent_id_str = str(agent.get('id', '')).lower()
+                    if agent_id_str == str(agent_id).lower():
+                        manager_agent = agent
+                        break
+            
+            if not manager_agent:
+                return {
+                    "status": "error",
+                    "error": f"Agent {agent_id} not found in Wazuh manager. Total agents: {len(agents_list)}",
+                    "source": "wazuh_manager",
+                    "available_agents": [{"id": str(a.get('id')), "name": a.get('name')} for a in agents_list[:10]]
+                }
+            
+            # Format response
+            return {
+                "status": "success",
+                "source": "wazuh_manager",
+                "agent_id": str(agent_id),
+                "manager_status": {
+                    "status": manager_agent.get('status', 'unknown'),
+                    "connected": manager_agent.get('status') == 'active',
+                    "last_keepalive": manager_agent.get('lastKeepAlive'),
+                    "version": manager_agent.get('version', 'unknown'),
+                    "ip": manager_agent.get('ip', 'unknown'),
+                    "name": manager_agent.get('name', 'unknown'),
+                    "node_name": manager_agent.get('node_name'),
+                    "os_name": manager_agent.get('os', {}).get('name', 'unknown'),
+                    "os_platform": manager_agent.get('os', {}).get('platform', 'unknown'),
+                    "os_version": manager_agent.get('os', {}).get('version', 'unknown'),
+                    "date_add": manager_agent.get('dateAdd'),
+                    "last_ack": manager_agent.get('lastACK')
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            error_msg = f"Failed to check agent status: {str(e)}"
+            log(f"{error_msg}")
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}")
+            return {"status": "error", "error": error_msg}
+
+    def get_agent_config(self, agent_id: str, logger=None) -> Dict:
+        """Get agent configuration untuk download"""
+        log = logger or self._log
+        try:
+            url = f"{self.base_url}/agents/{agent_id}/config/syscheck/syscheck"
             response = requests.get(
                 url,
                 headers=self._get_headers(),
                 verify=False
             )
             response.raise_for_status()
-            return response.json()['data']['affected_items']
+            return response.json()['data']
         except Exception as e:
-            self._log(f"Failed to get agents: {e}")
-            return []
+            log(f"Failed to get agent config: {e}")
+            raise
     
-    def get_agent_security_events(self, agent_id: str, limit: int = 100) -> List[Dict]:
-        """Get security events dari agent"""
+    def get_security_configuration_assessment(self, agent_id: str, logger=None) -> Dict:
+        """Get Security Configuration Assessment (SCA)"""
+        log = logger or self._log
+        log(f"Getting SCA for agent {agent_id}...")
+        
         try:
-            url = f"{self.base_url}/syscollector/{agent_id}"
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                verify=False
-            )
-            response.raise_for_status()
-            return response.json()['data']['affected_items'][:limit]
+            result = self._make_request('GET', f'/sca/{agent_id}')
+            data = result.get('data', {}).get('affected_items', [])
+            
+            # Calculate compliance score
+            total_checks = len(data)
+            passed_checks = len([d for d in data if d.get('result') == 'passed'])
+            failed_checks = len([d for d in data if d.get('result') == 'failed'])
+            
+            compliance_score = (passed_checks / total_checks * 100) if total_checks > 0 else 0
+            
+            return {
+                "status": "success",
+                "sca": data,
+                "summary": {
+                    "total_checks": total_checks,
+                    "passed": passed_checks,
+                    "failed": failed_checks,
+                    "compliance_score": round(compliance_score, 2)
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            }
         except Exception as e:
-            self._log(f"Failed to get security events: {e}")
-            return []
+            return {"status": "error", "error": str(e)}
     
-    def get_vulnerabilities(self, agent_id: str) -> List[Dict]:
-        """Get vulnerability assessment data"""
-        try:
-            url = f"{self.base_url}/vulnerability/{agent_id}"
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                verify=False
-            )
-            response.raise_for_status()
-            return response.json()['data']['affected_items']
-        except Exception as e:
-            self._log(f"Failed to get vulnerabilities: {e}")
-            return []
-    
-    def get_fim_data(self, agent_id: str) -> List[Dict]:
+    def get_fim_data(self, agent_id: str, filters: Dict = None, logger=None) -> Dict:
         """Get File Integrity Monitoring data"""
+        log = logger or self._log
+        log(f"Getting FIM data for agent {agent_id}...")
+        
         try:
-            url = f"{self.base_url}/fim/{agent_id}"
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                verify=False
-            )
-            response.raise_for_status()
-            return response.json()['data']['affected_items']
+            params = filters or {}
+            result = self._make_request('GET', f'/syscheck/{agent_id}', params=params)
+            data = result.get('data', {}).get('affected_items', [])
+            
+            return {
+                "status": "success",
+                "fim": data,
+                "summary": {
+                    "total_files": len(data),
+                    "alerts": len([d for d in data if d.get('alert')]),
+                    "modified": len([d for d in data if d.get('type') == 'modified']),
+                    "added": len([d for d in data if d.get('type') == 'added']),
+                    "deleted": len([d for d in data if d.get('type') == 'deleted'])
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            }
         except Exception as e:
-            self._log(f"Failed to get FIM data: {e}")
-            return []
+            return {"status": "error", "error": str(e)}
+    
+    def get_logs(self, agent_id: str = None, query: Dict = None, logger=None) -> Dict:
+        """Get security logs with filtering"""
+        log = logger or self._log
+        log(f"Getting logs for agent {agent_id or 'all'}...")
+        
+        try:
+            params = query or {}
+            params['limit'] = params.get('limit', 100)
+            
+            endpoint = f"/syscollector/{agent_id}" if agent_id else "/manager/logs"
+            result = self._make_request('GET', endpoint, params=params)
+            
+            data = result.get('data', {}).get('affected_items', [])
+            
+            # Categorize logs
+            log_levels = {}
+            for log_entry in data:
+                level = log_entry.get('level', 'unknown')
+                log_levels[level] = log_levels.get(level, 0) + 1
+            
+            return {
+                "status": "success",
+                "logs": data,
+                "summary": {
+                    "total_logs": len(data),
+                    "log_levels": log_levels,
+                    "time_range": {
+                        "from": params.get('offset', '0'),
+                        "limit": params['limit']
+                    }
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_threat_hunting(self, query: Dict = None, logger=None) -> Dict:
+        """Get security events for threat hunting"""
+        log = logger or self._log
+        log("Getting threat hunting data...")
+        
+        try:
+            params = query or {}
+            params['limit'] = params.get('limit', 50)
+            params['sort'] = params.get('sort', '-timestamp')
+            
+            result = self._make_request('GET', '/security/events', params=params)
+            data = result.get('data', {}).get('affected_items', [])
+            
+            # Threat analysis
+            high_severity = [d for d in data if d.get('level', 0) >= 10]
+            by_category = {}
+            for event in data:
+                category = event.get('rule', {}).get('category', 'unknown')
+                by_category[category] = by_category.get(category, 0) + 1
+            
+            return {
+                "status": "success",
+                "events": data,
+                "threat_analysis": {
+                    "total_events": len(data),
+                    "high_severity": len(high_severity),
+                    "events_by_category": by_category,
+                    "time_range": params.get('time_range', 'last 24 hours')
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_syscollector_hardware(self, agent_id: str, logger=None) -> Dict:
+        """Get system hardware information"""
+        log = logger or self._log
+        log(f"Getting hardware info for agent {agent_id}...")
+        
+        try:
+            result = self._make_request('GET', f'/syscollector/{agent_id}/hardware')
+            data = result.get('data', {}).get('affected_items', [])
+            
+            hardware_info = {}
+            if data:
+                hardware_info = data[0]  # Usually only one hardware entry per agent
+            
+            return {
+                "status": "success",
+                "hardware": hardware_info,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_syscollector_processes(self, agent_id: str, filters: Dict = None, logger=None) -> Dict:
+        """Get running processes"""
+        log = logger or self._log
+        log(f"Getting processes for agent {agent_id}...")
+        
+        try:
+            params = filters or {}
+            result = self._make_request('GET', f'/syscollector/{agent_id}/processes', params=params)
+            data = result.get('data', {}).get('affected_items', [])
+            
+            # Process analysis
+            process_users = {}
+            for proc in data:
+                user = proc.get('euser', 'unknown')
+                process_users[user] = process_users.get(user, 0) + 1
+            
+            return {
+                "status": "success",
+                "processes": data,
+                "analysis": {
+                    "total_processes": len(data),
+                    "unique_users": len(process_users),
+                    "processes_by_user": process_users
+                },
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}

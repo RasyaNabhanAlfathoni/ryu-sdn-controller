@@ -161,9 +161,35 @@ class Orchestrator(app_manager.RyuApp):
         action = p["action"]
         params = p.get("params", {})
 
-        # GLOBAL ACTION (SNMP & Wazuh Manager)
-        if action in ["snmp.device.add", "snmp.metric.add", "snmp.test.oid"]:
-            return self.dispatch(None, action, params, jid)
+        # WAZUH MANAGER ACTIONS (GLOBAL - TIDAK BUTUH device_id)
+        wazuh_global_actions = [
+            "wazuh.manager.info", "wazuh.manager.stats", "wazuh.manager.configuration",
+            "wazuh.agent.list", "wazuh.agent.detail", "wazuh.agent.status", "wazuh.agent.config",
+            "wazuh.security.sca", "wazuh.security.fim", "wazuh.security.threat_hunting",
+            "wazuh.logs.discover", "wazuh.system.hardware", "wazuh.system.processes",
+            "wazuh.config.assessment"
+        ]
+        
+        # SNMP ACTIONS (GLOBAL - TIDAK BUTUH device_id)
+        snmp_global_actions = [
+            "snmp.device.add", "snmp.metric.add", "snmp.test.oid",
+            "snmp.metric.delete", "snmp.metric.edit", "snmp.device.delete", 
+            "snmp.device.edit"
+        ]
+        
+        # GLOBAL ACTIONS = WAJUH MANAGER + SNMP
+        global_actions = wazuh_global_actions + snmp_global_actions
+        
+        # GLOBAL ACTIONS langsung dispatch tanpa device_id
+        if action in global_actions:
+            self.jobs.append_log(jid, f"Executing GLOBAL action: {action}")
+            try:
+                result = self.dispatch(None, action, params, jid)
+                self.jobs.set(jid, result=result)
+                return result
+            except Exception as e:
+                self.jobs.set(jid, status="failed", result=str(e))
+                raise
         
         # DEVICE-BASED ACTION
         device_id = p.get("device_id")
@@ -231,6 +257,7 @@ class Orchestrator(app_manager.RyuApp):
     def dispatch(self, d, action, params, jid):
         # Global actions (tidak memerlukan device driver)
         global_actions = {
+            # === SNMP Actions ===
             "snmp.metric.add": lambda p, logger: SNMPFileManager().add_metric(
                 module=p["module"],
                 metric=p
@@ -252,6 +279,54 @@ class Orchestrator(app_manager.RyuApp):
                 community=p.get("community", "public"),
                 oid=p["oid"],
                 version=p.get("version")
+            ),
+
+            # === Wazuh Actions ===
+            "wazuh.manager.info": lambda p, logger: self.wazuh_api.get_manager_info(logger=logger),
+            "wazuh.manager.stats": lambda p, logger: self.wazuh_api.get_manager_stats(logger=logger),
+            "wazuh.manager.configuration": lambda p, logger: self.wazuh_api.get_manager_configuration(logger=logger),
+            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(
+                filters=p.get("filters", {}),
+                logger=logger
+            ),
+            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(
+                agent_id=p.get("agent_id"),
+                logger=logger
+            ),
+            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(
+                agent_id=p.get("agent_id"),
+                logger=logger
+            ),
+            "wazuh.agent.config": lambda p, logger: self.wazuh_api.get_agent_config(
+                agent_id=p.get("agent_id"),
+                logger=logger
+            ),
+            "wazuh.security.sca": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
+                agent_id=p.get("agent_id"),
+                logger=logger
+            ),
+            "wazuh.security.fim": lambda p, logger: self.wazuh_api.get_fim_data(
+                agent_id=p.get("agent_id"),
+                filters=p.get("filters", {}),
+                logger=logger
+            ),
+            "wazuh.security.threat_hunting": lambda p, logger: self.wazuh_api.get_threat_hunting(
+                query=p.get("query", {}),
+                logger=logger
+            ),
+            "wazuh.logs.discover": lambda p, logger: self.wazuh_api.get_logs(
+                agent_id=p.get("agent_id"),
+                query=p.get("query", {}),
+                logger=logger
+            ),
+            "wazuh.system.hardware": lambda p, logger: self.wazuh_api.get_syscollector_hardware(
+                agent_id=p.get("agent_id"),
+                logger=logger
+            ),
+            "wazuh.system.processes": lambda p, logger: self.wazuh_api.get_syscollector_processes(
+                agent_id=p.get("agent_id"),
+                filters=p.get("filters", {}),
+                logger=logger
             ),
         }
 

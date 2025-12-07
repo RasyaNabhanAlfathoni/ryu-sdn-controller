@@ -74,7 +74,6 @@ class ServerActions:
                 "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
 
                 # === Wazuh Agent Command ===
-                "wazuh.agent.list": lambda p, logger: wazuh_api.get_agents(),
                 "server.wazuh.install": lambda p, logger: wazuh_api.install_agent(
                     device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                     manager_ip=p.get("manager_ip"), 
@@ -84,25 +83,6 @@ class ServerActions:
                     device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                     logger=logger
                 ),
-                "server.wazuh.status": lambda p, logger: wazuh_api.get_agent_status(
-                    device_id=getattr(d, 'device_id', None) or p.get("device_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.overview": lambda p, logger: wazuh_api.get_security_overview(
-                    device_id=getattr(d, 'device_id', None) or p.get("device_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.vulnerabilities": lambda p, logger: wazuh_api.get_vulnerabilities(
-                    agent_id=p.get("agent_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.fim": lambda p, logger: wazuh_api.get_fim_data(
-                    agent_id=p.get("agent_id"),
-                    logger=logger
-                ),
-                "server.wazuh.security.events": lambda p, logger: wazuh_api.get_agent_security_events(
-                    agent_id=p.get("agent_id"),
-                    limit=p.get("limit", 50),
-                    logger=logger
-                ),
+                ## Untuk wazuh agent status pemanggilan berdasar Server Agent (local)
+                "server.wazuh.status": lambda p, logger: d.wazuh_agent_status(logger=logger),
         }
