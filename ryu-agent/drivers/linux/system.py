@@ -12,6 +12,47 @@ class ServerSystemDriver:
         self._execute_command = execute_command
         self.logger(f"Detected OS: {self.os_family}")
 
+    def health_check(self, detailed=False):
+        """Basic health check untuk server agent"""
+        try:            
+            # Uptime
+            uptime_seconds = psutil.boot_time()
+            uptime_str = str(datetime.timedelta(seconds=uptime_seconds))
+            
+            # 3. Determine overall status
+            overall_status = "healthy"
+            issues = []
+            
+            # 4. Basic response (untuk detailed=False)
+            if not detailed:
+                return {
+                    "status": "ok",
+                    "health": overall_status,
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "uptime": uptime_str,
+                    "issues": issues if issues else None
+                }
+            
+
+        except ImportError:
+            # Jika psutil tidak tersedia
+            return {
+                "status": "error",
+                "health": "unknown",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "error": "psutil module not available",
+                "message": "Install psutil: pip install psutil"
+            }
+            
+        except Exception as e:
+            self.logger(f"Health check error: {e}")
+            return {
+                "status": "error",
+                "health": "unknown",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "error": str(e)
+            }
+
     def get_system_logs(self, n=50):
         """Get system logs - compatible dengan berbagai distro"""
         log_files = []

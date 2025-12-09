@@ -24,7 +24,6 @@ def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)
     print(f"[AGENT-API] {message}")
 
-
 # === NETWORK ENDPOINTS ===
 @app.route('/api/network/ip/add', methods=['POST'])
 def add_ip():
@@ -699,8 +698,37 @@ def wazuh_status():
 
 # Health check
 @app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": "healthy", "service": "agent_api"})
+def health(detailed=False):
+    """Basic health check untuk server agent"""
+    try:            
+        # Uptime
+        import time
+        uptime_seconds = time.time() - psutil.boot_time()
+        uptime_str = str(datetime.timedelta(seconds=uptime_seconds))
+            
+        # 3. Determine overall status
+        overall_status = "healthy"
+        issues = []
+            
+        # 4. Basic response (untuk detailed=False)
+        if not detailed:
+            return {
+                "status": "ok",
+                "health": overall_status,
+                "service": "agent_api",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "uptime": uptime_str,
+                "issues": issues if issues else None
+            }
+            
+    except Exception as e:
+        print(f"Health check error: {e}")
+        return {
+            "status": "error",
+            "health": "unknown",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 if __name__ == '__main__':
     print("Starting Agent API on http://0.0.0.0:8081")

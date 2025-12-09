@@ -253,3 +253,101 @@ class ServerFirewallDriver:
     def detect_firewall_type(self):
         """Detect and return firewall type"""
         return self.firewall_type
+
+    def get_status(self):
+        """Get firewall status (active/inactive)"""
+        try:
+            if self.firewall_type == "ufw":
+                result = self.ufw_status()
+                if "Status: active" in result:
+                    return "active"
+                else:
+                    return "inactive"
+            elif self.firewall_type == "firewalld":
+                result = subprocess.run(["firewall-cmd", "--state"], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0 and "running" in result.stdout.lower():
+                    return "active"
+                else:
+                    return "inactive"
+            elif self.firewall_type == "iptables":
+                # Check if iptables has any rules
+                result = subprocess.run(["iptables", "-L", "-n"], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0 and "Chain INPUT" in result.stdout:
+                    return "active"
+                return "inactive"
+        except Exception:
+            pass
+        return "unknown"
+    
+    def get_default_zone(self):
+        """Get default zone (for firewalld)"""
+        if self.firewall_type == "firewalld":
+            try:
+                result = subprocess.run(["firewall-cmd", "--get-default-zone"], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    return result.stdout.strip()
+            except Exception:
+                pass
+        return "N/A"
+    
+    def get_active_zones(self):
+        """Get active zones (for firewalld)"""
+        zones = []
+        if self.firewall_type == "firewalld":
+            try:
+                result = subprocess.run(["firewall-cmd", "--get-active-zones"], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split('\n'):
+                        if ':' in line:
+                            zone = line.split(':')[0].strip()
+                            if zone:
+                                zones.append(zone)
+            except Exception:
+                pass
+        return zones
+    
+    def get_rules_count(self):
+        """Get total number of firewall rules"""
+        count = 0
+        try:
+            if self.firewall_type == "ufw":
+                result = subprocess.run(["ufw", "status", "numbered"], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    # Count numbered rules like [1], [2], etc.
+                    import re
+                    count = len(re.findall(r'\[\s*\d+\s*\]', result.stdout))
+            
+            elif self.firewall_type == "iptables":
+                # Count rules in filter table
+                result = subprocess.run(["iptables", "-L", "-n", "--line-numbers"], 
+                                      capture_output=True, text=True, timeout=3)
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        # Count lines that look like rule entries
+                        if line and re.match(r'^\s*\d+', line) and not line.startswith('Chain'):
+                            count += 1
+            
+            elif self.firewall_type == "firewalld":
+                # Count ports and services
+                ports_result = subprocess.run(["firewall-cmd", "--list-ports"], 
+                                           capture_output=True, text=True, timeout=3)
+                services_result = subprocess.run(["firewall-cmd", "--list-services"], 
+                                              capture_output=True, text=True, timeout=3)
+                
+                if ports_result.returncode == 0:
+                    ports = ports_result.stdout.strip().split()
+                    count += len(ports)
+                if services_result.returncode == 0:
+                    services = services_result.stdout.strip().split()
+                    count += len(services)
+                    
+        except Exception as e:
+            self.logger(f"Error counting rules: {e}")
+        
+        return count
