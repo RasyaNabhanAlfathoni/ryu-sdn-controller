@@ -31,6 +31,7 @@ from actions.routers.mikrotik import MikrotikRouterActions
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
 from actions.servers.server import ServerActions
+from drivers.server_file_manager import ServerFileManager
 
 # === Wazuh Driver ===
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
@@ -90,6 +91,11 @@ class Orchestrator(app_manager.RyuApp):
 
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
+
+        # Inisialisasi server metrics manager
+        self.server_file_manager = ServerFileManager()
+        # Start auto-sync thread (setiap 30 detik)
+        self.sync_thread = hub.spawn(self.auto_sync_servers)
 
         # Initialize Wazuh integration
         try:
@@ -365,6 +371,41 @@ class Orchestrator(app_manager.RyuApp):
             for line in tb_lines:
                 self.jobs.append_log(jid, f"   {line}")
             raise
+
+    def auto_sync_servers(self):
+        """Background thread untuk auto sync servers ke Prometheus"""
+        import time
+        from datetime import datetime
+        
+        print("Starting auto-sync service for Prometheus targets")
+        
+        while True:
+            try:
+                # Tunggu sebelum sync pertama
+                hub.sleep(10)  # Tunggu 10 detik pertama
+                
+                while True:
+                    try:
+                        # Ambil devices dari database
+                        from database.device_repository import DeviceRepository
+                        devices = DeviceRepository.list_all()
+                        
+                        # Sync ke file JSON
+                        count = self.server_file_manager.sync_from_database(devices)
+                        
+                        if count > 0:
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] Auto-synced {count} servers to Prometheus")
+                        
+                        # Tunggu 30 detik sebelum sync berikutnya
+                        hub.sleep(30)
+                        
+                    except Exception as e:
+                        print(f"Auto-sync error: {e}")
+                        hub.sleep(60)  # Tunggu lebih lama jika error
+                        
+            except Exception as e:
+                print(f"Fatal auto-sync error: {e}")
+                hub.sleep(300)  # Tunggu 5 menit jika fatal error
 
 class NorthboundApi(ControllerBase):
     def __init__(self, req, link, data, **config):
@@ -1049,53 +1090,3 @@ class NorthboundApi(ControllerBase):
             self.core.logger.warning(f"Heartbeat: Device {did} not in registry: {e}")
 
         return self._resp(req, json.dumps({"status":"ok", "device": did}))
-
-    @route('prometheus-targets', '/api/prometheus/server/targets', methods=['GET'])
-    def prometheus_targets(self, req, **kwargs):
-        """HTTP Service Discovery endpoint untuk Prometheus"""
-        try:
-            devices = self.core.devices.list()
-            
-            # Format response untuk Prometheus HTTP SD
-            targets = []
-            
-            for device in devices:
-                # Filter hanya server devices dengan southbound = server_api
-                if device.get('southbound') == 'server_api':
-                    # Ambil IP dari device - pakai main_ip atau ip
-                    ip = device.get('main_ip') or device.get('ip')
-                    hostname = device.get('hostname', 'unknown')
-                    device_id = device.get('id', 'unknown')
-                    
-                    # Validasi IP
-                    if ip and ip != '127.0.0.1' and ip != 'unknown':
-                        target = {
-                            "targets": [f"{ip}:9100"],  # Node Exporter port
-                            "labels": {
-                                "instance": ip,
-                                "hostname": hostname,
-                                "device_id": device_id,
-                                "job": "node-exporter-servers",
-                                "group": "servers",
-                                "os": device.get('os', 'unknown'),
-                                "architecture": device.get('architecture', 'unknown'),
-                                "southbound": "server_api"
-                            }
-                        }
-                        targets.append(target)
-                        
-                        print(f"Prometheus-SD Added target: {ip} ({hostname})")
-            
-            print(f"Prometheus-SD Generated {len(targets)} targets from {len(devices)} total devices")
-            
-            body = json.dumps(targets)
-            return self._resp(req, body)
-            
-        except Exception as e:
-            import traceback
-            print(f"Prometheus-SD Error generating targets: {e}")
-            print(traceback.format_exc())
-            
-            # Return empty array jika error
-            body = json.dumps([])
-            return self._resp(req, body)

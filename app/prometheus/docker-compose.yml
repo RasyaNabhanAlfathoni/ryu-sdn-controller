@@ -7,6 +7,7 @@ services:
       - prometheus_data:/prometheus
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - ./snmp_targets.json:/etc/prometheus/snmp_targets.json
+      - ./server_targets.json:/etc/prometheus/server_targets.json
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus

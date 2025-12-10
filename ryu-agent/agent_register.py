@@ -462,7 +462,7 @@ def build_payload(controller_url):
         "main_interface": main_interface,
         "main_mac_address": main_mac,
         "southbound": "server_api",
-        "status": "ok",
+        "status": "active",
         "main_username": username,
         "os": get_os_info(),
         "architecture": architecture["architecture"],

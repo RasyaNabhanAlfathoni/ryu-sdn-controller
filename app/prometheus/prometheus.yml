@@ -3,7 +3,7 @@ global:
   evaluation_interval: 10s
 
 scrape_configs:
-  - job_name: 'snmp'
+  - job_name: "snmp"
     metrics_path: /snmp
     file_sd_configs:
       - files:
@@ -22,8 +22,20 @@ scrape_configs:
 
   # Node Exporter - Dynamic via Controller API
   - job_name: "node-exporter-servers"
-    http_sd_configs:
-      - url: "http://192.168.221.133:8080/api/prometheus/server/targets" # IP controller
+    file_sd_configs:
+      - files:
+          - server_targets.json # File yang digenerate controller
         refresh_interval: 30s
     scrape_interval: 15s
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [hostname]
+        target_label: hostname
+      - source_labels: [device_id]
+        target_label: device_id
+      - source_labels: [os]
+        target_label: os
+      - source_labels: [vendor]
+        target_label: vendor
