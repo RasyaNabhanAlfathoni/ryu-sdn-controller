@@ -828,15 +828,27 @@ class NorthboundApi(ControllerBase):
                     clean_devices = []
                     for i, dev in enumerate(db_devices, 1):
                         # Base device info dari network_devices
+                        # Konversi datetime ke string untuk JSON serialization
+                        created_at = dev.get("created_at")
+                        updated_at = dev.get("updated_at")
+                        last_seen = dev.get("last_seen")
+                        
+                        if isinstance(created_at, datetime):
+                            created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                        if isinstance(updated_at, datetime):
+                            updated_at = updated_at.strftime('%Y-%m-%d %H:%M:%S')
+                        if isinstance(last_seen, datetime):
+                            last_seen = last_seen.strftime('%Y-%m-%d %H:%M:%S')
+                        
                         clean_dev = {
                             "id": i,
                             "device_id": dev.get("device_id"),
                             "device_type": dev.get("device_type", "unknown"),
                             "southbound": dev.get("southbound", "unknown"),
                             "status": dev.get("status", "active"),
-                            "created_at": dev.get("created_at"),
-                            "updated_at": dev.get("updated_at"),
-                            "last_seen": dev.get("last_seen")
+                            "created_at": created_at,
+                            "updated_at": updated_at,
+                            "last_seen": last_seen
                         }
                         
                         # Tambahkan field spesifik berdasarkan device_type
@@ -861,13 +873,23 @@ class NorthboundApi(ControllerBase):
                                     # Format interfaces
                                     formatted_interfaces = []
                                     for iface in interfaces:
+                                        iface_created = iface.get("created_at")
+                                        iface_updated = iface.get("updated_at")
+                                        
+                                        if isinstance(iface_created, datetime):
+                                            iface_created = iface_created.strftime('%Y-%m-%d %H:%M:%S')
+                                        if isinstance(iface_updated, datetime):
+                                            iface_updated = iface_updated.strftime('%Y-%m-%d %H:%M:%S')
+                                        
                                         formatted_iface = {
                                             "interface_name": iface.get("interface_name"),
                                             "mac_address": iface.get("mac_address"),
                                             "ip_address": iface.get("ip_address"),
                                             "ip_netmask": iface.get("ip_netmask"),
                                             "ip_broadcast": iface.get("ip_broadcast"),
-                                            "ip_version": iface.get("ip_version")
+                                            "ip_version": iface.get("ip_version"),
+                                            "created_at": iface_created,
+                                            "updated_at": iface_updated
                                         }
                                         formatted_interfaces.append(formatted_iface)
                                     
@@ -882,13 +904,27 @@ class NorthboundApi(ControllerBase):
                             try:
                                 firewall = DeviceRepository.get_server_firewall(dev.get("device_id"))
                                 if firewall:
+                                    # Konversi datetime untuk firewall
+                                    firewall_created = firewall.get("created_at")
+                                    firewall_updated = firewall.get("updated_at")
+                                    firewall_last_checked = firewall.get("last_checked")
+                                    
+                                    if isinstance(firewall_created, datetime):
+                                        firewall_created = firewall_created.strftime('%Y-%m-%d %H:%M:%S')
+                                    if isinstance(firewall_updated, datetime):
+                                        firewall_updated = firewall_updated.strftime('%Y-%m-%d %H:%M:%S')
+                                    if isinstance(firewall_last_checked, datetime):
+                                        firewall_last_checked = firewall_last_checked.strftime('%Y-%m-%d %H:%M:%S')
+                                    
                                     clean_dev["firewall"] = {
                                         "firewall_type": firewall.get("firewall_type"),
                                         "status": firewall.get("status"),
                                         "default_zone": firewall.get("default_zone"),
                                         "active_zones": json.loads(firewall.get("active_zones", "[]")),
                                         "rules_count": firewall.get("rules_count", 0),
-                                        "last_checked": firewall.get("last_checked")
+                                        "last_checked": firewall_last_checked,
+                                        "created_at": firewall_created,
+                                        "updated_at": firewall_updated
                                     }
                                 else:
                                     clean_dev["firewall"] = None
@@ -925,13 +961,20 @@ class NorthboundApi(ControllerBase):
                     # Convert memory format ke database format
                     device_type = "server" if dev.get("southbound") == "server_api" else "router"
                     
+                    # Konversi datetime untuk memory registry
+                    last_seen = dev.get("last_seen")
+                    if isinstance(last_seen, (int, float)):
+                        last_seen = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S')
+                    elif isinstance(last_seen, datetime):
+                        last_seen = last_seen.strftime('%Y-%m-%d %H:%M:%S')
+                    
                     clean_dev = {
                         "id": i,
                         "device_id": dev.get("id"),
                         "device_type": device_type,
                         "southbound": dev.get("southbound", "unknown"),
                         "status": dev.get("status", "active"),
-                        "last_seen": dev.get("last_seen")
+                        "last_seen": last_seen
                     }
                     
                     if device_type == "server":
