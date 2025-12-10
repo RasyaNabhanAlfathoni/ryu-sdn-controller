@@ -443,8 +443,8 @@ class NorthboundApi(ControllerBase):
                     else:
                         final_ip = device_ip_from_body or "unknown"
                 
-                data["ip"] = final_ip
-                data["main_ip_address"] = final_ip
+                data["ip"] = str(final_ip)
+                data["main_ip_address"] = str(final_ip)
                 
                 # Generate device ID
                 device_id = generate_device_id(data, registration_mode)
@@ -453,43 +453,56 @@ class NorthboundApi(ControllerBase):
                 
                 # Data langsung dari payload (bukan dari meta)
                 server_data = {
-                    "status": data.get("status", "active"),
-                    "southbound": data.get("southbound", "server_api"),
-                    "hostname": data.get("identity", data.get("hostname", "unknown")),
-                    "main_username": data.get("main_username", "unknown"),
-                    "os_version": data.get("os", "unknown"),  # Map os -> os_version
-                    "architecture": data.get("architecture"),
-                    "architecture_bits": data.get("architecture_bits"),
-                    "processor_type": data.get("processor_type"),
-                    "vendor": data.get("vendor", "unknown"),
+                    "status": str(data.get("status", "active")),
+                    "southbound": str(data.get("southbound", "server_api")),
+                    "hostname": str(data.get("identity", data.get("hostname", "unknown"))),
+                    "main_username": str(data.get("main_username", "unknown")),
+                    "os_version": str(data.get("os", "unknown")),  # Map os -> os_version
+                    "architecture": str(data.get("architecture", "")),
+                    "architecture_bits": str(data.get("architecture_bits", "")),
+                    "processor_type": str(data.get("processor_type", "")),
+                    "vendor": str(data.get("vendor", "unknown")),
                     "connected": True,
-                    "main_ip_address": data.get("main_ip_address"),
-                    "main_interface": data.get("main_interface", "unknown"),
-                    "main_mac_address": data.get("main_mac_address", "unknown"),
+                    "main_ip_address": str(data.get("main_ip_address", "")),
+                    "main_interface": str(data.get("main_interface", "unknown")),
+                    "main_mac_address": str(data.get("main_mac_address", "unknown")),
                     "last_seen": to_mysql_datetime(time.time())
                 }
 
                 # Hanya ambil dari meta yang diperlukan
                 meta = data.get("meta", {})
-                if meta:
-                    # Hanya virtualization yang diambil dari meta
-                    if "virtualization" in meta:
-                        server_data["virtualization"] = meta["virtualization"]
+                if meta and "virtualization" in meta:
+                    virtualization_data = meta["virtualization"]
+                    
+                    # OPTION 1: Ambil hanya type saja (paling sederhana)
+                    if isinstance(virtualization_data, dict):
+                        # Ambil virtualization type, default "physical"
+                        server_data["virtualization"] = str(virtualization_data.get("hypervisor", "physical"))
+                    else:
+                        server_data["virtualization"] = str(virtualization_data)
+                else:
+                    server_data["virtualization"] = "physical"
     
                 # Update data dengan server_data
                 data.update(server_data)
 
                 # Handle interfaces data (outside meta)
                 if "interfaces" in data:
-                    # Simpan interfaces untuk nanti diproses ke tabel server_interfaces
-                    data["_interfaces_data"] = data["interfaces"]
+                    # Pastikan interfaces adalah dict
+                    if isinstance(data["interfaces"], dict):
+                        data["_interfaces_data"] = data["interfaces"]
+                    else:
+                        data["_interfaces_data"] = {}
                     # Hapus dari data utama agar tidak tercampur
                     del data["interfaces"]
                 
                 # Handle firewall data (outside meta)
                 if "firewall" in data:
-                    # Simpan firewall untuk nanti diproses ke tabel server_firewalls
-                    data["_firewall_data"] = data["firewall"]
+                    # Pastikan firewall adalah dict
+                    if isinstance(data["firewall"], dict):
+                        data["_firewall_data"] = data["firewall"]
+                    else:
+                        data["_firewall_data"] = {}
                     # Hapus dari data utama agar tidak tercampur
                     del data["firewall"]
 
@@ -559,7 +572,7 @@ class NorthboundApi(ControllerBase):
                 # Check for duplicates by device_id
                 existing = DeviceRepository.find_by_device_id(device_id)
                 
-                if existing:
+                if existing: # Untuk Update data Existing
                     # Update existing device
                     DeviceRepository.update_network_device(device_id, common_data)
                     
@@ -583,34 +596,35 @@ class NorthboundApi(ControllerBase):
                             "last_seen": to_mysql_datetime(time.time())
                         }
                         DeviceRepository.update_server(device_id, server_data)
+                        server_id = DeviceRepository.get_server_id(device_id)
 
                         # INSERT/UPDATE INTERFACES DATA (jika ada)
                         if "_interfaces_data" in data:
                             try:
-                                # Delete existing interfaces first
-                                DeviceRepository.delete_server_interfaces(device_id)
-                                
-                                # Insert new interfaces
-                                for iface_name, iface_data in data["_interfaces_data"].items():
-                                    # Skip loopback dan docker/bridge interfaces jika mau
-                                    if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
-                                        continue
-                                        
-                                    # Insert interface
-                                    interface_id = DeviceRepository.insert_server_interface({
-                                        "server_id": device_id,
-                                        "interface_name": iface_name,  # Nama interface dari key dict
-                                        "mac_address": iface_data.get("mac_address", "unknown"),
-                                        "mac_broadcast": iface_data.get("mac_broadcast", "")
-                                    })
+                                if server_id:
+                                    # Delete existing interfaces first
+                                    DeviceRepository.delete_server_interfaces(device_id)
                                     
-                                    # Insert IPv4 addresses
-                                    for ip_data in iface_data.get("ipv4", []):
-                                        DeviceRepository.insert_server_interface_ip({
-                                            "interface_id": interface_id,
-                                            "address": ip_data.get("address"),
-                                            "netmask": ip_data.get("netmask"),
-                                            "broadcast": ip_data.get("broadcast", ""),
+                                    # Insert new interfaces
+                                    for iface_name, iface_data in data["_interfaces_data"].items():
+                                        # Skip loopback dan docker/bridge interfaces
+                                        if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
+                                            continue
+                                        
+                                        # Ambil data IPv4 pertama (jika ada)
+                                        ipv4_data = {}
+                                        ipv4_list = iface_data.get("ipv4", [])
+                                        if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
+                                            ipv4_data = ipv4_list[0]  # Ambil IP pertama
+                                        
+                                        # Insert interface dengan data IP
+                                        interface_id = DeviceRepository.insert_server_interface({
+                                            "server_id": server_id,  
+                                            "interface_name": str(iface_name),
+                                            "mac_address": str(iface_data.get("mac_address", "unknown")),
+                                            "ip_address": str(ipv4_data.get("address", "")),
+                                            "ip_netmask": str(ipv4_data.get("netmask", "")),
+                                            "ip_broadcast": str(ipv4_data.get("broadcast", "")),
                                             "ip_version": "ipv4"
                                         })
                             except Exception as e:
@@ -621,7 +635,7 @@ class NorthboundApi(ControllerBase):
                             try:
                                 firewall_data = data["_firewall_data"]
                                 DeviceRepository.upsert_server_firewall({
-                                    "server_id": device_id,
+                                    "server_id": server_id,
                                     "firewall_type": firewall_data.get("firewall_type"),
                                     "status": firewall_data.get("status"),
                                     "default_zone": firewall_data.get("default_zone"),
@@ -653,7 +667,7 @@ class NorthboundApi(ControllerBase):
                     
                     self.core.logger.info(f"Updated existing device in database: {device_id}")
                     
-                else:
+                else: # Jika tidak ada data existing
                     # Insert new device
                     # First insert to network_devices
                     network_id = DeviceRepository.insert_network_device(common_data)
@@ -662,47 +676,44 @@ class NorthboundApi(ControllerBase):
                     if device_type == "server":
                         server_data = {
                             "device_id": device_id,
-                            "hostname": data.get("identity", data.get("hostname", "unknown")),
-                            "main_username": data.get("main_username", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "architecture": data.get("architecture"),
-                            "architecture_bits": data.get("architecture_bits"),
-                            "processor_type": data.get("processor_type"),
-                            "vendor": data.get("vendor", "unknown"),
-                            "main_ip_address": data.get("main_ip_address"),
-                            "main_mac_address": data.get("main_mac_address"),
-                            "main_interface": data.get("main_interface"),
-                            "southbound": data.get("southbound", "unknown"),
-                            "status": "active",
-                            "virtualization": data.get("virtualization"),
+                            "hostname": str(data.get("hostname", "unknown")),
+                            "main_username": str(data.get("main_username", "unknown")),
+                            "os_version": str(data.get("os_version", "unknown")),
+                            "architecture": str(data.get("architecture", "")),
+                            "architecture_bits": str(data.get("architecture_bits", "")),
+                            "processor_type": str(data.get("processor_type", "")),
+                            "vendor": str(data.get("vendor", "unknown")),
+                            "main_ip_address": str(data.get("main_ip_address", "")),
+                            "main_mac_address": str(data.get("main_mac_address", "unknown")),
+                            "main_interface": str(data.get("main_interface", "unknown")),
+                            "southbound": str(data.get("southbound", "server_api")),
+                            "status": str(data.get("status", "active")),
+                            "virtualization": str(data.get("virtualization", "physical")),
                         }
+                        server_id = DeviceRepository.insert_server(server_data)
                         try:
-                            # Delete existing interfaces first
-                            DeviceRepository.insert_server(device_id)
-                            
                             # Insert new interfaces
                             for iface_name, iface_data in data["_interfaces_data"].items():
                                 # Skip loopback dan docker/bridge interfaces jika mau
                                 if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
                                     continue
                                     
-                                # Insert interface
-                                interface_id = DeviceRepository.insert_server_interface({
-                                    "server_id": device_id,
-                                    "interface_name": iface_name,  # Nama interface dari key dict
-                                    "mac_address": iface_data.get("mac_address", "unknown"),
-                                    "mac_broadcast": iface_data.get("mac_broadcast", "")
-                                })
+                                # Ambil data IPv4 pertama (jika ada)
+                                ipv4_data = {}
+                                ipv4_list = iface_data.get("ipv4", [])
+                                if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
+                                    ipv4_data = ipv4_list[0]  # Ambil IP pertama
                                 
-                                # Insert IPv4 addresses
-                                for ip_data in iface_data.get("ipv4", []):
-                                    DeviceRepository.insert_server_interface_ip({
-                                        "interface_id": interface_id,
-                                        "address": ip_data.get("address"),
-                                        "netmask": ip_data.get("netmask"),
-                                        "broadcast": ip_data.get("broadcast", ""),
-                                        "ip_version": "ipv4"
-                                    })    
+                                # Insert interface dengan semua data sekaligus
+                                interface_id = DeviceRepository.insert_server_interface({
+                                    "server_id": server_id,
+                                    "interface_name": str(iface_name),
+                                    "mac_address": str(iface_data.get("mac_address", "unknown")),
+                                    "ip_address": str(ipv4_data.get("address", "")),
+                                    "ip_netmask": str(ipv4_data.get("netmask", "")),
+                                    "ip_broadcast": str(ipv4_data.get("broadcast", "")),
+                                    "ip_version": "ipv4"
+                                }) 
                         except Exception as e:
                             self.core.logger.warning(f"Failed to save interfaces: {e}")
                         
@@ -710,14 +721,14 @@ class NorthboundApi(ControllerBase):
                         if "_firewall_data" in data:
                             try:
                                 firewall_data = data["_firewall_data"]
-                                DeviceRepository.insert_server_firewall({
-                                    "server_id": device_id,
-                                    "firewall_type": firewall_data.get("firewall_type"),
-                                    "status": firewall_data.get("status"),
-                                    "default_zone": firewall_data.get("default_zone"),
+                                DeviceRepository.upsert_server_firewall({
+                                    "server_id": server_id,
+                                    "firewall_type": str(firewall_data.get("firewall_type")),
+                                    "status": str(firewall_data.get("status")),
+                                    "default_zone": str(firewall_data.get("default_zone")),
                                     "active_zones": json.dumps(firewall_data.get("active_zones", [])),
-                                    "rules_count": firewall_data.get("rules_count", 0),
-                                    "last_checked": firewall_data.get("last_checked")
+                                    "rules_count": str(firewall_data.get("rules_count", 0)),
+                                    "last_checked": str(firewall_data.get("last_checked"))
                                 })
                             except Exception as e:
                                 self.core.logger.warning(f"Failed to save firewall: {e}")
@@ -850,14 +861,13 @@ class NorthboundApi(ControllerBase):
                                     # Format interfaces
                                     formatted_interfaces = []
                                     for iface in interfaces:
-                                        # Get IP addresses for this interface
-                                        ips = DeviceRepository.get_interface_ips(iface.get("id"))
-                                        
                                         formatted_iface = {
                                             "interface_name": iface.get("interface_name"),
                                             "mac_address": iface.get("mac_address"),
-                                            "mac_broadcast": iface.get("mac_broadcast"),
-                                            "ips": ips or []
+                                            "ip_address": iface.get("ip_address"),
+                                            "ip_netmask": iface.get("ip_netmask"),
+                                            "ip_broadcast": iface.get("ip_broadcast"),
+                                            "ip_version": iface.get("ip_version")
                                         }
                                         formatted_interfaces.append(formatted_iface)
                                     
