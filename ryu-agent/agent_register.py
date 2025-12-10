@@ -15,6 +15,7 @@ import getpass
 import uuid
 import platform
 import subprocess
+import datetime
 
 CONTROLLER_URL = os.environ.get("RYU_CONTROLLER_URL", "http://127.0.0.1:8080")
 API_KEY = os.environ.get("RYU_API_KEY", "agent-secret-token-1")
@@ -419,22 +420,6 @@ def get_os_info():
     except Exception:
         pass
 
-     # Fallback untuk distro tanpa /etc/os-release
-    try:
-        # CentOS/RHEL older versions
-        with open("/etc/redhat-release") as f:
-            return f.read().strip()
-    except Exception:
-        pass
-
-    try:
-        # Debian older versions
-        with open("/etc/debian_version") as f:
-            debian_ver = f.read().strip()
-            return f"Debian {debian_ver}"
-    except Exception:
-        pass
-
     # Final fallback
     try:
         return f"{platform.system()} {platform.release()}"
@@ -457,16 +442,9 @@ def get_os_family():
             elif 'arch' in content:
                 return 'arch'
     except Exception:
-        pass
-    
-    # Fallback detection
-    if os.path.exists("/etc/redhat-release"):
-        return 'rhel'
-    elif os.path.exists("/etc/debian_version"):
-        return 'debian'
-    
+        pass    
     return 'unknown'
-
+    
 def build_payload(controller_url):
     hostname = socket.gethostname()
     username = getpass.getuser()
@@ -490,15 +468,23 @@ def build_payload(controller_url):
         "architecture": architecture["architecture"],
         "architecture_bits": architecture["bits"],
         "processor_type": architecture["processor_type"],
-        "cpu_cores": os.cpu_count(),
         "vendor": vendor,
+        "last_seen": datetime.datetime.now().isoformat(),
         "meta": {
             "virtualization": detect_virtualization(),
-            "interfaces": netifaces.interfaces(), # info interface
-            "detected_ips": get_all_ips(),  # Untuk debugging
-            "interface_details": get_interface_details()  # Detail lengkap dengan MAC atau bisa juga pakai get_mac_address()
         }
     }
+
+    # Tambahkan firewall info jika berhasil didapat
+    interface_details = get_interface_details()
+    if interface_details:
+        payload["interfaces"] = interface_details
+    
+    # Tambahkan firewall info jika berhasil didapat
+    firewall_info = get_firewall_info_safe()
+    if firewall_info:
+        payload["firewall"] = firewall_info
+        
     return payload
 
 def get_interface_details():
@@ -513,7 +499,6 @@ def get_interface_details():
         if netifaces.AF_LINK in addrs:
             mac_info = addrs[netifaces.AF_LINK][0]
             details['mac_address'] = mac_info.get('addr', 'unknown')
-            details['mac_broadcast'] = mac_info.get('broadcast', 'unknown')
 
         # IPv4 Addresses
         if netifaces.AF_INET in addrs:
@@ -527,30 +512,36 @@ def get_interface_details():
                 ipv4_addresses.append(ip_info)
             details['ipv4'] = ipv4_addresses
 
-        # IPv6 Addresses (opsional)
-        if netifaces.AF_INET6 in addrs:
-            ipv6_addresses = []
-            for addr in addrs[netifaces.AF_INET6]:
-                ipv6_info = {
-                    'address': addr.get('addr', 'unknown'),
-                    'netmask': addr.get('netmask', 'unknown')
-                }
-                ipv6_addresses.append(ipv6_info)
-            details['ipv6'] = ipv6_addresses
-
         interface_details[iface] = details
 
     return interface_details
 
-def get_all_ips():
-    # Get all IP addresses for debugging
-    ips = {}
-    for iface in netifaces.interfaces():
-        addrs = netifaces.ifaddresses(iface)
-        ipv4 = addrs.get(netifaces.AF_INET, [])
-        if ipv4:
-            ips[iface] = [addr['addr'] for addr in ipv4]
-    return ips
+def get_firewall_info_safe():
+    """Get firewall info safely - don't crash registration if fails"""
+    try:
+       
+        # Import firewall module
+        from drivers.linux.firewall import ServerFirewallDriver
+        
+        # Create firewall driver
+        firewall_driver = ServerFirewallDriver(logger=lambda msg: print(f"[FIREWALL] {msg}"))
+        
+        # Get firewall info
+        info = {
+            "firewall_type": firewall_driver.firewall_type,
+            "status": firewall_driver.get_status(),
+            "default_zone": firewall_driver.get_default_zone(),
+            "active_zones": firewall_driver.get_active_zones(),
+            "rules_count": firewall_driver.get_rules_count(),
+            "last_checked": datetime.datetime.now().isoformat()
+        }
+        
+        print(f"[AGENT] Firewall info collected: {info['firewall_type']} ({info['status']})")
+        return info
+        
+    except Exception as e:
+        print(f"[AGENT] Warning: Could not collect firewall info: {e}")
+        return None
 
 def register_once():
     url = CONTROLLER_URL.rstrip('/') + REGISTER_ENDPOINT

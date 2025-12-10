@@ -24,7 +24,6 @@ def log_message(message):
     # Helper untuk logging (Menampilkan IP dari sisi Agent)
     print(f"[AGENT-API] {message}")
 
-
 # === NETWORK ENDPOINTS ===
 @app.route('/api/network/ip/add', methods=['POST'])
 def add_ip():
@@ -48,28 +47,6 @@ def remove_ip():
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in remove_ip: {e}")
-        return jsonify({"error": str(e)}), 500
-    
-@app.route('/api/network/interfaces', methods=['GET'])
-def list_interfaces():
-    # Get list network interfaces
-    try:
-        log_message("GET /api/network/interfaces")
-        result = network_driver.list_interfaces()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in list_interfaces: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interfaces/detail', methods=['GET'])
-def interfaces_detail():
-    # Get detailed network interfaces
-    try:
-        log_message("GET /api/network/interfaces/detail")
-        result = network_driver.get_interface_details()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in interfaces_detail: {e}")
         return jsonify({"error": str(e)}), 500
     
 @app.route('/api/network/interface/configure', methods=['POST'])
@@ -116,17 +93,6 @@ def disable_interface():
         log_message(f"Error in disable_interface: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/network/interface/<iface>/ips', methods=['GET'])
-def get_interface_ips(iface):
-    # Get IP addresses for specific interface
-    try:
-        log_message(f"GET /api/network/interface/{iface}/ips")
-        result = network_driver.get_interface_ips(iface)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_interface_ips: {e}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/api/network/interface/<iface>/info', methods=['GET'])
 def get_ip_info(iface):
     # Get IP info for specific interface
@@ -136,39 +102,6 @@ def get_ip_info(iface):
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_ip_info: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interface/<iface>/status', methods=['GET'])
-def get_interface_status(iface):
-    # Get interface status
-    try:
-        log_message(f"GET /api/network/interface/{iface}/status")
-        result = network_driver.get_interface_status(iface)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_interface_status: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/connections', methods=['GET'])
-def get_network_connections():
-    # Get active network connections (simpel version
-    try:
-        log_message("GET /api/network/connections")
-        result = network_driver.get_network_connections()
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_network_connections: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/interface/<iface>/counters', methods=['GET'])
-def get_interface_counters(iface):
-    # Get interface counters (simpel version)
-    try:
-        log_message(f"GET /api/network/interface/{iface}/counters")
-        result = network_driver.get_interface_counters(iface)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_interface_counters: {e}")
         return jsonify({"error": str(e)}), 500
 
 # === Network Advanced ENDPOINTS ===
@@ -227,17 +160,6 @@ def set_dns():
         return jsonify(result)
     except Exception as e:
         log_message(f"Error in set_dns: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/network/arp', methods=['GET'])
-def get_arp_table():
-    # Get ARP table via driver
-    try:
-        log_message("GET /api/network/arp")
-        result = network_driver.get_arp_table()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_arp_table: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/network/portscan', methods=['POST'])
@@ -628,39 +550,6 @@ def get_lldp_status():
 
 # === SYSTEM ENDPOINTS ===
 
-@app.route('/api/system/utilization', methods=['GET'])
-def get_utilization():
-    # Get system utilization via driver
-    try:
-        log_message("GET /api/system/utilization")
-        result = system_driver.get_utilization()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_utilization: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/system/utilization/detailed', methods=['GET'])
-def get_detailed_utilization():
-    # Get detailed system utilization
-    try:
-        log_message("GET /api/system/utilization/detailed")
-        result = system_driver.get_detailed_utilization()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_detailed_utilization: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/system/info', methods=['GET'])
-def get_system_info():
-    # Get system information
-    try:
-        log_message("GET /api/system/info")
-        result = system_driver.get_system_info()  # Call driver
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in get_system_info: {e}")
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/api/system/logs', methods=['GET'])
 def get_logs():
     # Get system logs via driver
@@ -678,52 +567,168 @@ def get_logs():
 def wazuh_install():
     """Install Wazuh agent"""
     try:
-        data = request.json
-        log_message(f"POST /api/wazuh/install - {data}")
-        result = wazuh_dispatcher.dispatch("server.wazuh.install", data)
+        import sys 
+        import traceback
+        # Debug 1: Log bahwa endpoint dipanggil
+        print("=== DEBUG: /api/wazuh/install called ===", file=sys.stderr)
+        print(f"Headers: {dict(request.headers)}", file=sys.stderr)
+        
+        # Debug 2: Cek data JSON
+        if not request.is_json:
+            print("ERROR: Request is not JSON", file=sys.stderr)
+            return jsonify({"error": "Request must be JSON", "success": False}), 400
+        
+        data = request.get_json(silent=True)  # silent=True untuk menghindari error parsing
+        print(f"DEBUG: Raw data: {data}", file=sys.stderr)
+        print(f"DEBUG: Type of data: {type(data)}", file=sys.stderr)
+        
+        if data is None:
+            print("ERROR: JSON data is None or invalid", file=sys.stderr)
+            return jsonify({"error": "Invalid JSON data", "success": False}), 400
+        
+        # Debug 3: Validasi data adalah dict
+        if not isinstance(data, dict):
+            print(f"ERROR: data is not dict, it's {type(data)}", file=sys.stderr)
+            return jsonify({"error": f"Data must be dictionary, got {type(data)}", "success": False}), 400
+        
+        # Debug 4: Log semua parameter
+        print(f"DEBUG: manager_ip = {data.get('manager_ip')}", file=sys.stderr)
+        print(f"DEBUG: agent_key = {data.get('agent_key')}", file=sys.stderr)
+        print(f"DEBUG: agent_name = {data.get('agent_name')}", file=sys.stderr)
+        
+        # Debug 5: Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Debug 6: Create dispatcher
+        try:
+            dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+            print("DEBUG: WazuhDispatcher created", file=sys.stderr)
+        except Exception as e:
+            print(f"ERROR: Cannot create WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Cannot create dispatcher: {e}", "success": False}), 500
+        
+        # Debug 7: Dispatch action
+        print("DEBUG: Dispatching action...", file=sys.stderr)
+        result = dispatcher.dispatch("server.wazuh.install", data)
+        
+        # Debug 8: Log result
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
+        print(f"DEBUG: Type of result: {type(result)}", file=sys.stderr)
+        
+        # Debug 9: Validasi result
+        if not isinstance(result, dict):
+            print(f"ERROR: Result is not dict, it's {type(result)}", file=sys.stderr)
+            return jsonify({"error": f"Dispatcher returned non-dict: {type(result)}", "success": False}), 500
+        
+        # Debug 10: Return result
+        print("DEBUG: Returning JSON response", file=sys.stderr)
         return jsonify(result)
+        
     except Exception as e:
-        log_message(f"Error in wazuh_install: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"CRITICAL ERROR in wazuh_install: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
-@app.route('/api/wazuh/uninstall', methods=['POST'])
+@app.route('/api/wazuh/uninstall', methods=['GET'])
 def wazuh_uninstall():
     """Uninstall Wazuh agent"""
     try:
-        log_message("POST /api/wazuh/uninstall")
-        result = wazuh_dispatcher.dispatch("server.wazuh.uninstall", {})
+        import sys
+        import traceback
+        
+        print("=== DEBUG: /api/wazuh/uninstall called ===", file=sys.stderr)
+        
+        # Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Create dispatcher
+        dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+        
+        # Dispatch action
+        result = dispatcher.dispatch("server.wazuh.uninstall", {})
+        
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
         return jsonify(result)
+        
     except Exception as e:
-        log_message(f"Error in wazuh_uninstall: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"CRITICAL ERROR in wazuh_uninstall: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
 @app.route('/api/wazuh/status', methods=['GET'])
 def wazuh_status():
     """Get Wazuh agent status"""
     try:
-        log_message("GET /api/wazuh/status")
-        result = wazuh_dispatcher.dispatch("server.wazuh.status", {})
+        import sys
+        import traceback
+        
+        print("=== DEBUG: /api/wazuh/status called ===", file=sys.stderr)
+        
+        # Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Create dispatcher
+        dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+        
+        # Dispatch action
+        result = dispatcher.dispatch("server.wazuh.status", {})
+        
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
         return jsonify(result)
+        
     except Exception as e:
-        log_message(f"Error in wazuh_status: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/wazuh/security/overview', methods=['POST'])
-def wazuh_security_overview():
-    """Get security overview"""
-    try:
-        data = request.json
-        log_message(f"POST /api/wazuh/security/overview - {data}")
-        result = wazuh_dispatcher.dispatch("server.wazuh.security.overview", data)
-        return jsonify(result)
-    except Exception as e:
-        log_message(f"Error in wazuh_security_overview: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"CRITICAL ERROR in wazuh_status: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
 
 # Health check
 @app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status": "healthy", "service": "agent_api"})
+def health(detailed=False):
+    """Basic health check untuk server agent"""
+    try:            
+        # Uptime
+        import time
+        uptime_seconds = time.time() - psutil.boot_time()
+        uptime_str = str(datetime.timedelta(seconds=uptime_seconds))
+            
+        # 3. Determine overall status
+        overall_status = "healthy"
+        issues = []
+            
+        # 4. Basic response (untuk detailed=False)
+        if not detailed:
+            return {
+                "status": "ok",
+                "health": overall_status,
+                "service": "agent_api",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "uptime": uptime_str,
+                "issues": issues if issues else None
+            }
+            
+    except Exception as e:
+        print(f"Health check error: {e}")
+        return {
+            "status": "error",
+            "health": "unknown",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "error": str(e)
+        }
 
 if __name__ == '__main__':
     print("Starting Agent API on http://0.0.0.0:8081")

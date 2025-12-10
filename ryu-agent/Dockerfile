@@ -5,6 +5,8 @@ WORKDIR /ryu-agent
 # Install system dependencies untuk agent operations
 RUN apt-get update && apt-get install -y \
     net-tools \
+    systemd \
+    dbus \
     sudo \
     iproute2 \
     iputils-ping \
@@ -16,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     dnsutils \
     lldpd \
     util-linux \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements dan install Python packages
