@@ -263,44 +263,100 @@ class DeviceRepository:
         cursor.close()
         conn.close()
 
-    # LIST ALL DEVICES (UNION dari semua tabel)
+    # GET ALL SERVERS
     @staticmethod
-    def list_all():
+    def get_all_servers():
+        """
+        Get all servers dengan SEMUA field
+        """
         conn = DBConnection.get_conn()
         cursor = conn.cursor(dictionary=True)
 
         sql = """
             SELECT 
-                device_id,
+                s.device_id,
                 'server' as device_type,
-                hostname,
-                main_ip_address,
-                status,
-                southbound,
-                last_seen
-            FROM servers
-            
-            UNION ALL
-            
-            SELECT 
-                device_id,
-                'router' as device_type,
-                identity as hostname,
-                main_ip_address,
-                status,
-                southbound,
-                last_seen
-            FROM routers
-            
-            ORDER BY last_seen DESC
+                s.hostname,
+                s.main_username,
+                s.os_version,
+                s.architecture,
+                s.architecture_bits,
+                s.processor_type,
+                s.vendor,
+                s.main_ip_address,
+                s.main_mac_address,
+                s.main_interface,
+                s.southbound,
+                s.status,
+                s.virtualization,
+                s.last_seen,
+                s.created_at,
+                s.updated_at
+            FROM servers s
+            ORDER BY s.last_seen DESC
         """
-
+        
         cursor.execute(sql)
         rows = cursor.fetchall()
 
         cursor.close()
         conn.close()
         return rows
+
+    # GET ALL ROUTERS
+    @staticmethod
+    def get_all_routers():
+        """
+        Get all routers dengan SEMUA field
+        """
+        conn = DBConnection.get_conn()
+        cursor = conn.cursor(dictionary=True)
+
+        sql = """
+            SELECT 
+                r.device_id,
+                'router' as device_type,
+                r.identity as hostname,
+                r.username as main_username,
+                r.os_version,
+                NULL as architecture,
+                NULL as architecture_bits,
+                NULL as processor_type,
+                r.vendor,
+                r.main_ip_address,
+                r.main_mac_address,
+                r.main_interface,
+                r.southbound,
+                r.status,
+                NULL as virtualization,
+                r.last_seen,
+                r.created_at,
+                r.updated_at
+            FROM routers r
+            ORDER BY r.last_seen DESC
+        """
+        
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+        return rows
+
+    # LIST ALL DEVICES (gabungkan servers dan routers)
+    @staticmethod
+    def list_all():
+        """
+        List semua devices dengan menggabungkan servers dan routers
+        """
+        servers = DeviceRepository.get_all_servers()
+        routers = DeviceRepository.get_all_routers()
+        
+        # Gabungkan dan sort by last_seen
+        all_devices = servers + routers
+        all_devices.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
+        
+        return all_devices
 
     # DELETE DEVICE
     @staticmethod
