@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  loki:
+    image: grafana/loki:3.4.1
+    container_name: loki
+    command: -config.file=/mnt/config/loki-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config:/mnt/config    # loki-config.yaml ada di sini
+      - ./loki-data:/tmp/loki/
+    restart: unless-stopped
+    user: root
+    environment:
+      - TZ=Asia/Jakarta
+
+  promtail:
+    image: grafana/promtail:3.4.1
+    container_name: promtail
+    command: -config.file=/mnt/config/promtail-config.yaml
+    depends_on:
+      - loki
+    volumes:
+      - ./config:/mnt/config    # promtail-config.yaml di sini
+      - /var/log:/var/log       # membaca log system
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+      - "1514:1514/udp"
+      - "1514:1514/tcp"
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Jakarta

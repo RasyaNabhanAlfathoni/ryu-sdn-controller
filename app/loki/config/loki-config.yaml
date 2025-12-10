@@ -1,0 +1,65 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+  grpc_server_max_concurrent_streams: 1000
+
+common:
+  instance_addr: 0.0.0.0
+  path_prefix: /tmp/loki
+  storage:
+    filesystem:
+      chunks_directory: /tmp/loki/chunks
+      rules_directory: /tmp/loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+# ===== INGESTER SETTINGS (WAJIB BIAR CHUNK KE DISK) =====
+ingester:
+  chunk_idle_period: 15s          # chunk flush jika idle 15 detik
+  chunk_target_size: 104857       # flush jika chunk mencapai ~100KB
+  max_chunk_age: 1m               # chunk flush maksimal 1 menit
+  lifecycler:
+    ring:
+      replication_factor: 1
+
+# ===== RETENTION & QUERY LIMITS =====
+limits_config:
+  retention_period: 336h          # 30 hari
+  max_query_lookback: 336h       # query max 30 hari
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+
+# ===== SCHEMA =====
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# ===== COMPACTOR (WAJIB UNTUK RETENTION) =====
+compactor:
+  working_directory: /tmp/loki/compactor
+  compaction_interval: 5m
+
+# ===== QUERY CACHE =====
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+frontend:
+  encoding: protobuf
+
+ruler:
+  alertmanager_url: http://localhost:9093
