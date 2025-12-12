@@ -205,36 +205,78 @@ class Orchestrator(app_manager.RyuApp):
         # Cari device - prioritaskan memory registry dulu (karena device ada di memory)
         dev_config = None
     
-        # Method 1: Database lookup (fallback)
+        # Method 1: PRIORITAS - Cari di database (sumber utama)
+        try:
+            dev_row = DeviceRepository.find_by_device_id(device_id)
+            if dev_row:
+                self.jobs.append_log(jid, f"Found in database: {dev_row.get('device_type')}")
+                
+                # Konversi format database ke format yang dibutuhkan driver
+                dev_config = {
+                    "id": dev_row["device_id"],
+                    "device_id": dev_row["device_id"],
+                    "ip": dev_row.get("main_ip_address") or dev_row.get("ip"),
+                    "main_ip_address": dev_row.get("main_ip_address"),
+                    "username": dev_row.get("username") or dev_row.get("main_username", "unknown"),
+                    "password": dev_row.get("password", ""),
+                    "vendor": dev_row.get("vendor", "unknown"),
+                    "device_type": dev_row.get("device_type", "unknown"),
+                    "southbound": dev_row.get("southbound", "unknown"),
+                    "hostname": dev_row.get("hostname", "unknown"),
+                    # Tambahkan field lain yang diperlukan driver
+                    "identity": dev_row.get("identity", dev_row.get("hostname", "unknown")),
+                    "version": dev_row.get("os_version", ""),
+                    "board": dev_row.get("board", ""),
+                    "serial-number": dev_row.get("serial_number", "")
+                }
+                self.jobs.append_log(jid, f"Database config: {dev_config}")
+        except Exception as e:
+            self.jobs.append_log(jid, f"Database lookup failed: {e}")
+
+        # Method 2: Fallback - Cari di memory registry (jika tidak ditemukan di database)
+        if not dev_config and hasattr(self, 'devices'):
+            try:
+                memory_dev = self.devices.get(device_id)
+                if memory_dev:
+                    self.jobs.append_log(jid, "Found device in memory registry (fallback)")
+                    dev_config = memory_dev
+            except Exception as e:
+                self.jobs.append_log(jid, f"Memory registry lookup failed: {e}")
+
+        # Jika masih tidak ditemukan, coba cari dari database langsung
         if not dev_config:
             try:
-                dev_row = DeviceRepository.find_by_device_id(device_id)
-                if dev_row:
-                    self.jobs.append_log(jid, f"Found in database: {dev_row.get('device_type')}")
-                    dev_config = {
-                        "id": dev_row["device_id"],
-                        "device_id": dev_row["device_id"],
-                        "ip": dev_row.get("main_ip_address"),
-                        "main_ip_address": dev_row.get("main_ip_address"),
-                        "username": dev_row.get("username") or dev_row.get("main_username", "unknown"),
-                        "password": dev_row.get("password", ""),
-                        "vendor": dev_row.get("vendor", "unknown"),
-                        "device_type": dev_row.get("device_type", "unknown"),
-                        "southbound": dev_row.get("southbound", "unknown"),
-                        "hostname": dev_row.get("hostname", "unknown")
-                    }
+                # Coba cari semua devices dari database
+                db_devices = DeviceRepository.list_all()
+                for db_dev in db_devices:
+                    if db_dev.get("device_id") == device_id:
+                        # Konversi format
+                        dev_config = {
+                            "id": db_dev["device_id"],
+                            "device_id": db_dev["device_id"],
+                            "ip": db_dev.get("main_ip_address"),
+                            "main_ip_address": db_dev.get("main_ip_address"),
+                            "username": db_dev.get("username", "unknown"),
+                            "password": db_dev.get("password", ""),
+                            "vendor": db_dev.get("vendor", "unknown"),
+                            "device_type": db_dev.get("device_type", "unknown"),
+                            "southbound": db_dev.get("southbound", "unknown"),
+                            "hostname": db_dev.get("hostname", "unknown"),
+                            "identity": db_dev.get("hostname", "unknown")
+                        }
+                        self.jobs.append_log(jid, f"Found in list_all database: {device_id}")
+                        break
             except Exception as e:
-                self.jobs.append_log(jid, f"Database lookup failed: {e}")
-
-        # Method 2: Memory registry lookup (prioritas utama)
-        if hasattr(self, 'devices'):
-            memory_dev = self.devices.get(device_id)
-            if memory_dev:
-                self.jobs.append_log(jid, "Found device in memory registry")
-                dev_config = memory_dev
+                self.jobs.append_log(jid, f"Secondary database lookup failed: {e}")
 
         if not dev_config:
             self.jobs.append_log(jid, f"ERROR: Device {device_id} not found in any registry")
+            # Tambahkan debug info
+            try:
+                all_ids = DeviceRepository.get_all_device_ids()
+                self.jobs.append_log(jid, f"Available device IDs in database: {all_ids}")
+            except:
+                self.jobs.append_log(jid, "Cannot fetch device IDs from database")
             raise ValueError(f"Device '{device_id}' not found")
 
         # Create driver
