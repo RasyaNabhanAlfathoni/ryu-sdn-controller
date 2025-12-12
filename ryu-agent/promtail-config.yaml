@@ -1,0 +1,51 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: ${LOKI_URL:-http://localhost:3100}/loki/api/v1/push
+    external_labels:
+      hostname: ${HOSTNAME:-unknown}
+      job: server-logs
+      component: linux-server
+
+scrape_configs:
+  # === SYSTEM LOGS ===
+  - job_name: journal
+    journal:
+      path: /var/log/journal
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: ["__journal__hostname"]
+        target_label: host
+      - source_labels: ["__journal__systemd_unit"]
+        target_label: systemd_unit
+        regex: "(.+)"
+      - source_labels: ["__journal__systemd_user_unit"]
+        target_label: systemd_user_unit
+        regex: "(.+)"
+      - source_labels: ["__journal__transport"]
+        target_label: transport
+        regex: "(.+)"
+      - source_labels: ["__journal_priority_keyword"]
+        target_label: severity
+        regex: "(.+)"
+    pipeline_stages:
+      - template:
+          source: __journal_priority
+          target: level
+          template: |
+            {{ if eq .Value "0" }}emerg
+            {{ else if eq .Value "1" }}alert
+            {{ else if eq .Value "2" }}crit
+            {{ else if eq .Value "3" }}err
+            {{ else if eq .Value "4" }}warning
+            {{ else if eq .Value "5" }}notice
+            {{ else if eq .Value "6" }}info
+            {{ else }}debug{{ end }}
+      - labels:
+          level:

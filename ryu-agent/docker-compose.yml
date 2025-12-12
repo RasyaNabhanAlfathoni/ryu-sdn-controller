@@ -88,3 +88,23 @@ services:
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
       - "--collector.textfile.directory=/var/lib/node_exporter/textfile_collector"
     network_mode: host
+
+  promtail:
+    image: grafana/promtail:2.9.6
+    container_name: ryu-agent-promtail
+    command:
+      - -config.file=/etc/promtail/promtail-config.yaml
+      - -config.expand-env=true
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/promtail-config.yaml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
+    environment:
+      - LOKI_URL=http://192.168.221.133:3100 # IP controller
+      - HOSTNAME=ryu-agent # Hostname Server Agent
+    restart: unless-stopped
+    network_mode: host # Agar bisa kirim log ke controller
+    privileged: true # Untuk Akses command system pada Server

@@ -27,19 +27,19 @@ scrape_configs:
       labels:
         job: "router"
         service_name: "router"
-    
+
     relabel_configs:
-      - source_labels: ['__syslog_connection_ip_address']
-        target_label: 'source_address'
-      
-      - source_labels: ['__syslog_message_hostname']
-        target_label: 'hostname'
-      
-      - source_labels: ['__syslog_message_severity']
-        target_label: 'syslog_severity'
-      
-      - source_labels: ['__syslog_message_facility']
-        target_label: 'syslog_facility'
+      - source_labels: ["__syslog_connection_ip_address"]
+        target_label: "source_address"
+
+      - source_labels: ["__syslog_message_hostname"]
+        target_label: "hostname"
+
+      - source_labels: ["__syslog_message_severity"]
+        target_label: "syslog_severity"
+
+      - source_labels: ["__syslog_message_facility"]
+        target_label: "syslog_facility"
 
   - job_name: network_devices-syslog
     syslog:
@@ -50,16 +50,47 @@ scrape_configs:
       labels:
         job: "network_devices"
         service_name: "network_devices"
-    
+
     relabel_configs:
-      - source_labels: ['__syslog_connection_ip_address']
-        target_label: 'source_address'
-      
-      - source_labels: ['__syslog_message_hostname']
-        target_label: 'hostname'
-      
-      - source_labels: ['__syslog_message_severity']
-        target_label: 'syslog_severity'
-      
-      - source_labels: ['__syslog_message_facility']
-        target_label: 'syslog_facility'
+      - source_labels: ["__syslog_connection_ip_address"]
+        target_label: "source_address"
+
+      - source_labels: ["__syslog_message_hostname"]
+        target_label: "hostname"
+
+      - source_labels: ["__syslog_message_severity"]
+        target_label: "syslog_severity"
+
+      - source_labels: ["__syslog_message_facility"]
+        target_label: "syslog_facility"
+
+  - job_name: server-agent-syslog
+    syslog:
+      listen_address: 0.0.0.0:2514
+      listen_protocol: udp
+      idle_timeout: 60s
+      syslog_format: rfc3164
+      label_structured_data: false
+      labels:
+        job: "server-agent"
+        service_name: "server"
+        component: "server"
+
+    relabel_configs:
+      - source_labels: ["__syslog_connection_ip_address"]
+        target_label: "source_ip"
+
+      - source_labels: ["__syslog_message_hostname"]
+        target_label: "hostname"
+
+      - source_labels: ["__syslog_message_severity"]
+        target_label: "severity"
+
+      - source_labels: ["__syslog_message_facility"]
+        target_label: "facility"
+
+      # Tambah label device_id jika ada dalam message
+      - source_labels: ["__syslog_message_app_name"]
+        regex: "agent-(.*)"
+        target_label: "device_id"
+        replacement: "$1"
