@@ -12,6 +12,7 @@ from drivers.router_drivers.mikrotik.users_manager import RouterOSUserManagerDri
 from drivers.router_drivers.mikrotik.queues import RouterOSQueuesDriver
 from drivers.router_drivers.mikrotik.firewall import RouterOSFirewallDriver
 from drivers.router_drivers.mikrotik.netwatch import RouterOSNetwatchDriver
+from drivers.router_drivers.mikrotik.logging import RouterOSLoggingDriver
 from drivers.snmp_file_manager import SNMPFileManager
 
 class MikrotikRouterActions:
@@ -193,7 +194,18 @@ class MikrotikRouterActions:
             "nw.disable": lambda p, logger: RouterOSNetwatchDriver(d).netwatch_disable(p, logger),
             "nw.list":    lambda p, logger: RouterOSNetwatchDriver(d).netwatch_list(p, logger),
 
+            # Logging Management
+            "logging.action.list":    lambda p, logger: RouterOSLoggingDriver(d).action_list(p, logger),
+            "logging.action.add":     lambda p, logger: RouterOSLoggingDriver(d).action_add(p, logger),
+            "logging.action.edit":    lambda p, logger: RouterOSLoggingDriver(d).action_edit(p, logger),
+            "logging.action.delete":  lambda p, logger: RouterOSLoggingDriver(d).action_delete(p, logger),
+            "logging.rule.list":      lambda p, logger: RouterOSLoggingDriver(d).rule_list(p, logger),
+            "logging.rule.add":       lambda p, logger: RouterOSLoggingDriver(d).rule_add(p, logger),
+            "logging.rule.edit":      lambda p, logger: RouterOSLoggingDriver(d).rule_edit(p, logger),
+            "logging.rule.delete":    lambda p, logger: RouterOSLoggingDriver(d).rule_delete(p, logger),
+            "logging.rule.enable":    lambda p, logger: RouterOSLoggingDriver(d).rule_enable(p, logger),
+            "logging.rule.disable":   lambda p, logger: RouterOSLoggingDriver(d).rule_disable(p, logger),
+
             # Identity / Routing
             "identity.set": lambda p, logger: d.set_identity(p),
-            "raw.run": lambda p, logger: d.run_raw(p),
         }
