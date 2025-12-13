@@ -96,6 +96,8 @@ class Orchestrator(app_manager.RyuApp):
         self.server_file_manager = ServerFileManager()
         # Start auto-sync thread (setiap 30 detik)
         self.sync_thread = hub.spawn(self.auto_sync_servers)
+        # Start health check thread
+        self.health_check_thread = hub.spawn(self.health_check_loop)
 
         # Initialize Wazuh integration
         try:
@@ -119,6 +121,86 @@ class Orchestrator(app_manager.RyuApp):
         except Exception as e:
             self.logger.error(f"Failed to initialize Wazuh integration: {e}")
             self.wazuh_api = None
+
+    def health_check_loop(self):
+        """Background thread untuk health check semua devices"""
+        import time
+        
+        print("Starting health check service")
+        
+        while True:
+            try:
+                hub.sleep(60)  # Check setiap 1 menit
+                
+                # Ambil semua devices dari database
+                devices = DeviceRepository.list_all()
+                
+                for device in devices:
+                    device_id = device.get('device_id')
+                    device_type = device.get('device_type')
+                    southbound = device.get('southbound')
+                    ip_address = device.get('main_ip_address')
+                    
+                    # Skip jika tidak ada IP
+                    if not ip_address:
+                        continue
+                    
+                    is_active = False
+                    
+                    # Health check berdasarkan device type
+                    if device_type == 'server' and southbound == 'server_api':
+                        # Test koneksi ke agent API
+                        is_active = self.check_server_agent_health(ip_address)
+                    
+                    elif device_type == 'router' and southbound == 'routeros_api':
+                        # Test koneksi ke RouterOS API
+                        is_active = self.check_routeros_health(device)
+                    
+                    # Update status berdasarkan health check
+                    if is_active:
+                        DeviceRepository.update_device_status(
+                            device_id, 
+                            'active',
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        )
+                    else:
+                        DeviceRepository.update_device_status(
+                            device_id, 
+                            'inactive'
+                        )
+                        
+            except Exception as e:
+                self.logger.error(f"Health check error: {e}")
+                hub.sleep(300)  # Tunggu 5 menit jika error
+    
+    def check_server_agent_health(self, ip_address):
+        """Check jika server agent API accessible"""
+        import requests
+        
+        try:
+            # Coba akses endpoint health agent
+            response = requests.get(
+                f"http://{ip_address}:8081/health",
+                timeout=5
+            )
+            return response.status_code == 200
+        except:
+            return False
+    
+    def check_routeros_health(self, device):
+        """Check jika RouterOS API accessible"""
+        try:
+            driver = RouterOSApiDriver({
+                "ip": device.get('main_ip_address'),
+                "username": device.get('username'),
+                "password": device.get('password'),
+                "device_id": device.get('device_id')
+            })
+            # Coba get basic info
+            info = driver.get_device_info()
+            return info.get('connected', False)
+        except:
+            return False
 
     def detect_vendor(self, dev):
         # == Deteksi otomatis tipe perangkat ==
@@ -1117,18 +1199,31 @@ class NorthboundApi(ControllerBase):
     def heartbeat(self, req, did, **kwargs):
         if not _check_api_key(req):
             return self._resp(req, json.dumps({"status":"error","error":"unauthorized"}), status=401)
-
-        dev = None  # Inisialisasi explicit
-        dev_ip = None  # Simpan IP terpisah
-
-        # update in-memory registry
+        
         try:
-            dev = self.core.devices.get(did)
-            dev['last_seen'] = time.time()
-            dev['connected'] = True
-            dev_ip = dev.get("ip")  # Simpan IP sebelum mungkin exception
-            self.core.logger.info(f"Heartbeat from {did} (IP: {dev_ip})")
+            # Update di database
+            DeviceRepository.update_device_status(
+                did, 
+                'active',
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            )
+            
+            # Update di memory registry (fallback)
+            try:
+                dev = self.core.devices.get(did)
+                dev['last_seen'] = time.time()
+                dev['connected'] = True
+            except:
+                pass  # Skip jika tidak ada di memory
+            
+            self.core.logger.info(f"Heartbeat received from {did}")
+            
+            return self._resp(req, json.dumps({
+                "status": "ok", 
+                "device": did,
+                "timestamp": datetime.now().isoformat()
+            }))
+            
         except Exception as e:
-            self.core.logger.warning(f"Heartbeat: Device {did} not in registry: {e}")
-
-        return self._resp(req, json.dumps({"status":"ok", "device": did}))
+            self.core.logger.error(f"Heartbeat error for {did}: {e}")
+            return self._resp(req, json.dumps({"status":"error","error":str(e)}), 500)

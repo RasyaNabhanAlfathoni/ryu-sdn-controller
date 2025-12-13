@@ -1,5 +1,6 @@
 from database.db_connection import DBConnection
 import json
+import datetime
 
 class DeviceRepository:
 
@@ -615,3 +616,46 @@ class DeviceRepository:
         finally:
             cursor.close()
             conn.close()
+
+    # ============================
+    # HEALTHCHECK DEVICES
+    # ============================
+    @staticmethod
+    def update_device_status(device_id, status, last_seen=None):
+        """Update device status and last_seen timestamp"""
+        try:
+            conn = DBConnection.get_conn()
+            cursor = conn.cursor(dictionary=True)
+            
+            update_query = """
+                UPDATE devices 
+                SET status = %s, 
+                    last_seen = %s,
+                    updated_at = NOW()
+                WHERE device_id = %s
+            """
+            last_seen_val = last_seen if last_seen else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            cursor.execute(update_query, (status, last_seen_val, device_id))
+            
+            # Juga update table specific (servers/routers)
+            cursor.execute("SELECT device_type FROM devices WHERE device_id = %s", (device_id,))
+            device = cursor.fetchone()
+            
+            if device and device['device_type'] == 'server':
+                cursor.execute("""
+                    UPDATE servers 
+                    SET status = %s, 
+                        last_seen = %s,
+                        updated_at = NOW()
+                    WHERE device_id = %s
+                """, (status, last_seen_val, device_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            return True
+        except Exception as e:
+            print(f"Error updating device status: {e}")
+            return False
