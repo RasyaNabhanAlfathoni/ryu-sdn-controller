@@ -12,7 +12,7 @@ class ServerAPI:
         self.device_data = dev
         print(f"[AgentClient] Initialized for {self.device_id} at {self.agent_url}")
 
-    def _call_agent(self, endpoint, data=None, logger=None):
+    def _call_agent(self, endpoint, data=None, logger=None, method=None):
         """Call agent HTTP API"""
         try:
             url = f"{self.agent_url}{endpoint}"
@@ -22,11 +22,22 @@ class ServerAPI:
             headers = {'Content-Type': 'application/json'}
             timeout = 300
             
-            if data:
-                response = requests.post(url, json=data, headers=headers, timeout=timeout)
+            # Debug: Determine method
+            if method:
+                http_method = method
+            elif data is not None:
+                http_method = 'POST'
             else:
-                response = requests.get(url, headers=headers, timeout=timeout)
+                http_method = 'GET'
                 
+            if logger:
+                logger(f"Using HTTP method: {http_method}")
+            
+            if http_method == 'POST':
+                response = requests.post(url, json=data, headers=headers, timeout=timeout)
+            else:  # GET
+                response = requests.get(url, headers=headers, timeout=timeout)
+                    
             if response.status_code == 200:
                 result = response.json()
                 if logger:
@@ -37,7 +48,7 @@ class ServerAPI:
                 if logger:
                     logger(f"Agent error: {error_msg}")
                 return {"error": error_msg}
-                
+                    
         except requests.exceptions.Timeout:
             error_msg = "Request timeout - agent not responding"
             if logger:
@@ -96,7 +107,98 @@ class ServerAPI:
 
     def get_ip_info(self, iface, logger=None):
         """Get IP info for specific interface from agent"""
-        return self._call_agent(f"/api/network/interface/{iface}/info", logger=logger)
+        try:
+            result = self._call_agent(f"/api/network/interface/{iface}/info", logger=logger)
+            
+            # DEBUG LOGGING
+            if logger:
+                logger(f"[DEBUG] Raw get_ip_info response for {iface}: {result}")
+            
+            # PARSE RESPONSE 
+            if isinstance(result, dict) and "ip_addresses" in result:
+                # Format: {"ip_addresses": ["192.168.1.101/255.255.255.0"], ...}
+                parsed_result = {
+                    "interface": result.get("interface", iface),
+                    "mac": result.get("mac_address", "unknown")
+                }
+                
+                # Parse IP addresses
+                ip_addresses = result.get("ip_addresses", [])
+                if ip_addresses and len(ip_addresses) > 0:
+                    # Ambil IP pertama
+                    ip_with_netmask = ip_addresses[0]
+                    if "/" in ip_with_netmask:
+                        ip_parts = ip_with_netmask.split("/")
+                        parsed_result["address"] = ip_parts[0]
+                        parsed_result["netmask"] = ip_parts[1]  # Bisa jadi format 255.255.255.0 atau /24
+                        
+                        # Hitung broadcast jika perlu
+                        try:
+                            import ipaddress
+                            # Convert netmask ke prefix jika format subnet mask
+                            if "." in parsed_result["netmask"]:
+                                # Netmask format: 255.255.255.0
+                                mask = parsed_result["netmask"]
+                                prefix = sum(bin(int(x)).count('1') for x in mask.split('.'))
+                                cidr = f"{parsed_result['address']}/{prefix}"
+                            else:
+                                # Sudah format prefix: /24
+                                cidr = f"{parsed_result['address']}/{parsed_result['netmask']}"
+                            
+                            network = ipaddress.IPv4Network(cidr, strict=False)
+                            parsed_result["broadcast"] = str(network.broadcast_address)
+                        except Exception as e:
+                            if logger:
+                                logger(f"[DEBUG] Cannot calculate broadcast: {e}")
+                            parsed_result["broadcast"] = ""
+                    else:
+                        # Format tidak dikenali
+                        parsed_result["address"] = ip_with_netmask
+                        parsed_result["netmask"] = ""
+                        parsed_result["broadcast"] = ""
+                else:
+                    # Tidak ada IP addresses
+                    parsed_result["address"] = ""
+                    parsed_result["netmask"] = ""
+                    parsed_result["broadcast"] = ""
+                
+                if logger:
+                    logger(f"[DEBUG] Parsed get_ip_info response: {parsed_result}")
+                
+                return parsed_result
+            else:
+                # Fallback ke format lama
+                if isinstance(result, dict):
+                    # Tambahkan field default jika tidak ada
+                    if "address" not in result or not result["address"]:
+                        result["address"] = ""
+                    if "netmask" not in result or not result["netmask"]:
+                        result["netmask"] = ""
+                    if "broadcast" not in result or not result["broadcast"]:
+                        result["broadcast"] = ""
+                    if "mac" not in result or not result["mac"]:
+                        result["mac"] = result.get("mac_address", "unknown")
+                else:
+                    # Jika bukan dict, buat dict kosong
+                    result = {
+                        "address": "",
+                        "netmask": "", 
+                        "broadcast": "",
+                        "mac": "unknown"
+                    }
+                
+                return result
+                
+        except Exception as e:
+            if logger:
+                logger(f"[ERROR] get_ip_info failed: {e}")
+            return {
+                "address": "",
+                "netmask": "", 
+                "broadcast": "",
+                "mac": "unknown",
+                "error": str(e)
+            }
     
 
     # === Advanced Network Management Methods ===
@@ -121,19 +223,36 @@ class ServerAPI:
     
     def ufw_enable(self, logger=None):
         """Enable UFW firewall on agent"""
-        return self._call_agent("/api/firewall/ufw/enable", logger=logger)
+        try:
+            # 1. FIRST: Allow port 8081 for API access
+            allow_result = self._call_agent("/api/firewall/ufw/allow", {
+                "port_proto": "8081/tcp"
+            }, logger=logger)
+            
+            if logger:
+                logger(f"Allow port 8081 result: {allow_result}")
+            
+            # 2. THEN: Enable UFW
+            enable_result = self._call_agent("/api/firewall/ufw/enable", data={}, logger=logger)
+            
+            return {
+                "allow_port_8081": allow_result,
+                "enable_ufw": enable_result
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     def ufw_disable(self, logger=None):
         """Disable UFW firewall on agent"""
-        return self._call_agent("/api/firewall/ufw/disable", logger=logger)
+        return self._call_agent("/api/firewall/ufw/disable", data={}, logger=logger)
     
     def ufw_reload(self, logger=None):
         """Reload UFW firewall on agent"""
-        return self._call_agent("/api/firewall/ufw/reload", logger=logger)
+        return self._call_agent("/api/firewall/ufw/reload", data={}, logger=logger)
     
     def ufw_reset(self, logger=None):
         """Reset UFW firewall on agent"""
-        return self._call_agent("/api/firewall/ufw/reset", logger=logger)
+        return self._call_agent("/api/firewall/ufw/reset", data={}, logger=logger)
     
     def ufw_allow(self, port_proto, logger=None):
         """Allow port/protocol in UFW on agent"""
@@ -155,21 +274,14 @@ class ServerAPI:
 
     def ufw(self, action, direction=None, port_proto=None, logger=None):
         """Generic UFW command on agent"""
-        if direction and port_proto:
-            return self._call_agent("/api/firewall/ufw/command", {
-                "action": action,
-                "direction": direction,
-                "port_proto": port_proto
-            }, logger=logger)
-        elif port_proto:
-            return self._call_agent("/api/firewall/ufw/command", {
-                "action": action,
-                "port_proto": port_proto
-            }, logger=logger)
-        else:
-            return self._call_agent("/api/firewall/ufw/command", {
-                "action": action
-            }, logger=logger)
+        # Ini POST request dengan data
+        data = {"action": action}
+        if direction:
+            data["direction"] = direction
+        if port_proto:
+            data["port_proto"] = port_proto
+            
+        return self._call_agent("/api/firewall/ufw/command", data, logger=logger)
 
     
     # === Firewalld Management Methods ===

@@ -659,3 +659,263 @@ class DeviceRepository:
         except Exception as e:
             print(f"Error updating device status: {e}")
             return False
+
+    # ============================
+    # SIMPLE AUTO-UPDATE METHODS
+    # ============================
+    @staticmethod
+    def update_server_firewall_state(device_id, firewall_state):
+        """Update firewall state ke database setelah action"""
+        try:
+            conn = DBConnection.get_conn()
+            cursor = conn.cursor()
+            
+            # Get server_id
+            cursor.execute("SELECT id FROM servers WHERE device_id = %s", (device_id,))
+            result = cursor.fetchone()
+            if not result:
+                print(f"[DB-AUTO-ERROR] Device {device_id} not found")
+                return False
+            
+            server_id = result[0]
+            
+            # DEBUG: Print firewall state yang diterima
+            print(f"[DB-AUTO-DEBUG] Firewall state received: {firewall_state}")
+            print(f"[DB-AUTO-DEBUG] Type: {type(firewall_state)}")
+            
+            # Deteksi firewall type
+            firewall_type = firewall_state.get("detected_firewall", "unknown")
+            if not firewall_type or firewall_type == "unknown":
+                firewall_type = firewall_state.get("firewall_type", "unknown")
+            
+            # Default values
+            status = "unknown"
+            rules_count = 0
+            
+            # Parse status berdasarkan firewall type
+            if firewall_type == "ufw":
+                # Parse ufw_status dari response agent
+                ufw_status_raw = firewall_state.get("ufw_status", "")
+                print(f"[DB-AUTO-DEBUG] ufw_status raw: {ufw_status_raw}")
+                
+                if "Status: active" in str(ufw_status_raw):
+                    status = "active"
+                elif "Status: inactive" in str(ufw_status_raw):
+                    status = "inactive"
+                else:
+                    # Coba parsing lain
+                    if "inactive" in str(ufw_status_raw).lower():
+                        status = "inactive"
+                    elif "active" in str(ufw_status_raw).lower():
+                        status = "active"
+                
+                # Hitung rules (dari iptables_filter)
+                iptables_filter = firewall_state.get("iptables_filter", "")
+                if iptables_filter:
+                    # Hitung baris yang mengandung "ACCEPT" atau "DROP" atau "REJECT"
+                    lines = iptables_filter.split('\n')
+                    for line in lines:
+                        if "ACCEPT" in line or "DROP" in line or "REJECT" in line:
+                            rules_count += 1
+            
+            elif firewall_type == "firewalld":
+                # Parse firewalld status
+                status = firewall_state.get("status", "unknown")
+                # Rules count bisa dari output firewall-cmd --list-all
+            
+            elif firewall_type == "iptables":
+                # Parse iptables rules count
+                iptables_filter = firewall_state.get("iptables_filter", "")
+                if iptables_filter:
+                    lines = iptables_filter.split('\n')
+                    for line in lines:
+                        if "ACCEPT" in line or "DROP" in line or "REJECT" in line:
+                            rules_count += 1
+                    status = "active" if rules_count > 0 else "inactive"
+            
+            print(f"[DB-AUTO-DEBUG] Parsed values - Type: {firewall_type}, Status: {status}, Rules: {rules_count}")
+            
+            # Update atau insert firewall data
+            sql = """
+                INSERT INTO server_firewalls 
+                (server_id, firewall_type, status, default_zone, active_zones, 
+                rules_count, last_checked, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                    firewall_type = VALUES(firewall_type),
+                    status = VALUES(status),
+                    default_zone = VALUES(default_zone),
+                    active_zones = VALUES(active_zones),
+                    rules_count = VALUES(rules_count),
+                    last_checked = VALUES(last_checked),
+                    updated_at = NOW()
+            """
+            
+            # Default values untuk zone
+            default_zone = "N/A"
+            active_zones = "[]"
+            
+            cursor.execute(sql, (
+                server_id,
+                firewall_type,
+                status,
+                default_zone,
+                active_zones,
+                rules_count
+            ))
+            
+            conn.commit()
+            print(f"[DB-AUTO-SUCCESS] Updated firewall for {device_id}: {firewall_type} - {status}")
+            
+            # Verify update
+            cursor.execute("""
+                SELECT firewall_type, status, rules_count 
+                FROM server_firewalls 
+                WHERE server_id = %s
+            """, (server_id,))
+            
+            updated_row = cursor.fetchone()
+            if updated_row:
+                print(f"[DB-AUTO-VERIFY] After update: {updated_row}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"[DB-AUTO-ERROR] Database error: {e}")
+            import traceback
+            print(f"[DB-AUTO-ERROR] Traceback: {traceback.format_exc()}")
+            return False
+        finally:
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                conn.close()
+
+    @staticmethod
+    def update_interface_state(device_id, interface_name, interface_data):
+        """Update interface state ke database setelah action"""
+        try:
+            conn = DBConnection.get_conn()
+            cursor = conn.cursor()
+            
+            # Get server_id
+            cursor.execute("SELECT id FROM servers WHERE device_id = %s", (device_id,))
+            result = cursor.fetchone()
+            if not result:
+                print(f"[DB-AUTO-ERROR] Device {device_id} not found")
+                return False
+            
+            server_id = result[0]
+            
+            # DEBUG: Print data yang diterima
+            print(f"[DB-AUTO-DEBUG] Updating interface {interface_name} for device {device_id}")
+            print(f"[DB-AUTO-DEBUG] Raw interface data: {interface_data}")
+            
+            # FIX 1: Ambil data dari field yang benar
+            # Data dari get_ip_info() punya field 'address' bukan 'ip_address'
+            ip_address = interface_data.get("ip_address") or interface_data.get("address", "")
+            
+            # FIX 2: Netmask juga mungkin ada di 'netmask' bukan 'ip_netmask'
+            ip_netmask = interface_data.get("ip_netmask") or interface_data.get("netmask", "")
+            
+            # FIX 3: MAC address mungkin di 'mac' bukan 'mac_address'
+            mac_address = interface_data.get("mac_address") or interface_data.get("mac", "unknown")
+            
+            # FIX 4: Broadcast
+            ip_broadcast = interface_data.get("ip_broadcast") or interface_data.get("broadcast", "")
+            
+            print(f"[DB-AUTO-DEBUG] Extracted values - IP: {ip_address}, Netmask: {ip_netmask}, MAC: {mac_address}, Broadcast: {ip_broadcast}")
+            
+            # Jika IP atau netmask masih kosong, coba ekstrak dari CIDR di params
+            if not ip_address or not ip_netmask:
+                print(f"[DB-AUTO-DEBUG] IP or netmask empty, checking for CIDR in interface_data")
+                # Mungkin ada cidr di data
+                if "cidr" in interface_data:
+                    try:
+                        cidr = interface_data["cidr"]
+                        ip_parts = cidr.split("/")
+                        if len(ip_parts) == 2:
+                            ip_address = ip_parts[0]
+                            cidr_prefix = int(ip_parts[1])
+                            # Convert prefix to netmask
+                            mask = (0xffffffff << (32 - cidr_prefix)) & 0xffffffff
+                            ip_netmask = f"{(mask >> 24) & 0xff}.{(mask >> 16) & 0xff}.{(mask >> 8) & 0xff}.{mask & 0xff}"
+                            print(f"[DB-AUTO-DEBUG] Extracted from CIDR: IP={ip_address}, Netmask={ip_netmask}")
+                    except Exception as e:
+                        print(f"[DB-AUTO-DEBUG] Error extracting from CIDR: {e}")
+            
+            # Hitung broadcast jika tidak ada
+            if not ip_broadcast and ip_address and ip_netmask:
+                try:
+                    import ipaddress
+                    # Jika netmask dalam format prefix (/24)
+                    if ip_netmask.startswith("/"):
+                        prefix = ip_netmask[1:]
+                        cidr = f"{ip_address}/{prefix}"
+                    # Jika netmask dalam format subnet mask (255.255.255.0)
+                    elif "." in ip_netmask:
+                        # Convert subnet mask to prefix
+                        mask_parts = ip_netmask.split(".")
+                        prefix = sum(bin(int(x)).count('1') for x in mask_parts)
+                        cidr = f"{ip_address}/{prefix}"
+                    else:
+                        # Asumsi sudah prefix
+                        cidr = f"{ip_address}/{ip_netmask}"
+                    
+                    network = ipaddress.IPv4Network(cidr, strict=False)
+                    ip_broadcast = str(network.broadcast_address)
+                    print(f"[DB-AUTO-DEBUG] Calculated broadcast: {ip_broadcast}")
+                except Exception as e:
+                    print(f"[DB-AUTO-DEBUG] Cannot calculate broadcast: {e}")
+            
+            print(f"[DB-AUTO-DEBUG] Final values for DB - IP: {ip_address}, Netmask: {ip_netmask}, MAC: {mac_address}, Broadcast: {ip_broadcast}")
+            
+            # PERBAIKAN UTAMA: Gunakan ON DUPLICATE KEY UPDATE yang benar
+            sql = """
+                INSERT INTO server_interfaces 
+                (server_id, interface_name, mac_address, ip_address, ip_netmask, ip_broadcast, ip_version, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                    mac_address = IF(VALUES(mac_address) != '', VALUES(mac_address), mac_address),
+                    ip_address = IF(VALUES(ip_address) != '', VALUES(ip_address), ip_address),
+                    ip_netmask = IF(VALUES(ip_netmask) != '', VALUES(ip_netmask), ip_netmask),
+                    ip_broadcast = IF(VALUES(ip_broadcast) != '', VALUES(ip_broadcast), ip_broadcast),
+                    updated_at = NOW()
+            """
+            
+            cursor.execute(sql, (
+                server_id,
+                interface_name,
+                mac_address,
+                ip_address,
+                ip_netmask,
+                ip_broadcast,
+                "ipv4"
+            ))
+            
+            conn.commit()
+            print(f"[DB-AUTO-SUCCESS] Updated interface {interface_name} for {device_id}")
+            
+            # Verifikasi update berhasil
+            cursor.execute("""
+                SELECT interface_name, mac_address, ip_address, ip_netmask, ip_broadcast 
+                FROM server_interfaces 
+                WHERE server_id = %s AND interface_name = %s
+            """, (server_id, interface_name))
+            
+            updated_row = cursor.fetchone()
+            if updated_row:
+                print(f"[DB-AUTO-VERIFY] After update: {updated_row}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"[DB-AUTO-ERROR] Database error: {e}")
+            import traceback
+            print(f"[DB-AUTO-ERROR] Traceback: {traceback.format_exc()}")
+            return False
+        finally:
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                conn.close()

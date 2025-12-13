@@ -588,6 +588,41 @@ def heartbeat_loop(device_id):
             print("[AGENT] Heartbeat error:", e)
         time.sleep(HEARTBEAT_INTERVAL)
 
+def start_periodic_refresh(device_id):
+    """Background thread untuk periodic refresh"""
+    import threading
+    import random
+    
+    def refresh_worker():
+        # Initial random delay
+        time.sleep(random.randint(60, 300))  # 1-5 menit
+        
+        while True:
+            try:
+                # Simple refresh dengan data terkini
+                payload = build_payload(CONTROLLER_URL)
+                url = CONTROLLER_URL.rstrip('/') + REGISTER_ENDPOINT
+                headers = {"Content-Type": "application/json", "X-API-KEY": API_KEY}
+                
+                response = requests.post(url, headers=headers, json=payload, timeout=10)
+                
+                if response.status_code in (200, 201):
+                    print(f"[AGENT-AUTO] Refreshed data to controller")
+                else:
+                    print(f"[AGENT-AUTO] Refresh failed: {response.status_code}")
+                
+                # Refresh setiap 10 menit
+                time.sleep(600)
+                
+            except Exception as e:
+                print(f"[AGENT-AUTO-ERROR] {e}")
+                time.sleep(60)
+    
+    # Start thread
+    thread = threading.Thread(target=refresh_worker, daemon=True)
+    thread.start()
+    print(f"[AGENT-AUTO] Started periodic refresh for {device_id}")
+
 def main():
     print(f"[AGENT] Starting registration to {CONTROLLER_URL}")
 
@@ -598,25 +633,28 @@ def main():
         dev = register_once()
         if dev:
             break
-        print(f"[AGENT] Retry register in {RETRY_INTERVAL}s")
         time.sleep(RETRY_INTERVAL)
 
     if not dev:
-        print("[AGENT] Could not register to controller after retries. Exiting.")
+        print("[AGENT] Could not register. Exiting.")
         sys.exit(1)
 
-    device_id = dev.get("id")
+    device_id = dev.get("id") or dev.get("device_id")
+    
     if device_id:
-        print(f"[AGENT] Starting heartbeat for device {device_id}")
+        # Start heartbeat
         t = threading.Thread(target=heartbeat_loop, args=(device_id,), daemon=True)
         t.start()
+        
+        # Start auto-refresh (OPTIONAL)
+        start_periodic_refresh(device_id)
 
     # Keep running
     try:
         while True:
             time.sleep(60)
     except KeyboardInterrupt:
-        print("[AGENT] Stopped by user")
+        print("[AGENT] Stopped")
 
 if __name__ == "__main__":
     main()

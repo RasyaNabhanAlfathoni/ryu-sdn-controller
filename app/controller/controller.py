@@ -94,10 +94,11 @@ class Orchestrator(app_manager.RyuApp):
 
         # Inisialisasi server metrics manager
         self.server_file_manager = ServerFileManager()
-        # Start auto-sync thread (setiap 30 detik)
-        self.sync_thread = hub.spawn(self.auto_sync_servers)
+        hub.sleep(2)
         # Start health check thread
         self.health_check_thread = hub.spawn(self.health_check_loop)
+        # Start auto-sync thread (setiap 30 detik)
+        self.sync_thread = hub.spawn(self.auto_sync_servers)
 
         # Initialize Wazuh integration
         try:
@@ -485,6 +486,25 @@ class Orchestrator(app_manager.RyuApp):
         try:
             self.jobs.append_log(jid, f"Executing {action} with params: {params}")
             result = all_actions[action](params, logger=lambda s: self.jobs.append_log(jid, s))
+            try:
+                if action in [
+                    "server.firewall.ufw.enable", "server.firewall.ufw.disable", "server.firewall.ufw.reload",
+                    "server.firewall.ufw.reset", "server.firewall.ufw.allow", "server.firewall.ufw.deny",
+                    "server.firewall.ufw.delete", "server.firewall.ufw.allow_in", "server.firewall.ufw.allow_out",
+                    "server.firewall.ufw.deny_in", "server.firewall.ufw.deny_out", "server.firewall.firewalld.reload",
+                    "server.firewall.firewalld.add_port", "server.firewall.firewalld.remove_port", "server.firewall.firewalld.enable_masquerade",
+                    "server.firewall.firewalld.disable_masquerade", "server.firewall.firewalld.command", "server.firewall.nat.add",
+                    "server.firewall.nat.clear", "server.network.interface.configure", "server.network.interface.enable", 
+                    "server.network.interface.disable", "server.network.ip.add", "server.network.ip.remove"
+                ]:
+                    # Trigger auto-update
+                    device_id = params.get("device_id")
+                    if device_id and d and hasattr(d, 'device_id'):
+                        self.jobs.append_log(jid, f"[AUTO] Action {action} completed, database will be updated")
+                        
+            except Exception as update_err:
+                self.jobs.append_log(jid, f"[AUTO-WARNING] {update_err}")
+            
             self.jobs.append_log(jid, f"{action} completed successfully")
             return result
         except Exception as e:
