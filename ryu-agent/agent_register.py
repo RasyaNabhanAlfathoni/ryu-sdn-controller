@@ -512,9 +512,41 @@ def get_interface_details():
                 ipv4_addresses.append(ip_info)
             details['ipv4'] = ipv4_addresses
 
+        # Interface status (up/down)
+        details['status'] = get_interface_status(iface)
+
         interface_details[iface] = details
 
     return interface_details
+
+def get_interface_status(iface):
+    """Check if interface is up or down"""
+    try:
+        # Method 1: Check via sysfs
+        operstate_path = f"/sys/class/net/{iface}/operstate"
+        if os.path.exists(operstate_path):
+            with open(operstate_path, 'r') as f:
+                status = f.read().strip().lower()
+                if status == 'up':
+                    return 'up'
+                else:
+                    return 'down'
+        
+        # Method 2: Check via ip command
+        import subprocess
+        result = subprocess.run(['ip', 'link', 'show', iface], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            output = result.stdout.lower()
+            if 'state up' in output or '<up>' in output:
+                return 'up'
+            elif 'state down' in output or '<down>' in output:
+                return 'down'
+        
+        return 'unknown'
+    except Exception as e:
+        print(f"[AGENT] Error getting interface status for {iface}: {e}")
+        return 'unknown'
 
 def get_firewall_info_safe():
     """Get firewall info safely - don't crash registration if fails"""

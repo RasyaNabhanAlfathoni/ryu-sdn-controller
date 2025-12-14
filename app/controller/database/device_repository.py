@@ -439,6 +439,7 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def get_server_interfaces(device_id):
+        """Get server interfaces dengan semua IPs"""
         conn = DBConnection.get_conn()
         cursor = conn.cursor(dictionary=True, buffered=True)
 
@@ -447,13 +448,15 @@ class DeviceRepository:
                 SELECT 
                     si.id,
                     si.interface_name,
+                    si.interface_status,
                     si.mac_address,
-                    si.ip_address,
+                    si.ip_address,           
                     si.ip_netmask,
                     si.ip_broadcast,
                     si.ip_version,
                     si.created_at,
-                    si.updated_at
+                    si.updated_at,
+                    si.all_ips
                 FROM server_interfaces si
                 INNER JOIN servers s ON si.server_id = s.id
                 WHERE s.device_id = %s
@@ -461,12 +464,34 @@ class DeviceRepository:
             """
             
             cursor.execute(sql, (device_id,))
-            return cursor.fetchall()
+            interfaces = cursor.fetchall()
+            
+            # Parse all_ips JSON untuk setiap interface
+            for iface in interfaces:
+                if iface.get("all_ips"):
+                    try:
+                        iface["all_ips"] = json.loads(iface["all_ips"])
+                        iface["ip_addresses"] = iface["all_ips"]  # Alias untuk response API
+                    except:
+                        iface["all_ips"] = []
+                        iface["ip_addresses"] = []
+                else:
+                    iface["all_ips"] = []
+                    iface["ip_addresses"] = []
+                    
+                    # Jika ada ip_address tapi tidak ada all_ips, buat array dari ip_address
+                    if iface.get("ip_address"):
+                        ip_str = iface["ip_address"]
+                        if iface.get("ip_netmask"):
+                            ip_str += f"/{iface['ip_netmask']}"
+                        iface["all_ips"] = [ip_str]
+                        iface["ip_addresses"] = [ip_str]
+            
+            return interfaces
 
         finally:
             cursor.close()
             conn.close()
-
     # ============================
     # GET SERVER FIREWALL
     # ============================
@@ -510,15 +535,16 @@ class DeviceRepository:
         try:
             sql = """
                 INSERT INTO server_interfaces
-                (server_id, interface_name, mac_address,
+                (server_id, interface_name, interface_status, mac_address,
                 ip_address, ip_netmask, ip_broadcast, ip_version,
                 created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             """
 
             cursor.execute(sql, (
                 data.get("server_id"),
                 data.get("interface_name"),
+                data.get("interface_status", "unknown"),
                 data.get("mac_address", "unknown"),
                 data.get("ip_address", ""),
                 data.get("ip_netmask", ""),
@@ -793,7 +819,7 @@ class DeviceRepository:
 
     @staticmethod
     def update_interface_state(device_id, interface_name, interface_data):
-        """Update interface state ke database setelah action"""
+        """Update interface state ke database setelah action - SIMPAN SEMUA IPs"""
         try:
             conn = DBConnection.get_conn()
             cursor = conn.cursor()
@@ -807,59 +833,76 @@ class DeviceRepository:
             
             server_id = result[0]
             
-            # DEBUG: Print data yang diterima
             print(f"[DB-AUTO-DEBUG] Updating interface {interface_name} for device {device_id}")
             print(f"[DB-AUTO-DEBUG] Raw interface data: {interface_data}")
             
-            # FIX 1: Ambil data dari field yang benar
-            # Data dari get_ip_info() punya field 'address' bukan 'ip_address'
-            ip_address = interface_data.get("ip_address") or interface_data.get("address", "")
+            # ============================================================
+            # PERBAIKAN UTAMA: AMBIL SEMUA IPs DARI RESPONSE AGENT
+            # ============================================================
             
-            # FIX 2: Netmask juga mungkin ada di 'netmask' bukan 'ip_netmask'
-            ip_netmask = interface_data.get("ip_netmask") or interface_data.get("netmask", "")
+            # 1. Ambil status dari interface_data (prioritas utama)
+            interface_status = interface_data.get("status", "unknown")
+            print(f"[DB-AUTO-DEBUG] Status from interface_data: {interface_status}")
             
-            # FIX 3: MAC address mungkin di 'mac' bukan 'mac_address'
+            # 2. Jika masih unknown, coba deteksi dari IP
+            if interface_status == "unknown":
+                # Ambil IP pertama untuk backward compatibility
+                ip_address = interface_data.get("ip_address") or interface_data.get("address", "")
+                ip_netmask = interface_data.get("ip_netmask") or interface_data.get("netmask", "")
+                
+                print(f"[DB-AUTO-DEBUG] IP: {ip_address}, Netmask: {ip_netmask}")
+                
+                # Check jika ada flag 'up' atau 'down' di data lain
+                operational_state = interface_data.get("operstate", "").lower()
+                admin_state = interface_data.get("admin_state", "").lower()
+                
+                if "up" in operational_state or "up" in admin_state:
+                    interface_status = "up"
+                elif "down" in operational_state or "down" in admin_state:
+                    interface_status = "down"
+                elif ip_address and ip_address != "" and not ip_address.startswith("127."):
+                    interface_status = "up"
+                else:
+                    interface_status = "down"
+            
+            print(f"[DB-AUTO-DEBUG] Final interface_status: {interface_status}")
+            
+            # 2. Ambil SEMUA IPs dari agent response
+            all_ips_json = "[]"  # Default empty array
+            
+            if "ip_addresses" in interface_data and isinstance(interface_data["ip_addresses"], list):
+                # Simpan SEMUA IPs sebagai JSON
+                all_ips_json = json.dumps(interface_data["ip_addresses"])
+                print(f"[DB-AUTO-DEBUG] Saving {len(interface_data['ip_addresses'])} IPs to all_ips: {all_ips_json}")
+            elif "address" in interface_data and interface_data["address"]:
+                # Jika format lama (single IP), buat array dengan IP tersebut
+                single_ip = interface_data["address"]
+                if ip_netmask:
+                    all_ips_json = json.dumps([f"{single_ip}/{ip_netmask}"])
+                else:
+                    all_ips_json = json.dumps([single_ip])
+                print(f"[DB-AUTO-DEBUG] Saving single IP to all_ips: {all_ips_json}")
+            
+            # 3. MAC address
             mac_address = interface_data.get("mac_address") or interface_data.get("mac", "unknown")
             
-            # FIX 4: Broadcast
+            # 4. Broadcast (hitung dari IP pertama)
             ip_broadcast = interface_data.get("ip_broadcast") or interface_data.get("broadcast", "")
-            
-            print(f"[DB-AUTO-DEBUG] Extracted values - IP: {ip_address}, Netmask: {ip_netmask}, MAC: {mac_address}, Broadcast: {ip_broadcast}")
-            
-            # Jika IP atau netmask masih kosong, coba ekstrak dari CIDR di params
-            if not ip_address or not ip_netmask:
-                print(f"[DB-AUTO-DEBUG] IP or netmask empty, checking for CIDR in interface_data")
-                # Mungkin ada cidr di data
-                if "cidr" in interface_data:
-                    try:
-                        cidr = interface_data["cidr"]
-                        ip_parts = cidr.split("/")
-                        if len(ip_parts) == 2:
-                            ip_address = ip_parts[0]
-                            cidr_prefix = int(ip_parts[1])
-                            # Convert prefix to netmask
-                            mask = (0xffffffff << (32 - cidr_prefix)) & 0xffffffff
-                            ip_netmask = f"{(mask >> 24) & 0xff}.{(mask >> 16) & 0xff}.{(mask >> 8) & 0xff}.{mask & 0xff}"
-                            print(f"[DB-AUTO-DEBUG] Extracted from CIDR: IP={ip_address}, Netmask={ip_netmask}")
-                    except Exception as e:
-                        print(f"[DB-AUTO-DEBUG] Error extracting from CIDR: {e}")
             
             # Hitung broadcast jika tidak ada
             if not ip_broadcast and ip_address and ip_netmask:
                 try:
                     import ipaddress
-                    # Jika netmask dalam format prefix (/24)
-                    if ip_netmask.startswith("/"):
-                        prefix = ip_netmask[1:]
-                        cidr = f"{ip_address}/{prefix}"
-                    # Jika netmask dalam format subnet mask (255.255.255.0)
-                    elif "." in ip_netmask:
-                        # Convert subnet mask to prefix
+                    if "." in ip_netmask:
+                        # Subnet mask format
                         mask_parts = ip_netmask.split(".")
                         prefix = sum(bin(int(x)).count('1') for x in mask_parts)
                         cidr = f"{ip_address}/{prefix}"
+                    elif ip_netmask.startswith("/"):
+                        # Already prefix format
+                        cidr = f"{ip_address}{ip_netmask}"
                     else:
-                        # Asumsi sudah prefix
+                        # Prefix without slash
                         cidr = f"{ip_address}/{ip_netmask}"
                     
                     network = ipaddress.IPv4Network(cidr, strict=False)
@@ -868,37 +911,82 @@ class DeviceRepository:
                 except Exception as e:
                     print(f"[DB-AUTO-DEBUG] Cannot calculate broadcast: {e}")
             
-            print(f"[DB-AUTO-DEBUG] Final values for DB - IP: {ip_address}, Netmask: {ip_netmask}, MAC: {mac_address}, Broadcast: {ip_broadcast}")
+            print(f"[DB-AUTO-DEBUG] Final values - IP: {ip_address}, Netmask: {ip_netmask}, MAC: {mac_address}")
+            print(f"[DB-AUTO-DEBUG] All IPs JSON: {all_ips_json}")
             
-            # PERBAIKAN UTAMA: Gunakan ON DUPLICATE KEY UPDATE yang benar
-            sql = """
-                INSERT INTO server_interfaces 
-                (server_id, interface_name, mac_address, ip_address, ip_netmask, ip_broadcast, ip_version, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    mac_address = IF(VALUES(mac_address) != '', VALUES(mac_address), mac_address),
-                    ip_address = IF(VALUES(ip_address) != '', VALUES(ip_address), ip_address),
-                    ip_netmask = IF(VALUES(ip_netmask) != '', VALUES(ip_netmask), ip_netmask),
-                    ip_broadcast = IF(VALUES(ip_broadcast) != '', VALUES(ip_broadcast), ip_broadcast),
-                    updated_at = NOW()
-            """
+            # ============================================================
+            # UPDATE SQL DENGAN FIELD all_ips (WAJIB!)
+            # ============================================================
             
-            cursor.execute(sql, (
-                server_id,
-                interface_name,
-                mac_address,
-                ip_address,
-                ip_netmask,
-                ip_broadcast,
-                "ipv4"
-            ))
+            # Cek jika kolom all_ips ada di tabel
+            try:
+                cursor.execute("SHOW COLUMNS FROM server_interfaces LIKE 'all_ips'")
+                has_all_ips = cursor.fetchone() is not None
+            except:
+                has_all_ips = False
+            
+            if has_all_ips:
+                # SQL DENGAN all_ips
+                sql = """
+                    INSERT INTO server_interfaces 
+                    (server_id, interface_name, interface_status, mac_address, ip_address, ip_netmask, ip_broadcast, 
+                    all_ips, ip_version, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE
+                        mac_address = IF(VALUES(mac_address) != '', VALUES(mac_address), mac_address),
+                        ip_address = IF(VALUES(ip_address) != '', VALUES(ip_address), ip_address),
+                        ip_netmask = IF(VALUES(ip_netmask) != '', VALUES(ip_netmask), ip_netmask),
+                        ip_broadcast = IF(VALUES(ip_broadcast) != '', VALUES(ip_broadcast), ip_broadcast),
+                        all_ips = VALUES(all_ips),
+                        interface_status = VALUES(interface_status),
+                        updated_at = NOW()
+                """
+                
+                cursor.execute(sql, (
+                    server_id,
+                    interface_name,
+                    interface_status,
+                    mac_address,
+                    ip_address,
+                    ip_netmask,
+                    ip_broadcast,
+                    all_ips_json,  # SEMUA IPs sebagai JSON
+                    "ipv4"
+                ))
+            else:
+                # SQL TANPA all_ips (backward compatibility)
+                print(f"[DB-AUTO-WARNING] Kolom 'all_ips' tidak ada di tabel server_interfaces!")
+                print(f"[DB-AUTO-WARNING] Jalankan: ALTER TABLE server_interfaces ADD COLUMN all_ips TEXT DEFAULT NULL")
+                
+                sql = """
+                    INSERT INTO server_interfaces 
+                    (server_id, interface_name, mac_address, ip_address, ip_netmask, ip_broadcast, 
+                    ip_version, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE
+                        mac_address = IF(VALUES(mac_address) != '', VALUES(mac_address), mac_address),
+                        ip_address = IF(VALUES(ip_address) != '', VALUES(ip_address), ip_address),
+                        ip_netmask = IF(VALUES(ip_netmask) != '', VALUES(ip_netmask), ip_netmask),
+                        ip_broadcast = IF(VALUES(ip_broadcast) != '', VALUES(ip_broadcast), ip_broadcast),
+                        updated_at = NOW()
+                """
+                
+                cursor.execute(sql, (
+                    server_id,
+                    interface_name,
+                    mac_address,
+                    ip_address,
+                    ip_netmask,
+                    ip_broadcast,
+                    "ipv4"
+                ))
             
             conn.commit()
             print(f"[DB-AUTO-SUCCESS] Updated interface {interface_name} for {device_id}")
             
             # Verifikasi update berhasil
             cursor.execute("""
-                SELECT interface_name, mac_address, ip_address, ip_netmask, ip_broadcast 
+                SELECT interface_name, interface_status, ip_address, all_ips 
                 FROM server_interfaces 
                 WHERE server_id = %s AND interface_name = %s
             """, (server_id, interface_name))

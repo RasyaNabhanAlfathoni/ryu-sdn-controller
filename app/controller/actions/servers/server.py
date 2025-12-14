@@ -233,6 +233,18 @@ class ServerActions:
                     if interface_info:
                         # Perbaiki jika data tidak lengkap
                         if isinstance(interface_info, dict):
+                            if "status" not in interface_info or interface_info["status"] == "unknown":
+                                logger(f"[AUTO-UPDATE] Status not found in response, detecting...")
+                                
+                                # Coba deteksi status berdasarkan action yang baru dilakukan
+                                if action_name == "enable_interface":
+                                    interface_info["status"] = "up"
+                                elif action_name == "disable_interface":
+                                    interface_info["status"] = "down"
+                                else:
+                                    # Default: unknown
+                                    interface_info["status"] = "unknown"
+                                    
                             # Jika address kosong, tapi ada IP di params, gunakan itu
                             if not interface_info.get("address") and "ip_cidr" in params:
                                 try:

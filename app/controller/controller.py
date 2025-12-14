@@ -673,11 +673,39 @@ class NorthboundApi(ControllerBase):
 
                 # Handle interfaces data (outside meta)
                 if "interfaces" in data:
-                    # Pastikan interfaces adalah dict
                     if isinstance(data["interfaces"], dict):
-                        data["_interfaces_data"] = data["interfaces"]
-                    else:
-                        data["_interfaces_data"] = {}
+                        interfaces_data = data["interfaces"]
+                        
+                        # Iterasi semua interfaces
+                        for iface_name, iface_data in interfaces_data.items():
+                            # Skip loopback dan docker/bridge interfaces
+                            if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
+                                continue
+                            
+                            # AMBIL STATUS LANGSUNG DARI PAYLOAD
+                            interface_status = iface_data.get("status", "unknown")
+                            print(f"[DEBUG] Status from payload: {interface_status}")
+                            
+                            # Ambil data IPv4 pertama (jika ada)
+                            ipv4_data = {}
+                            ipv4_list = iface_data.get("ipv4", [])
+                            if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
+                                ipv4_data = ipv4_list[0]  # Ambil IP pertama
+
+                            if interface_status == "unknown":
+                                print(f"[DEBUG] Status unknown, detecting from IP...")
+                                if ipv4_data.get("address"):
+                                    interface_status = "up"
+                                else:
+                                    interface_status = "down"
+                                print(f"[DEBUG] Detected status: {interface_status}")
+                            
+                            # Simpan ke temporary dict
+                            data.setdefault("_interfaces_data", {})[iface_name] = {
+                                "status": interface_status,
+                                "ipv4": ipv4_list,
+                                "mac_address": iface_data.get("mac_address", "unknown")
+                            }
                     # Hapus dari data utama agar tidak tercampur
                     del data["interfaces"]
                 
@@ -792,20 +820,27 @@ class NorthboundApi(ControllerBase):
                                     
                                     # Insert new interfaces
                                     for iface_name, iface_data in data["_interfaces_data"].items():
-                                        # Skip loopback dan docker/bridge interfaces
-                                        if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
-                                            continue
+                                        interface_status = iface_data.get("status", "unknown")
+                                        print(f"[DEBUG] Status from payload: {interface_status}")
                                         
                                         # Ambil data IPv4 pertama (jika ada)
                                         ipv4_data = {}
                                         ipv4_list = iface_data.get("ipv4", [])
                                         if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
                                             ipv4_data = ipv4_list[0]  # Ambil IP pertama
+
+                                        # Jika status masih unknown, deteksi dari IP
+                                        if interface_status == "unknown":
+                                            if ipv4_data.get("address"):
+                                                interface_status = "up"
+                                            else:
+                                                interface_status = "down"
                                         
                                         # Insert interface dengan data IP
                                         interface_id = DeviceRepository.insert_server_interface({
                                             "server_id": server_id,  
                                             "interface_name": str(iface_name),
+                                            "interface_status": str(interface_status),
                                             "mac_address": str(iface_data.get("mac_address", "unknown")),
                                             "ip_address": str(ipv4_data.get("address", "")),
                                             "ip_netmask": str(ipv4_data.get("netmask", "")),
@@ -882,17 +917,27 @@ class NorthboundApi(ControllerBase):
                                 # Skip loopback dan docker/bridge interfaces jika mau
                                 if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
                                     continue
+
+                                interface_status = iface_data.get("status", "unknown")
                                     
                                 # Ambil data IPv4 pertama (jika ada)
                                 ipv4_data = {}
                                 ipv4_list = iface_data.get("ipv4", [])
                                 if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
                                     ipv4_data = ipv4_list[0]  # Ambil IP pertama
+
+                                # Jika status masih unknown, deteksi dari IP
+                                if interface_status == "unknown":
+                                    if ipv4_data.get("address"):
+                                        interface_status = "up"
+                                    else:
+                                        interface_status = "down"
                                 
                                 # Insert interface dengan semua data sekaligus
                                 interface_id = DeviceRepository.insert_server_interface({
                                     "server_id": server_id,
                                     "interface_name": str(iface_name),
+                                    "interface_status": str(interface_status),
                                     "mac_address": str(iface_data.get("mac_address", "unknown")),
                                     "ip_address": str(ipv4_data.get("address", "")),
                                     "ip_netmask": str(ipv4_data.get("netmask", "")),
@@ -1065,14 +1110,29 @@ class NorthboundApi(ControllerBase):
                                             iface_created = iface_created.strftime('%Y-%m-%d %H:%M:%S')
                                         if isinstance(iface_updated, datetime):
                                             iface_updated = iface_updated.strftime('%Y-%m-%d %H:%M:%S')
+
+                                        interface_status = iface.get("interface_status", "unknown")
+
+                                        # Jika masih unknown, coba dari field status (backward compatibility)
+                                        if interface_status == "unknown" and iface.get("status"):
+                                            interface_status = iface.get("status")
+                                        
+                                        # Jika masih unknown, deteksi dari IP
+                                        if interface_status == "unknown":
+                                            if iface.get("ip_address") and iface.get("ip_address") != "":
+                                                interface_status = "up"
+                                            else:
+                                                interface_status = "down"
                                         
                                         formatted_iface = {
                                             "interface_name": iface.get("interface_name"),
+                                            "interface_status": interface_status,
                                             "mac_address": iface.get("mac_address"),
                                             "ip_address": iface.get("ip_address"),
                                             "ip_netmask": iface.get("ip_netmask"),
                                             "ip_broadcast": iface.get("ip_broadcast"),
                                             "ip_version": iface.get("ip_version"),
+                                            "all_ips": iface.get("all_ips", []), 
                                             "created_at": iface_created,
                                             "updated_at": iface_updated
                                         }

@@ -41,13 +41,43 @@ class ServerNetworkDriver:
                     if mac_match and mac_address == "unknown":
                         mac_address = mac_match.group(1)
 
+            interface_status = self.get_interface_status(iface)
+
             return {
                 "interface": iface,
                 "ip_addresses": ip_addresses,
-                "mac_address": mac_address
+                "mac_address": mac_address,
+                "status": interface_status 
             }
         except Exception as e:
             return {"interface": iface, "error": str(e)}
+        
+    def get_interface_status(self, iface):
+        """Helper untuk mendapatkan status interface (up/down)"""
+        try:
+            # Method 1: Check via sysfs
+            operstate_path = f"/sys/class/net/{iface}/operstate"
+            if os.path.exists(operstate_path):
+                with open(operstate_path, 'r') as f:
+                    status = f.read().strip().lower()
+                    if status == 'up':
+                        return 'up'
+                    elif status == 'down':
+                        return 'down'
+            
+            # Method 2: Check via ip command
+            result = self._execute_command(f"ip link show {iface}")
+            if result["success"]:
+                output = result["stdout"].lower()
+                if 'state up' in output or '<up>' in output:
+                    return 'up'
+                elif 'state down' in output or '<down>' in output:
+                    return 'down'
+            
+            return 'unknown'
+        except Exception as e:
+            self.logger(f"Error getting interface status for {iface}: {e}")
+            return 'unknown'
 
     def get_routing_table(self):
         """Get routing table"""

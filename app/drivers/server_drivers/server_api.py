@@ -115,91 +115,90 @@ class ServerAPI:
                 logger(f"[DEBUG] Raw get_ip_info response for {iface}: {result}")
             
             # PARSE RESPONSE 
-            if isinstance(result, dict) and "ip_addresses" in result:
-                # Format: {"ip_addresses": ["192.168.1.101/255.255.255.0"], ...}
+            if isinstance(result, dict):
+                # DAPATKAN STATUS (default 'unknown' jika tidak ada)
+                interface_status = result.get("status", "unknown")
+                
                 parsed_result = {
                     "interface": result.get("interface", iface),
-                    "mac": result.get("mac_address", "unknown")
+                    "mac": result.get("mac_address", "unknown"),
+                    "address": "",
+                    "netmask": "",
+                    "broadcast": "",
+                    "status": interface_status 
                 }
                 
-                # Parse IP addresses
-                ip_addresses = result.get("ip_addresses", [])
-                if ip_addresses and len(ip_addresses) > 0:
-                    # Ambil IP pertama
-                    ip_with_netmask = ip_addresses[0]
-                    if "/" in ip_with_netmask:
-                        ip_parts = ip_with_netmask.split("/")
-                        parsed_result["address"] = ip_parts[0]
-                        parsed_result["netmask"] = ip_parts[1]  # Bisa jadi format 255.255.255.0 atau /24
-                        
-                        # Hitung broadcast jika perlu
-                        try:
-                            import ipaddress
-                            # Convert netmask ke prefix jika format subnet mask
-                            if "." in parsed_result["netmask"]:
-                                # Netmask format: 255.255.255.0
-                                mask = parsed_result["netmask"]
-                                prefix = sum(bin(int(x)).count('1') for x in mask.split('.'))
-                                cidr = f"{parsed_result['address']}/{prefix}"
-                            else:
-                                # Sudah format prefix: /24
-                                cidr = f"{parsed_result['address']}/{parsed_result['netmask']}"
+                # SIMPAN SEMUA IP ADDRESSES
+                if "ip_addresses" in result and isinstance(result["ip_addresses"], list):
+                    parsed_result["ip_addresses"] = result["ip_addresses"]
+                    
+                    # Ambil IP pertama untuk backward compatibility
+                    if result["ip_addresses"] and len(result["ip_addresses"]) > 0:
+                        first_ip = result["ip_addresses"][0]
+                        if "/" in first_ip:
+                            ip_parts = first_ip.split("/")
+                            parsed_result["address"] = ip_parts[0]
+                            parsed_result["netmask"] = ip_parts[1]
                             
-                            network = ipaddress.IPv4Network(cidr, strict=False)
-                            parsed_result["broadcast"] = str(network.broadcast_address)
-                        except Exception as e:
-                            if logger:
-                                logger(f"[DEBUG] Cannot calculate broadcast: {e}")
-                            parsed_result["broadcast"] = ""
-                    else:
-                        # Format tidak dikenali
-                        parsed_result["address"] = ip_with_netmask
-                        parsed_result["netmask"] = ""
-                        parsed_result["broadcast"] = ""
+                            # Hitung broadcast untuk IP pertama
+                            try:
+                                import ipaddress
+                                if "." in parsed_result["netmask"]:
+                                    mask = parsed_result["netmask"]
+                                    prefix = sum(bin(int(x)).count('1') for x in mask.split('.'))
+                                    cidr = f"{parsed_result['address']}/{prefix}"
+                                else:
+                                    cidr = f"{parsed_result['address']}/{parsed_result['netmask']}"
+                                
+                                network = ipaddress.IPv4Network(cidr, strict=False)
+                                parsed_result["broadcast"] = str(network.broadcast_address)
+                            except Exception as e:
+                                if logger:
+                                    logger(f"[DEBUG] Cannot calculate broadcast: {e}")
                 else:
-                    # Tidak ada IP addresses
-                    parsed_result["address"] = ""
-                    parsed_result["netmask"] = ""
-                    parsed_result["broadcast"] = ""
+                    # Format lama (single IP)
+                    parsed_result["address"] = result.get("address", "")
+                    parsed_result["netmask"] = result.get("netmask", "")
+                    parsed_result["broadcast"] = result.get("broadcast", "")
+                    
+                    # Buat array ip_addresses dari data lama
+                    if parsed_result["address"]:
+                        if parsed_result["netmask"]:
+                            parsed_result["ip_addresses"] = [f"{parsed_result['address']}/{parsed_result['netmask']}"]
+                        else:
+                            parsed_result["ip_addresses"] = [parsed_result["address"]]
+                    else:
+                        parsed_result["ip_addresses"] = []
                 
                 if logger:
                     logger(f"[DEBUG] Parsed get_ip_info response: {parsed_result}")
                 
                 return parsed_result
             else:
-                # Fallback ke format lama
-                if isinstance(result, dict):
-                    # Tambahkan field default jika tidak ada
-                    if "address" not in result or not result["address"]:
-                        result["address"] = ""
-                    if "netmask" not in result or not result["netmask"]:
-                        result["netmask"] = ""
-                    if "broadcast" not in result or not result["broadcast"]:
-                        result["broadcast"] = ""
-                    if "mac" not in result or not result["mac"]:
-                        result["mac"] = result.get("mac_address", "unknown")
-                else:
-                    # Jika bukan dict, buat dict kosong
-                    result = {
-                        "address": "",
-                        "netmask": "", 
-                        "broadcast": "",
-                        "mac": "unknown"
-                    }
-                
-                return result
+                # Fallback
+                return {
+                    "interface": iface,
+                    "address": "",
+                    "netmask": "", 
+                    "broadcast": "",
+                    "mac": "unknown",
+                    "ip_addresses": [],
+                    "status": "unknown"
+                }
                 
         except Exception as e:
             if logger:
                 logger(f"[ERROR] get_ip_info failed: {e}")
             return {
+                "interface": iface,
                 "address": "",
                 "netmask": "", 
                 "broadcast": "",
                 "mac": "unknown",
+                "ip_addresses": [],
+                "status": "unknown",
                 "error": str(e)
             }
-    
 
     # === Advanced Network Management Methods ===
     
