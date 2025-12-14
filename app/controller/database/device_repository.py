@@ -836,20 +836,16 @@ class DeviceRepository:
             print(f"[DB-AUTO-DEBUG] Updating interface {interface_name} for device {device_id}")
             print(f"[DB-AUTO-DEBUG] Raw interface data: {interface_data}")
             
-            # ============================================================
-            # PERBAIKAN UTAMA: AMBIL SEMUA IPs DARI RESPONSE AGENT
-            # ============================================================
-            
             # 1. Ambil status dari interface_data (prioritas utama)
             interface_status = interface_data.get("status", "unknown")
             print(f"[DB-AUTO-DEBUG] Status from interface_data: {interface_status}")
+
+            # Ambil IP pertama untuk backward compatibility
+            ip_address = interface_data.get("ip_address") or interface_data.get("address", "")
+            ip_netmask = interface_data.get("ip_netmask") or interface_data.get("netmask", "")        
             
             # 2. Jika masih unknown, coba deteksi dari IP
             if interface_status == "unknown":
-                # Ambil IP pertama untuk backward compatibility
-                ip_address = interface_data.get("ip_address") or interface_data.get("address", "")
-                ip_netmask = interface_data.get("ip_netmask") or interface_data.get("netmask", "")
-                
                 print(f"[DB-AUTO-DEBUG] IP: {ip_address}, Netmask: {ip_netmask}")
                 
                 # Check jika ada flag 'up' atau 'down' di data lain
@@ -914,10 +910,6 @@ class DeviceRepository:
             print(f"[DB-AUTO-DEBUG] Final values - IP: {ip_address}, Netmask: {ip_netmask}, MAC: {mac_address}")
             print(f"[DB-AUTO-DEBUG] All IPs JSON: {all_ips_json}")
             
-            # ============================================================
-            # UPDATE SQL DENGAN FIELD all_ips (WAJIB!)
-            # ============================================================
-            
             # Cek jika kolom all_ips ada di tabel
             try:
                 cursor.execute("SHOW COLUMNS FROM server_interfaces LIKE 'all_ips'")
@@ -931,7 +923,7 @@ class DeviceRepository:
                     INSERT INTO server_interfaces 
                     (server_id, interface_name, interface_status, mac_address, ip_address, ip_netmask, ip_broadcast, 
                     all_ips, ip_version, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                     ON DUPLICATE KEY UPDATE
                         mac_address = IF(VALUES(mac_address) != '', VALUES(mac_address), mac_address),
                         ip_address = IF(VALUES(ip_address) != '', VALUES(ip_address), ip_address),
@@ -960,9 +952,9 @@ class DeviceRepository:
                 
                 sql = """
                     INSERT INTO server_interfaces 
-                    (server_id, interface_name, mac_address, ip_address, ip_netmask, ip_broadcast, 
+                    (server_id, interface_name, interface_status, mac_address, ip_address, ip_netmask, ip_broadcast, 
                     ip_version, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                     ON DUPLICATE KEY UPDATE
                         mac_address = IF(VALUES(mac_address) != '', VALUES(mac_address), mac_address),
                         ip_address = IF(VALUES(ip_address) != '', VALUES(ip_address), ip_address),
