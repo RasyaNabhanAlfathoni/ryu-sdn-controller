@@ -31,6 +31,12 @@ class WazuhDispatcher:
             
         elif action == "server.wazuh.status":
             return self.wazuh_driver.get_wazuh_agent_status()
+        
+        elif action == "server.wazuh.config.get":
+            return self.wazuh_driver.get_ossec_config()
+        
+        elif action == "server.wazuh.config.update":
+            return self.wazuh_driver.update_ossec_config(params.get("config_content"))
             
         else:
             return {"error": f"Unknown Wazuh action: {action}"}

@@ -695,6 +695,90 @@ def wazuh_status():
         print(f"CRITICAL ERROR in wazuh_status: {e}", file=sys.stderr)
         print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
         return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
+    
+@app.route('/api/wazuh/config', methods=['GET', 'PUT'])
+def wazuh_config():
+    """Get or update Wazuh agent configuration (ossec.conf)"""
+    try:
+        import sys
+        import json
+        
+        method = request.method
+        log_message(f"{method} /api/wazuh/config")
+        
+        # Debug: Log request
+        print(f"[DEBUG] Method: {method}", file=sys.stderr)
+        print(f"[DEBUG] Headers: {dict(request.headers)}", file=sys.stderr)
+        
+        # Handle GET vs PUT differently
+        if method == 'GET':
+            print("[DEBUG] Handling GET request", file=sys.stderr)
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            dispatcher = WazuhDispatcher(
+                logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr)
+            )
+            result = dispatcher.dispatch("server.wazuh.config.get", {})
+            print(f"[DEBUG] GET result: {json.dumps(result)[:200]}...", file=sys.stderr)
+            return jsonify(result)
+        
+        elif method == 'PUT':
+            print("[DEBUG] Handling PUT request", file=sys.stderr)
+            
+            # Check for JSON content
+            if not request.is_json:
+                print("[ERROR] Request is not JSON", file=sys.stderr)
+                return jsonify({
+                    "success": False, 
+                    "error": "Request must be JSON"
+                }), 400
+            
+            data = request.get_json(silent=True)
+            print(f"[DEBUG] Raw data: {data}", file=sys.stderr)
+            
+            if data is None:
+                print("[ERROR] Invalid JSON", file=sys.stderr)
+                return jsonify({
+                    "success": False, 
+                    "error": "Invalid JSON data"
+                }), 400
+            
+            config_content = data.get("config_content")
+            if not config_content:
+                print("[ERROR] Missing config_content", file=sys.stderr)
+                return jsonify({
+                    "success": False, 
+                    "error": "config_content is required"
+                }), 400
+            
+            print(f"[DEBUG] Config length: {len(config_content)} chars", file=sys.stderr)
+            
+            # Dispatch update action
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            dispatcher = WazuhDispatcher(
+                logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr)
+            )
+            
+            result = dispatcher.dispatch("server.wazuh.config.update", {
+                "config_content": config_content
+            })
+            
+            print(f"[DEBUG] PUT result: {json.dumps(result)[:200]}...", file=sys.stderr)
+            return jsonify(result)
+        
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Method {method} not allowed"
+            }), 405
+        
+    except Exception as e:
+        print(f"[CRITICAL] Error in wazuh_config: {e}", file=sys.stderr)
+        import traceback
+        print(f"[CRITICAL] Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({
+            "success": False, 
+            "error": f"Server error: {str(e)}"
+        }), 500
 
 # Health check
 @app.route('/health', methods=['GET'])
