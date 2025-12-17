@@ -35,6 +35,7 @@ from drivers.server_file_manager import ServerFileManager
 
 # === Wazuh Driver ===
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
+from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 
 API_INSTANCE_NAME = 'northbound_api'
 
@@ -103,8 +104,8 @@ class Orchestrator(app_manager.RyuApp):
         # Initialize Wazuh integration
         try:
             wazuh_api_url = os.getenv('WAZUH_API_URL')
-            wazuh_user = os.getenv('WAZUH_USER') 
-            wazuh_password = os.getenv('WAZUH_PASSWORD')
+            wazuh_user = os.getenv('WAZUH_API_USER') 
+            wazuh_password = os.getenv('WAZUH_API_PASSWORD')
             
             if all([wazuh_api_url, wazuh_user, wazuh_password]):
                 self.wazuh_api = WazuhAPI(
@@ -122,6 +123,28 @@ class Orchestrator(app_manager.RyuApp):
         except Exception as e:
             self.logger.error(f"Failed to initialize Wazuh integration: {e}")
             self.wazuh_api = None
+
+        # Initialize Wazuh Indexer API (Threat Hunting)
+        try:
+            indexer_url = os.getenv('WAZUH_INDEXER_URL')
+            indexer_user = os.getenv('WAZUH_INDEXER_USER')
+            indexer_password = os.getenv('WAZUH_INDEXER_PASSWORD')
+
+            if all([indexer_url, indexer_user, indexer_password]):
+                self.wazuh_indexer = WazuhIndexerAPI(
+                    base_url=indexer_url,
+                    username=indexer_user,
+                    password=indexer_password,
+                    logger=self.logger
+                )
+                self.logger.info("Wazuh Indexer initialized")
+            else:
+                self.logger.warning("Wazuh Indexer env not set")
+                self.wazuh_indexer = None
+
+        except Exception as e:
+            self.logger.error(f"Wazuh Indexer init failed: {e}")
+            self.wazuh_indexer = None
 
     def health_check_loop(self):
         """Background thread untuk health check semua devices"""
@@ -254,9 +277,10 @@ class Orchestrator(app_manager.RyuApp):
         wazuh_global_actions = [
             "wazuh.manager.info", "wazuh.manager.stats", "wazuh.manager.configuration",
             "wazuh.agent.list", "wazuh.agent.detail", "wazuh.agent.status", "wazuh.agent.config",
-            "wazuh.security.sca", "wazuh.security.fim", "wazuh.security.threat_hunting",
-            "wazuh.logs.discover", "wazuh.system.hardware", "wazuh.system.processes",
-            "wazuh.config.assessment"
+            "wazuh.sca.summary", "wazuh.sca.events", "wazuh.fim.summary", "wazuh.fim.events",
+            "wazuh.fim.timeline", "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
+            "wazuh.threat.success_login", "wazuh.discover.logs", "wazuh.system.processes", 
+            "wazuh.system.hardware",
         ]
         
         # SNMP ACTIONS (GLOBAL - TIDAK BUTUH device_id)
@@ -416,39 +440,45 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.manager.info": lambda p, logger: self.wazuh_api.get_manager_info(logger=logger),
             "wazuh.manager.stats": lambda p, logger: self.wazuh_api.get_manager_stats(logger=logger),
             "wazuh.manager.configuration": lambda p, logger: self.wazuh_api.get_manager_configuration(logger=logger),
-            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(
-                filters=p.get("filters", {}),
-                logger=logger
+            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(p.get("filters"), logger),
+            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(p["agent_id"], logger),
+            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(p["agent_id"], logger),
+            "wazuh.sca.summary": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
+                p["agent_id"], logger
             ),
-            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.sca.events": lambda p, logger: self.wazuh_indexer.sca_events(
+                agent_id=p["agent_id"],
+                hours=p.get("hours", 24)
             ),
-            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.fim.summary": lambda p, logger: self.wazuh_api.get_fim_data(
+                p["agent_id"], p.get("filters"), logger
             ),
-            "wazuh.agent.config": lambda p, logger: self.wazuh_api.get_agent_config(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.fim.events": lambda p, logger: self.wazuh_indexer.fim_events(
+                agent_id=p["agent_id"],
+                hours=p.get("hours", 24)
             ),
-            "wazuh.security.sca": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.fim.timeline": lambda p, logger: self.wazuh_indexer.fim_timeline(
+                agent_id=p["agent_id"],
+                hours=p.get("hours", 24)
             ),
-            "wazuh.security.fim": lambda p, logger: self.wazuh_api.get_fim_data(
-                agent_id=p.get("agent_id"),
-                filters=p.get("filters", {}),
-                logger=logger
+            "wazuh.threat.summary": lambda p, logger: self.wazuh_indexer.threat_summary(
+                hours=p.get("hours", 24)
             ),
-            "wazuh.security.threat_hunting": lambda p, logger: self.wazuh_api.get_threat_hunting(
-                query=p.get("query", {}),
-                logger=logger
+            "wazuh.threat.events": lambda p, logger: self.wazuh_indexer.threat_events(
+                hours=p.get("hours", 24),
+                size=p.get("size", 100)
             ),
-            "wazuh.logs.discover": lambda p, logger: self.wazuh_api.get_logs(
-                agent_id=p.get("agent_id"),
-                query=p.get("query", {}),
-                logger=logger
+            "wazuh.threat.failed_login": lambda p, logger: self.wazuh_indexer.threat_failed_logins(
+                hours=p.get("hours", 24)
+            ),
+            "wazuh.threat.success_login": lambda p, logger: self.wazuh_indexer.threat_success_logins(
+                hours=p.get("hours", 24)
+            ),
+            "wazuh.discover.logs": lambda p, logger: self.wazuh_indexer.discover_logs(
+                index=p.get("index", "wazuh-alerts-*"),
+                keyword=p.get("keyword"),
+                hours=p.get("hours", 24),
+                size=p.get("size", 100)
             ),
             "wazuh.system.hardware": lambda p, logger: self.wazuh_api.get_syscollector_hardware(
                 agent_id=p.get("agent_id"),

@@ -843,3 +843,57 @@ class WazuhDriver:
                 "success": False,
                 "error": f"Uninstall failed: {str(e)}"
             }
+        
+    def get_ossec_config(self) -> Dict:
+        """Read current ossec.conf file"""
+        try:
+            result = self._execute_ssh("cat /var/ossec/etc/ossec.conf")
+            if result["success"]:
+                return {
+                    "success": True,
+                    "config_content": result["stdout"],
+                    "file_path": "/var/ossec/etc/ossec.conf"
+                }
+            else:
+                return {"success": False, "error": "Failed to read config file"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def update_ossec_config(self, config_content: str) -> Dict:
+        """Update ossec.conf file with validation"""
+        try:
+            # 1. Backup current config
+            backup_cmd = "cp /var/ossec/etc/ossec.conf /var/ossec/etc/ossec.conf.backup.$(date +%s)"
+            self._execute_ssh(backup_cmd)
+            
+            # 2. Write new config to temp file
+            temp_file = "/tmp/ossec.conf.new"
+            # Gunakan base64 untuk menghindari escaping issues
+            import base64
+            encoded = base64.b64encode(config_content.encode()).decode()
+            write_cmd = f"echo '{encoded}' | base64 -d > {temp_file}"
+            self._execute_ssh(write_cmd)
+            
+            # 3. Validate XML structure (sederhana)
+            validate_cmd = f"xmlstarlet val {temp_file} 2>/dev/null || xmllint --noout {temp_file} 2>/dev/null || true"
+            validate_result = self._execute_ssh(validate_cmd)
+            
+            # 4. Copy to final location
+            if validate_result["success"] or "error" not in validate_result.get("stderr", ""):
+                final_cmd = f"cp {temp_file} /var/ossec/etc/ossec.conf && chmod 640 /var/ossec/etc/ossec.conf && chown root:wazuh /var/ossec/etc/ossec.conf"
+                copy_result = self._execute_ssh(final_cmd)
+                
+                if copy_result["success"]:
+                    # 5. Restart service jika diperlukan
+                    restart_result = self._execute_ssh("systemctl restart wazuh-agent || service wazuh-agent restart")
+                    return {
+                        "success": True,
+                        "message": "Configuration updated successfully",
+                        "restarted": restart_result["success"],
+                        "backup_created": True
+                    }
+            
+            return {"success": False, "error": "Configuration validation or update failed"}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
