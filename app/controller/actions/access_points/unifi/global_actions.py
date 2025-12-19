@@ -9,6 +9,7 @@ from drivers.access_point_drivers.unifi.admin_activity_logs import UnifiAPAdminA
 from drivers.access_point_drivers.unifi.list_network import UnifiAPListNetwork
 from drivers.access_point_drivers.unifi.list_alert import UnifiAPListAlert
 from drivers.access_point_drivers.unifi.list_wlan import UnifiAPListWLAN
+from drivers.access_point_drivers.unifi.status_controller_device import UnifiAPStatusControllerDevice
 
 class UnifiAccessPointGlobalActions:
 
@@ -25,4 +26,5 @@ class UnifiAccessPointGlobalActions:
             "list.network.unifi": lambda p, logger: UnifiAPListNetwork.run(logger),
             "list.alert.unifi": lambda p, logger: UnifiAPListAlert.run(logger),
             "list.wlan.unifi": lambda p, logger: UnifiAPListWLAN.run(logger),
+            "unifiap.status.control": lambda p, logger: UnifiAPStatusControllerDevice().run_global(),
         }

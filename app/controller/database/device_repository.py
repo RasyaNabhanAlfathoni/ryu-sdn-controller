@@ -502,6 +502,8 @@ class DeviceRepository:
                         ap.identity AS hostname,
                         ap.username AS main_username,
                         ap.os_version,
+                        ap.board AS model,
+                        ap.serial_number,
                         NULL AS architecture,
                         NULL AS architecture_bits,
                         NULL AS processor_type,
