@@ -9,9 +9,8 @@ class UnifiAPStatusControllerDevice:
     UNIFI_BASE = "http://192.168.100.85:3000"
     DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
 
-    # ==========================
+
     # GLOBAL ACTION
-    # ==========================
     def run_global(self):
         controller_map, controller_up = self._fetch_controller_devices()
 
@@ -25,9 +24,8 @@ class UnifiAPStatusControllerDevice:
 
         return results
 
-    # ==========================
+
     # INTERNAL
-    # ==========================
     def _fetch_controller_devices(self):
         try:
             resp = requests.get(self.DEVICE_ENDPOINT, timeout=5)

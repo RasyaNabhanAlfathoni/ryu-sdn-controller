@@ -9,7 +9,6 @@ class UnifiAccessPointActions:
     def get_actions(d):
 
         return {
-            # ===== DEVICE-BASED UNIFI ACTIONS =====
             "unifi.ap.reboot": lambda p, logger: UnifiAPReboot.run(d, logger),
             "unifi.ap.reset_default": lambda p, logger: UnifiAPResetDefault.run(d, logger),
         }

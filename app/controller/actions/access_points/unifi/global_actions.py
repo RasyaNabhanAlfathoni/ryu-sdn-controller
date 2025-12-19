@@ -17,7 +17,6 @@ class UnifiAccessPointGlobalActions:
     def get_actions(d):
 
         return {
-            # ===== GLOBAL UNIFI ACTIONS =====
             "list.sites.unifi": lambda p, logger: UnifiAPListSites.run(logger),
             "list.devices.unifi": lambda p, logger: UnifiAPListDevices.run(logger),
             "list.clients.unifi": lambda p, logger: UnifiAPListClients.run(logger),

@@ -12,25 +12,18 @@ class AutoDiscoverAPUnifi:
     DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
     SETTING_ENDPOINT = f"{UNIFI_BASE}/query_range?field=setting"
 
-    INTERVAL = 10  # REALTIME
+    INTERVAL = 10
 
-    # ==================================================
     # SNAPSHOT CACHE (MEMORY)
-    # device_id -> fingerprint
-    # ==================================================
     _snapshot = {}
 
-    # ==================================================
     # DEVICE ID (STABLE FROM MAC)
-    # ==================================================
     @staticmethod
     def generate_device_id(mac: str) -> str:
         mac = mac.lower().replace(":", "")
         return "dev_" + hashlib.sha1(mac.encode()).hexdigest()[:10]
 
-    # ==================================================
     # OPERATIONAL FINGERPRINT (NO cfgversion)
-    # ==================================================
     @staticmethod
     def build_fingerprint(d: dict) -> str:
         important = [
@@ -43,9 +36,7 @@ class AutoDiscoverAPUnifi:
         raw = "|".join(str(x) for x in important)
         return hashlib.sha1(raw.encode()).hexdigest()
 
-    # ==================================================
     # SSH CREDENTIAL FROM UNIFI SETTING
-    # ==================================================
     @staticmethod
     def get_ssh_credential(settings: list, site_id: str):
         mgmts = [
@@ -64,16 +55,12 @@ class AutoDiscoverAPUnifi:
             mgmt.get("x_ssh_password", "ubnt")
         )
 
-    # ==================================================
     # NORMALIZE
-    # ==================================================
     @staticmethod
     def _norm(v):
         return "" if v is None else str(v).strip()
 
-    # ==================================================
-    # CHECK REAL CHANGE (DB GUARD)
-    # ==================================================
+    # CHECK REAL CHANGE
     @classmethod
     def has_changed(cls, old: dict, new: dict) -> bool:
         keys = [
@@ -92,9 +79,7 @@ class AutoDiscoverAPUnifi:
 
         return False
 
-    # ==================================================
     # MAIN DISCOVERY
-    # ==================================================
     @classmethod
     def run(cls):
         try:
@@ -158,12 +143,12 @@ class AutoDiscoverAPUnifi:
                     "snmp_location": snmp_location,
                 }
 
-                # ==================================================
-                # STEP 1: DB EXISTENCE CHECK (PRIORITY)
-                # ==================================================
+
+                # DB EXISTENCE CHECK
+
                 existing = DeviceRepository.find_by_device_id(device_id)
 
-                # === DB DELETED / NEW DEVICE ===
+                # DB DELETED / NEW DEVICE
                 if not existing:
                     cls._snapshot[device_id] = fingerprint
                     print(f"[UNIFI-AUTO] INSERT {device_id}")
@@ -186,30 +171,23 @@ class AutoDiscoverAPUnifi:
 
                     continue
 
-                # ==================================================
-                # STEP 2: SNAPSHOT CHECK (ANTI SPAM)
-                # ==================================================
+
+                # SNAPSHOT CHECK
                 if cls._snapshot.get(device_id) == fingerprint:
                     continue
 
                 cls._snapshot[device_id] = fingerprint
 
-                # ==================================================
-                # STEP 3: UPDATE CHECK
-                # ==================================================
+                # UPDATE CHECK
                 if cls.has_changed(existing, dev):
                     print(f"[UNIFI-AUTO] UPDATE {device_id}")
                     DeviceRepository.update_network_device(device_id, dev)
                     DeviceRepository.update_access_point(device_id, dev)
 
-                # else: DIAM TOTAL
-
             except Exception as e:
                 print(f"[UNIFI-AUTO] DEVICE ERROR {d.get('ip')}: {e}")
 
-    # ==================================================
-    # LOOP (RYU FRIENDLY)
-    # ==================================================
+    # LOOP
     @classmethod
     def loop(cls):
         print("[UNIFI-AUTO] UniFi Auto Discovery started (10s interval)")

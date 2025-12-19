@@ -8,7 +8,7 @@ class DBConnection:
     def init_pool():
         DBConnection.__pool = pooling.MySQLConnectionPool(
             pool_name="sdn_pool",
-            pool_size=15,  # 🔥 NAIKKAN
+            pool_size=15,
             host="127.0.0.1",
             user="admin",
             password="admin",
@@ -26,4 +26,4 @@ class DBConnection:
         try:
             yield conn
         finally:
-            conn.close()  # 🔥 BALIK KE POOL
+            conn.close()

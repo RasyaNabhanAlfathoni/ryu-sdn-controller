@@ -8,7 +8,7 @@ const PORT = 3000;
 const MONGO_URL = "mongodb://127.0.0.1:27117";
 const DB_NAME = "ace";
 
-// whitelist collection (PENTING!)
+// whitelist collection
 const ALLOWED_COLLECTIONS = [
   "user", // List_of_client
   "usergroup", // List_of_client_group
@@ -45,7 +45,7 @@ MongoClient.connect(MONGO_URL)
     process.exit(1);
   });
 
-// ===================== API =====================
+// API
 
 app.get("/query_range", async (req, res) => {
   try {
@@ -62,7 +62,7 @@ app.get("/query_range", async (req, res) => {
     const data = await db
       .collection(field)
       .find({})
-      .limit(500) // 🔥 jangan unlimited
+      .limit(500)
       .toArray();
 
     res.json({
