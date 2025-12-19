@@ -563,7 +563,8 @@ class DeviceRepository:
         servers = DeviceRepository.get_all_servers()
         routers = DeviceRepository.get_all_routers()
         switches = DeviceRepository.get_all_switches()
-        devices = servers + routers + switches
+        access_points = DeviceRepository.get_all_access_points()
+        devices = servers + routers + switches + access_points
 
         devices.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
         return devices
@@ -649,3 +650,127 @@ class DeviceRepository:
         except Exception as e:
             print(f"Error updating device status: {e}")
             return False
+
+    # ============================
+    # INSERT ACCESS POINT
+    # ============================
+    @staticmethod
+    def insert_access_point(dev):
+        from database.db_connection import DBConnection
+
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    INSERT INTO access_points
+                    (device_id, username, password, identity, os_version,
+                    board, serial_number, vendor, main_ip_address,
+                    main_mac_address, main_interface, southbound, status,
+                    created_at, updated_at, last_seen)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            NOW(), NOW(), NOW())
+                """
+
+                cursor.execute(sql, (
+                    dev["device_id"],
+                    dev.get("username", "ubnt"),
+                    dev.get("password", ""),
+                    dev.get("identity", dev.get("hostname", "unknown")),
+                    dev.get("os_version", "unknown"),
+                    dev.get("board", dev.get("model", "")),
+                    dev.get("serial_number", ""),
+                    dev.get("vendor", "unifi"),
+                    dev.get("main_ip_address"),
+                    dev.get("main_mac_address", "unknown"),
+                    dev.get("main_interface", "eth0"),
+                    dev.get("southbound", "paramiko"),
+                    dev.get("status", "active")
+                ))
+
+                conn.commit()
+                return cursor.lastrowid
+
+            finally:
+                cursor.close()
+
+    # ============================
+    # UPDATE ACCESS POINT
+    # ============================
+    @staticmethod
+    def update_access_point(device_id, dev):
+        from database.db_connection import DBConnection
+
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    UPDATE access_points
+                    SET identity=%s,
+                        os_version=%s,
+                        board=%s,
+                        vendor=%s,
+                        main_ip_address=%s,
+                        main_mac_address=%s,
+                        main_interface=%s,
+                        southbound=%s,
+                        status=%s,
+                        updated_at=NOW(),
+                        last_seen=NOW()
+                    WHERE device_id=%s
+                """
+
+                cursor.execute(sql, (
+                    dev.get("identity", dev.get("hostname", "unknown")),
+                    dev.get("os_version", "unknown"),
+                    dev.get("board", dev.get("model", "")),
+                    dev.get("vendor", "unifi"),
+                    dev.get("main_ip_address"),
+                    dev.get("main_mac_address", "unknown"),
+                    dev.get("main_interface", "eth0"),
+                    dev.get("southbound", "paramiko"),
+                    dev.get("status", "active"),
+                    device_id
+                ))
+
+                conn.commit()
+
+            finally:
+                cursor.close()
+
+    # ============================
+    # GET ALL ACCESS POINTS
+    # ============================
+    @staticmethod
+    def get_all_access_points():
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(dictionary=True)
+            try:
+                sql = """
+                    SELECT 
+                        ap.device_id,
+                        'access_point' AS device_type,
+                        ap.identity AS hostname,
+                        ap.username AS main_username,
+                        ap.os_version,
+                        ap.board AS model,
+                        ap.serial_number,
+                        NULL AS architecture,
+                        NULL AS architecture_bits,
+                        NULL AS processor_type,
+                        ap.vendor,
+                        ap.main_ip_address,
+                        ap.main_mac_address,
+                        ap.main_interface,
+                        ap.southbound,
+                        ap.status,
+                        NULL AS virtualization,
+                        ap.last_seen,
+                        ap.created_at,
+                        ap.updated_at
+                    FROM access_points ap
+                    ORDER BY ap.last_seen DESC
+                """
+                cursor.execute(sql)
+                return cursor.fetchall()
+            finally:
+                cursor.close()

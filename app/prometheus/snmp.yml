@@ -124,3 +124,86 @@ modules:
         oid: 1.3.6.1.2.1.1.1.0
         type: DisplayString
         help: Interface Status
+
+  cisco:
+    walk:
+      - 1.3.6.1.2.1.1
+      - 1.3.6.1.2.1.2
+      - 1.3.6.1.2.1.31
+      - 1.3.6.1.2.1.47
+      - 1.3.6.1.4.1.9
+    metrics:
+      # ===== SYSTEM =====
+      - name: SystemDescription
+        oid: 1.3.6.1.2.1.1.1.0
+        type: DisplayString
+
+      - name: SystemUptime
+        oid: 1.3.6.1.2.1.1.3.0
+        type: gauge
+
+      - name: SystemName
+        oid: 1.3.6.1.2.1.1.5.0
+        type: DisplayString
+
+      # ===== HARDWARE (ENTITY-MIB) =====
+      - name: HardwareModel
+        oid: 1.3.6.1.2.1.47.1.1.1.1.13.1
+        type: DisplayString
+
+      - name: SoftwareVersion
+        oid: 1.3.6.1.2.1.47.1.1.1.1.9.1
+        type: DisplayString
+
+      - name: SerialNumber
+        oid: 1.3.6.1.2.1.47.1.1.1.1.11.1
+        type: DisplayString
+
+      # ===== INTERFACE TRAFFIC =====
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+
+      - name: InterfaceStatus
+        oid: 1.3.6.1.2.1.2.2.1.8
+        type: gauge
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+
+      - name: InterfaceMAC
+        oid: 1.3.6.1.2.1.2.2.1.6
+        type: OctetString
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString

@@ -30,7 +30,10 @@ from actions.switchs.cisco import CiscoSwitchActions
 # from actions.switch.mikrotik import MikrotikSwitchActions
 
 # === Access-Point Driver ===
-# from actions.access_point.tplink import TPLinkAccessPointActions
+from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
+from drivers.access_point_drivers.unifi.auto_discover import AutoDiscoverAPUnifi
+from actions.access_points.unifi.global_actions import UnifiAccessPointGlobalActions
+from actions.access_points.unifi.device_actions import UnifiAccessPointActions
 
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
@@ -39,7 +42,6 @@ from drivers.server_file_manager import ServerFileManager
 
 # === Wazuh Driver ===
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
-from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 
 API_INSTANCE_NAME = 'northbound_api'
 
@@ -97,6 +99,10 @@ class Orchestrator(app_manager.RyuApp):
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
 
+        # unifi auto discovery (BACKGROUND THREAD)
+        self.unifi_discover_thread = hub.spawn(
+            AutoDiscoverAPUnifi.loop
+        )
         # Inisialisasi server metrics manager
         self.server_file_manager = ServerFileManager()
         hub.sleep(2)
@@ -108,8 +114,8 @@ class Orchestrator(app_manager.RyuApp):
         # Initialize Wazuh integration
         try:
             wazuh_api_url = os.getenv('WAZUH_API_URL')
-            wazuh_user = os.getenv('WAZUH_API_USER') 
-            wazuh_password = os.getenv('WAZUH_API_PASSWORD')
+            wazuh_user = os.getenv('WAZUH_USER') 
+            wazuh_password = os.getenv('WAZUH_PASSWORD')
             
             if all([wazuh_api_url, wazuh_user, wazuh_password]):
                 self.wazuh_api = WazuhAPI(
@@ -127,28 +133,6 @@ class Orchestrator(app_manager.RyuApp):
         except Exception as e:
             self.logger.error(f"Failed to initialize Wazuh integration: {e}")
             self.wazuh_api = None
-
-        # Initialize Wazuh Indexer API (Threat Hunting)
-        try:
-            indexer_url = os.getenv('WAZUH_INDEXER_URL')
-            indexer_user = os.getenv('WAZUH_INDEXER_USER')
-            indexer_password = os.getenv('WAZUH_INDEXER_PASSWORD')
-
-            if all([indexer_url, indexer_user, indexer_password]):
-                self.wazuh_indexer = WazuhIndexerAPI(
-                    base_url=indexer_url,
-                    username=indexer_user,
-                    password=indexer_password,
-                    logger=self.logger
-                )
-                self.logger.info("Wazuh Indexer initialized")
-            else:
-                self.logger.warning("Wazuh Indexer env not set")
-                self.wazuh_indexer = None
-
-        except Exception as e:
-            self.logger.error(f"Wazuh Indexer init failed: {e}")
-            self.wazuh_indexer = None
 
     def health_check_loop(self):
         """Background thread untuk health check semua devices"""
@@ -179,13 +163,15 @@ class Orchestrator(app_manager.RyuApp):
                     if device_type == 'server' and southbound == 'server_api':
                         # Test koneksi ke agent API
                         is_active = self.check_server_agent_health(ip_address)
-                    
                     elif device_type == 'router' and southbound == 'routeros_api':
                         # Test koneksi ke RouterOS API
                         is_active = self.check_routeros_health(device)
                     elif device_type == 'switch' and southbound == 'paramiko':
                         # Test koneksi ke Cisco Paramiko SSH
                         is_active = self.check_switch_health(device)
+                    elif device_type == 'access_point' and southbound == 'paramiko':
+                        # Test koneksi ke Paramiko
+                        is_active = self.check_access_point_health(device)
                     
                     # Update status berdasarkan health check
                     if is_active:
@@ -273,7 +259,7 @@ class Orchestrator(app_manager.RyuApp):
             # trim whitespace
             password = str(password).strip()
             
-            # **VALIDASI FINAL SEBELUM BUAT DRIVER**
+            # VALIDASI FINAL SEBELUM BUAT DRIVER
             if not password:
                 self.logger.error(f"Empty password after trimming for {device_id}")
                 return False
@@ -322,9 +308,24 @@ class Orchestrator(app_manager.RyuApp):
                 return False
                 
         except Exception as e:
-            self.logger.error(f"💥 Switch health check failed for {device.get('device_id', 'unknown')}: {e}")
+            self.logger.error(f"Switch health check failed for {device.get('device_id', 'unknown')}: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+            return False
+
+    def check_access_point_health(self, device):
+        """Check jika Access Point via Paramiko accessible"""
+        try:
+            driver = UnifiParamikoDriver({
+                "ip": device.get('main_ip_address'),
+                "username": device.get('username'),
+                "password": device.get('password'),
+                "device_id": device.get('device_id')
+            })
+            # Coba get basic info
+            info = driver.get_device_info()
+            return info.get('connected', False)
+        except:
             return False
 
     def detect_vendor(self, dev):
@@ -364,7 +365,18 @@ class Orchestrator(app_manager.RyuApp):
         except Exception as e:
             self.logger.debug(f"Cisco detection failed: {e}")
 
-        # (next)
+        # (Unifi Access Point, Paramiko)
+        try:
+            driver = UnifiParamikoDriver(dev)
+            info = driver.get_device_info()
+            info["southbound"] = "paramiko"
+            info["vendor"] = "Unifi"
+            info["connected"] = True
+            return info
+        except Exception:
+            pass
+
+        # untuk Cisco / Juniper (next)
         return {
             "vendor": "Unknown",
             "southbound": "Unknown",
@@ -390,10 +402,9 @@ class Orchestrator(app_manager.RyuApp):
         wazuh_global_actions = [
             "wazuh.manager.info", "wazuh.manager.stats", "wazuh.manager.configuration",
             "wazuh.agent.list", "wazuh.agent.detail", "wazuh.agent.status", "wazuh.agent.config",
-            "wazuh.sca.summary", "wazuh.sca.events", "wazuh.fim.summary", "wazuh.fim.events",
-            "wazuh.fim.timeline", "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
-            "wazuh.threat.success_login", "wazuh.discover.logs", "wazuh.system.processes", 
-            "wazuh.system.hardware",
+            "wazuh.security.sca", "wazuh.security.fim", "wazuh.security.threat_hunting",
+            "wazuh.logs.discover", "wazuh.system.hardware", "wazuh.system.processes",
+            "wazuh.config.assessment"
         ]
         
         # SNMP ACTIONS (GLOBAL - TIDAK BUTUH device_id)
@@ -403,8 +414,12 @@ class Orchestrator(app_manager.RyuApp):
             "snmp.device.edit"
         ]
         
-        # GLOBAL ACTIONS = WAJUH MANAGER + SNMP
-        global_actions = wazuh_global_actions + snmp_global_actions
+        # GLOBAL ACTIONS = WAJUH MANAGER + SNMP + UNIFI
+        global_actions = (
+            wazuh_global_actions +
+            snmp_global_actions +
+            list(UnifiAccessPointGlobalActions.get_actions(None).keys())
+        )
         
         # GLOBAL ACTIONS langsung dispatch tanpa device_id
         if action in global_actions:
@@ -446,7 +461,7 @@ class Orchestrator(app_manager.RyuApp):
                     # Tambahkan field lain yang diperlukan driver
                     "identity": dev_row.get("identity", dev_row.get("hostname", "unknown")),
                     "version": dev_row.get("os_version", ""),
-                    "board": dev_row.get("board", ""),
+                    "model": dev_row.get("model", ""),
                     "serial-number": dev_row.get("serial_number", "")
                 }
                 self.jobs.append_log(jid, f"Database config: {dev_config}")
@@ -514,10 +529,12 @@ class Orchestrator(app_manager.RyuApp):
             raise
 
     def pick_driver(self, dev):
-        sb = dev.get("southbound", "")
-        vendor = dev.get("vendor", "")
-        if sb == "routeros_api" and vendor == "Mikrotik":
+        sb = (dev.get("southbound") or "").lower()
+        vendor = (dev.get("vendor") or "").lower()
+        if sb == "routeros_api" and vendor == "mikrotik":
             return RouterOSApiDriver(dev)
+        elif sb == "paramiko" and vendor == "unifi":
+            return UnifiParamikoDriver(dev)
         elif sb == "server_api":
             return ServerAPI(dev)
         elif sb == "paramiko" and vendor == "Cisco":
@@ -558,45 +575,39 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.manager.info": lambda p, logger: self.wazuh_api.get_manager_info(logger=logger),
             "wazuh.manager.stats": lambda p, logger: self.wazuh_api.get_manager_stats(logger=logger),
             "wazuh.manager.configuration": lambda p, logger: self.wazuh_api.get_manager_configuration(logger=logger),
-            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(p.get("filters"), logger),
-            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(p["agent_id"], logger),
-            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(p["agent_id"], logger),
-            "wazuh.sca.summary": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
-                p["agent_id"], logger
+            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(
+                filters=p.get("filters", {}),
+                logger=logger
             ),
-            "wazuh.sca.events": lambda p, logger: self.wazuh_indexer.sca_events(
-                agent_id=p["agent_id"],
-                hours=p.get("hours", 24)
+            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(
+                agent_id=p.get("agent_id"),
+                logger=logger
             ),
-            "wazuh.fim.summary": lambda p, logger: self.wazuh_api.get_fim_data(
-                p["agent_id"], p.get("filters"), logger
+            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(
+                agent_id=p.get("agent_id"),
+                logger=logger
             ),
-            "wazuh.fim.events": lambda p, logger: self.wazuh_indexer.fim_events(
-                agent_id=p["agent_id"],
-                hours=p.get("hours", 24)
+            "wazuh.agent.config": lambda p, logger: self.wazuh_api.get_agent_config(
+                agent_id=p.get("agent_id"),
+                logger=logger
             ),
-            "wazuh.fim.timeline": lambda p, logger: self.wazuh_indexer.fim_timeline(
-                agent_id=p["agent_id"],
-                hours=p.get("hours", 24)
+            "wazuh.security.sca": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
+                agent_id=p.get("agent_id"),
+                logger=logger
             ),
-            "wazuh.threat.summary": lambda p, logger: self.wazuh_indexer.threat_summary(
-                hours=p.get("hours", 24)
+            "wazuh.security.fim": lambda p, logger: self.wazuh_api.get_fim_data(
+                agent_id=p.get("agent_id"),
+                filters=p.get("filters", {}),
+                logger=logger
             ),
-            "wazuh.threat.events": lambda p, logger: self.wazuh_indexer.threat_events(
-                hours=p.get("hours", 24),
-                size=p.get("size", 100)
+            "wazuh.security.threat_hunting": lambda p, logger: self.wazuh_api.get_threat_hunting(
+                query=p.get("query", {}),
+                logger=logger
             ),
-            "wazuh.threat.failed_login": lambda p, logger: self.wazuh_indexer.threat_failed_logins(
-                hours=p.get("hours", 24)
-            ),
-            "wazuh.threat.success_login": lambda p, logger: self.wazuh_indexer.threat_success_logins(
-                hours=p.get("hours", 24)
-            ),
-            "wazuh.discover.logs": lambda p, logger: self.wazuh_indexer.discover_logs(
-                index=p.get("index", "wazuh-alerts-*"),
-                keyword=p.get("keyword"),
-                hours=p.get("hours", 24),
-                size=p.get("size", 100)
+            "wazuh.logs.discover": lambda p, logger: self.wazuh_api.get_logs(
+                agent_id=p.get("agent_id"),
+                query=p.get("query", {}),
+                logger=logger
             ),
             "wazuh.system.hardware": lambda p, logger: self.wazuh_api.get_syscollector_hardware(
                 agent_id=p.get("agent_id"),
@@ -609,6 +620,9 @@ class Orchestrator(app_manager.RyuApp):
             ),
         }
 
+        # Tambahkan Unifi global actions
+        global_actions.update(UnifiAccessPointGlobalActions.get_actions(None))
+
         # Device-based actions
         device_actions = {}
         
@@ -619,6 +633,9 @@ class Orchestrator(app_manager.RyuApp):
                 if 'RouterOS' in d.__class__.__name__:
                     driver_type = "mikrotik"
                     device_actions = MikrotikRouterActions.get_actions(d)
+                elif 'Paramiko' in d.__class__.__name__:
+                    driver_type = "unifi"
+                    device_actions = UnifiAccessPointActions.get_actions(d)
                 elif 'ServerAPI' in d.__class__.__name__:
                     driver_type = "server"
                     wazuh_api = self.wazuh_api if hasattr(self, 'wazuh_api') and self.wazuh_api is not None else None
@@ -718,6 +735,7 @@ class NorthboundApi(ControllerBase):
             is_server = southbound_type in ["server", "server_api"]
             is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
             is_cisco = southbound_type in ["cisco", "paramiko"]
+            is_unifi = southbound_type in ["unifi", "paramiko"]
             
             # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
@@ -746,6 +764,9 @@ class NorthboundApi(ControllerBase):
                 registration_mode = "active_discovery"
             elif is_cisco:
                 device_type = "switch" 
+                registration_mode = "paramiko_discovery"
+            elif is_unifie:
+                device_type = "access_point" 
                 registration_mode = "paramiko_discovery"
             else:
                 return self._resp(req, json.dumps({
@@ -842,7 +863,7 @@ class NorthboundApi(ControllerBase):
                     "identity": info.get("identity"),
                     "username": data.get("username", "admin"),
                     "os_version": info.get("version"),
-                    "board": info.get("board-name"),
+                    "model": info.get("model-name"),
                     "serial_number": info.get("serial-number"),
                     "main_ip_address": data.get("ip"),
                     "main_mac_address": info.get("mac-address"),
@@ -932,6 +953,50 @@ class NorthboundApi(ControllerBase):
                         "error": f"Registration failed: {str(e)}"
                     }), 400)
                 
+            # === HANDLE UNIFI ===
+            elif is_unifi:
+                # === CONNECT & COLLECT INFO ===
+                driver = UnifiParamikoDriver(data)
+                info = driver.get_device_info()
+
+                if not info.get("connected"):
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": "Unable to connect to UniFi device"
+                    }), 400)
+
+                # === GENERATE DEVICE ID ===
+                device_id = generate_device_id(data, registration_mode)
+                data["id"] = device_id
+                data["device_id"] = device_id
+
+                # === MERGE INFO ===
+                data.update(info)
+
+                data.update({
+                    "device_type": "access_point",
+                    "southbound": "paramiko",
+                    "vendor": "unifi",
+                    "identity": info.get("identity"),
+                    "main_ip_address": info.get("main_ip_address") or data.get("ip"),
+                    "main_mac_address": info.get("main_mac_address"),
+                    "status": "active",
+                    "connected": True
+                })
+
+                # AUTO ADD TO SNMP TARGETS
+                try:
+                    snmp = SNMPFileManager()
+                    snmp.add_device({
+                        "device_id": device_id,
+                        "ip": data["ip"],
+                        "module": info.get("vendor", "Unknown").lower(),
+                        "device_name": info.get("identity") or data.get("hostname", device_id),
+                        "location": data.get("location", "Unknown")
+                    })
+                except Exception as e:
+                    data["snmp_target_status"] = f"failed: {str(e)}"
+
             else:
                 return self._resp(req, json.dumps({
                     "status": "error", 
@@ -979,13 +1044,69 @@ class NorthboundApi(ControllerBase):
                         DeviceRepository.update_server(device_id, server_data)
 
                     elif device_type == "router":  # router
+                        # INSERT/UPDATE INTERFACES DATA (jika ada)
+                        if "_interfaces_data" in data:
+                            try:
+                                if server_id:
+                                    # Delete existing interfaces first
+                                    DeviceRepository.delete_server_interfaces(device_id)
+                                    
+                                    # Insert new interfaces
+                                    for iface_name, iface_data in data["_interfaces_data"].items():
+                                        interface_status = iface_data.get("status", "unknown")
+                                        print(f"[DEBUG] Status from payload: {interface_status}")
+                                        
+                                        # Ambil data IPv4 pertama (jika ada)
+                                        ipv4_data = {}
+                                        ipv4_list = iface_data.get("ipv4", [])
+                                        if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
+                                            ipv4_data = ipv4_list[0]  # Ambil IP pertama
+
+                                        # Jika status masih unknown, deteksi dari IP
+                                        if interface_status == "unknown":
+                                            if ipv4_data.get("address"):
+                                                interface_status = "up"
+                                            else:
+                                                interface_status = "down"
+                                        
+                                        # Insert interface dengan data IP
+                                        interface_id = DeviceRepository.insert_server_interface({
+                                            "server_id": server_id,  
+                                            "interface_name": str(iface_name),
+                                            "interface_status": str(interface_status),
+                                            "mac_address": str(iface_data.get("mac_address", "unknown")),
+                                            "ip_address": str(ipv4_data.get("address", "")),
+                                            "ip_netmask": str(ipv4_data.get("netmask", "")),
+                                            "ip_broadcast": str(ipv4_data.get("broadcast", "")),
+                                            "ip_version": "ipv4"
+                                        })
+                            except Exception as e:
+                                self.core.logger.warning(f"Failed to save interfaces: {e}")
+                        
+                        # INSERT/UPDATE FIREWALL DATA (jika ada)
+                        if "_firewall_data" in data:
+                            try:
+                                firewall_data = data["_firewall_data"]
+                                DeviceRepository.upsert_server_firewall({
+                                    "server_id": server_id,
+                                    "firewall_type": firewall_data.get("firewall_type"),
+                                    "status": firewall_data.get("status"),
+                                    "default_zone": firewall_data.get("default_zone"),
+                                    "active_zones": json.dumps(firewall_data.get("active_zones", [])),
+                                    "rules_count": firewall_data.get("rules_count", 0),
+                                    "last_checked": firewall_data.get("last_checked")
+                                })
+                            except Exception as e:
+                                self.core.logger.warning(f"Failed to save firewall: {e}")
+
+                    if device_type == "router":  # router
                         router_data = {
                             "device_id": device_id,
                             "username": data.get("username", "unknown"),
                             "password": data.get("password", ""),
                             "identity": data.get("identity", "unknown"),
                             "os_version": data.get("version") or data.get("os_version", "unknown"),
-                            "board": data.get("board") or data.get("board-name"),
+                            "model": data.get("model") or data.get("model-name"),
                             "serial_number": data.get("serial_number") or data.get("serial-number"),
                             "vendor": data.get("vendor", "MikroTik"),
                             "main_ip_address": data.get("main_ip_address") or data.get("ip"),
@@ -1015,6 +1136,25 @@ class NorthboundApi(ControllerBase):
                             "last_seen": to_mysql_datetime(time.time())
                         }    
                         DeviceRepository.update_switch(device_id, switch_data)
+                        
+                    elif device_type == "access_point":  # access point
+                        access_point_data = {
+                            "device_id": device_id,
+                            "username": data.get("username", "unknown"),
+                            "password": data.get("password", ""),
+                            "identity": data.get("identity", "unknown"),
+                            "os_version": data.get("version") or data.get("os_version", "unknown"),
+                            "model": data.get("model") or data.get("model-name"),
+                            "serial_number": data.get("serial_number") or data.get("serial-number"),
+                            "vendor": data.get("vendor", "unknown"),
+                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
+                            "main_mac_address": data.get("main_mac_address"),
+                            "main_interface": data.get("main_interface", "unknown"),
+                            "southbound": data.get("southbound", "unknown"),
+                            "status": data.get("status", "active"),
+                            "last_seen": to_mysql_datetime(time.time())
+                        }
+                        DeviceRepository.update_access_point(device_id, access_point_data)
                     
                     self.core.logger.info(f"Updated existing device in database: {device_id}")
                     
@@ -1041,6 +1181,59 @@ class NorthboundApi(ControllerBase):
                             "status": str(data.get("status", "active")),
                             "virtualization": str(data.get("virtualization", "physical")),
                         }
+                        server_id = DeviceRepository.insert_server(server_data)
+                        try:
+                            # Insert new interfaces
+                            for iface_name, iface_data in data["_interfaces_data"].items():
+                                # Skip loopback dan docker/bridge interfaces jika mau
+                                if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
+                                    continue
+
+                                interface_status = iface_data.get("status", "unknown")
+                                    
+                                # Ambil data IPv4 pertama (jika ada)
+                                ipv4_data = {}
+                                ipv4_list = iface_data.get("ipv4", [])
+                                if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
+                                    ipv4_data = ipv4_list[0]  # Ambil IP pertama
+
+                                # Jika status masih unknown, deteksi dari IP
+                                if interface_status == "unknown":
+                                    if ipv4_data.get("address"):
+                                        interface_status = "up"
+                                    else:
+                                        interface_status = "down"
+                                
+                                # Insert interface dengan semua data sekaligus
+                                interface_id = DeviceRepository.insert_server_interface({
+                                    "server_id": server_id,
+                                    "interface_name": str(iface_name),
+                                    "interface_status": str(interface_status),
+                                    "mac_address": str(iface_data.get("mac_address", "unknown")),
+                                    "ip_address": str(ipv4_data.get("address", "")),
+                                    "ip_netmask": str(ipv4_data.get("netmask", "")),
+                                    "ip_broadcast": str(ipv4_data.get("broadcast", "")),
+                                    "ip_version": "ipv4"
+                                }) 
+                        except Exception as e:
+                            self.core.logger.warning(f"Failed to save interfaces: {e}")
+                        
+                        # INSERT FIREWALL DATA (jika ada)
+                        if "_firewall_data" in data:
+                            try:
+                                firewall_data = data["_firewall_data"]
+                                DeviceRepository.upsert_server_firewall({
+                                    "server_id": server_id,
+                                    "firewall_type": str(firewall_data.get("firewall_type")),
+                                    "status": str(firewall_data.get("status")),
+                                    "default_zone": str(firewall_data.get("default_zone")),
+                                    "active_zones": json.dumps(firewall_data.get("active_zones", [])),
+                                    "rules_count": str(firewall_data.get("rules_count", 0)),
+                                    "last_checked": str(firewall_data.get("last_checked"))
+                                })
+                            except Exception as e:
+                                self.core.logger.warning(f"Failed to save firewall: {e}")
+
                     elif device_type == "router":  # router
                         router_data = {
                             "device_id": device_id,
@@ -1048,7 +1241,7 @@ class NorthboundApi(ControllerBase):
                             "password": data.get("password", ""),
                             "identity": data.get("identity", "unknown"),
                             "os_version": data.get("os_version", "unknown"),
-                            "board": data.get("board") or data.get("board-name"),
+                            "model": data.get("model") or data.get("model-name"),
                             "serial_number": data.get("serial_number") or data.get("serial-number"),
                             "vendor": data.get("vendor", "MikroTik"),
                             "main_ip_address": data.get("main_ip_address") or data.get("ip"),
@@ -1076,6 +1269,24 @@ class NorthboundApi(ControllerBase):
                             "last_seen": to_mysql_datetime(time.time())
                         }    
                         DeviceRepository.insert_switch(switch_data)
+
+                    elif device_type == "access_point":  # access_point
+                        access_point_data = {
+                            "device_id": device_id,
+                            "username": data.get("username", "unknown"),
+                            "password": data.get("password", ""),
+                            "identity": data.get("identity", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "model": data.get("model") or data.get("model-name"),
+                            "serial_number": data.get("serial_number", "unknown") or data.get("serial-number", "unknown"),
+                            "vendor": data.get("vendor", "unknown"),
+                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
+                            "main_mac_address": data.get("main_mac_address"),
+                            "main_interface": data.get("main_interface", "unknown"),
+                            "southbound": data.get("southbound", "paramiko"),
+                            "status": data.get("status", "active"),
+                        }
+                        DeviceRepository.insert_access_point(access_point_data)
                     
                     self.core.logger.info(f"Registered new device in database: {device_id}")
                 
@@ -1197,7 +1408,7 @@ class NorthboundApi(ControllerBase):
                                 "username": dev.get("username", "unknown"),
                                 "identity": dev.get("identity", "unknown"),
                                 "os_version": dev.get("os_version", "unknown"),
-                                "board": dev.get("board"),
+                                "model": dev.get("model"),
                                 "serial_number": dev.get("serial_number"),
                                 "vendor": dev.get("vendor", "unknown"),
                                 "main_ip_address": dev.get("main_ip_address"),
@@ -1217,6 +1428,19 @@ class NorthboundApi(ControllerBase):
                                 "main_interface": dev.get("main_interface")
                             })
                         
+                        elif dev.get("device_type") == "access_point":
+                            clean_dev.update({
+                                "username": dev.get("username", "unknown"),
+                                "identity": dev.get("identity", "unknown"),
+                                "os_version": dev.get("os_version", "unknown"),
+                                "model": dev.get("model"),
+                                "serial_number": dev.get("serial_number"),
+                                "vendor": dev.get("vendor", "unknown"),
+                                "main_ip_address": dev.get("main_ip_address"),
+                                "main_mac_address": dev.get("main_mac_address"),
+                                "main_interface": dev.get("main_interface", "unknown")
+                            })
+                        
                         clean_devices.append(clean_dev)
                     
                     self.core.logger.info(f"Listed {len(clean_devices)} devices from database")
@@ -1232,14 +1456,26 @@ class NorthboundApi(ControllerBase):
                 for i, dev in enumerate(memory_devices, 1):
                     # Convert memory format ke database format
                     southbound = dev.get("southbound", "")
+                    vendor = (dev.get("vendor") or "").lower()
+                    # default
+                    device_type = "unknown"
+
                     if southbound == "server_api":
                         device_type = "server"
-                    elif southbound == "routeros_api":
+
+                    elif southbound in ["router_api", "routeros", "router"]:
                         device_type = "router"
-                    elif southbound == "paramiko":
+
+                    elif southbound in ["paramiko", "ssh"]:
+                        if vendor in ["ubiquiti", "unifi"]:
+                            device_type = "access_point"
+                        elif vendor in ["mikrotik", "cisco", "aruba", "juniper", "hp"]:
+                            device_type = "switch"
+                        else:
+                            device_type = "unknown"
+
+                    elif southbound in ["unifi_switch", "switch"]:
                         device_type = "switch"
-                    else:
-                        device_type = "unknown"
                     
                     # Konversi datetime untuk memory registry
                     last_seen = dev.get("last_seen")
@@ -1271,12 +1507,13 @@ class NorthboundApi(ControllerBase):
                             "main_interface": dev.get("main_interface"),
                             "virtualization": dev.get("virtualization"),
                         })
+
                     elif device_type == "router":  # router
                         clean_dev.update({
                             "username": dev.get("username", "unknown"),
                             "identity": dev.get("identity", dev.get("hostname", "unknown")),
                             "os_version": dev.get("version", "unknown"),
-                            "board": dev.get("board"),
+                            "model": dev.get("model"),
                             "serial_number": dev.get("serial-number"),
                             "vendor": dev.get("vendor", "unknown"),
                             "main_ip_address": dev.get("ip"),
@@ -1296,6 +1533,31 @@ class NorthboundApi(ControllerBase):
                             "main_interface": dev.get("main_interface", "")
                         })
                     
+                    elif device_type == "access_point":  # access_point
+                        clean_dev.update({
+                            "username": dev.get("username", "unknown"),
+                            "identity": dev.get("identity", dev.get("hostname", "unknown")),
+                            "os_version": dev.get("version", "unknown"),
+                            "model": dev.get("model"),
+                            "serial_number": dev.get("serial-number"),
+                            "vendor": dev.get("vendor", "unknown"),
+                            "main_ip_address": dev.get("ip"),
+                            "main_mac_address": dev.get("mac-address"),
+                            "main_interface": dev.get("main_interface", "unknown")
+                        })
+                    else:
+                        clean_dev.update({
+                            "username": dev.get("username", "unknown"),
+                            "identity": dev.get("identity", dev.get("hostname", "unknown")),
+                            "os_version": dev.get("version", "unknown"),
+                            "model": dev.get("model"),
+                            "serial_number": dev.get("serial-number"),
+                            "vendor": dev.get("vendor", "Mikrotik"),
+                            "main_ip_address": dev.get("ip"),
+                            "main_mac_address": dev.get("mac-address"),
+                            "main_interface": dev.get("main_interface")
+                        })
+
                     clean_devices.append(clean_dev)
                 
                 self.core.logger.info(f"Listed {len(clean_devices)} devices from memory registry")
