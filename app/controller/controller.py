@@ -20,6 +20,10 @@ from drivers.snmp_file_manager import SNMPFileManager
 from drivers.router_drivers.mikrotik.routeros_api import RouterOSApiDriver
 from actions.routers.mikrotik import MikrotikRouterActions
 
+# === Switch Driver  ===
+from drivers.switch_drivers.cisco import CiscoSSHDriver
+from actions.switchs.cisco import CiscoSwitchActions
+
 # === Switch Driver ===
 # from drivers.switch_drivers.netconf import NetconfApiDriver
 # from actions.switch.cisco import CiscoSwitchActions
@@ -179,6 +183,9 @@ class Orchestrator(app_manager.RyuApp):
                     elif device_type == 'router' and southbound == 'routeros_api':
                         # Test koneksi ke RouterOS API
                         is_active = self.check_routeros_health(device)
+                    elif device_type == 'switch' and southbound == 'paramiko':
+                        # Test koneksi ke Cisco Paramiko SSH
+                        is_active = self.check_switch_health(device)
                     
                     # Update status berdasarkan health check
                     if is_active:
@@ -225,6 +232,100 @@ class Orchestrator(app_manager.RyuApp):
             return info.get('connected', False)
         except:
             return False
+        
+    def check_switch_health(self, device):
+        """Check jika Cisco switch Paramiko accessible"""
+        try:
+            device_id = device.get('device_id')
+            self.logger.info(f"🔍 Health checking Cisco switch: {device_id}")
+            
+            # Gunakan DeviceRepository untuk ambil data
+            try:
+                # Ambil data FRESH dari database
+                db_device = DeviceRepository.find_switch(device_id)
+                
+                if not db_device:
+                    self.logger.error(f"Switch {device_id} not found in database")
+                    return False
+                    
+                # Gunakan data dari database
+                ip_address = db_device.get('main_ip_address')
+                username = db_device.get('username')
+                password = db_device.get('password')
+                
+            except Exception as db_err:
+                self.logger.error(f"Database error for {device_id}: {db_err}")
+                # Fallback ke data dari parameter
+                ip_address = device.get('main_ip_address')
+                username = device.get('username')
+                password = device.get('password')
+            
+            # Validasi data
+            if not ip_address:
+                self.logger.error(f"No IP address for device {device_id}")
+                return False
+            if not username:
+                self.logger.warning(f"No username for Cisco device {device_id}, using default")
+            if not password:
+                self.logger.warning(f"No password configured for Cisco device {device_id}")
+                return False
+            
+            # trim whitespace
+            password = str(password).strip()
+            
+            # **VALIDASI FINAL SEBELUM BUAT DRIVER**
+            if not password:
+                self.logger.error(f"Empty password after trimming for {device_id}")
+                return False
+            
+            # **BUAT DRIVER DENGAN KONFIG YANG BENAR**
+            try:
+                driver_config = {
+                    "ip": ip_address,
+                    "username": username,
+                    "password": password,
+                    "enable": True,  # Cisco biasanya butuh enable mode
+                    "device_id": device_id,
+                    "port": 22  # default SSH port
+                }
+                
+                self.logger.info(f"Creating CiscoSSHDriver with config: IP={ip_address}, User={username}")
+                
+                driver = CiscoSSHDriver(driver_config)
+                
+                # Coba get device info
+                self.logger.info(f"Testing connection to {ip_address}...")
+                info = driver.get_device_info()
+                
+                # Disconnect bersih
+                try:
+                    driver.disconnect()
+                except:
+                    pass
+                
+                connected = info.get('connected', False)
+                
+                if connected:
+                    return True
+                else:
+                    return False
+                    
+            except ValueError as e:
+                # Invalid config
+                self.logger.error(f"Invalid config for Cisco health check {device_id}: {e}")
+                return False
+            except Exception as e:
+                # Connection failed
+                self.logger.error(f"Cisco health check connection failed for {device_id}: {e}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"💥 Switch health check failed for {device.get('device_id', 'unknown')}: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
 
     def detect_vendor(self, dev):
         # == Deteksi otomatis tipe perangkat ==
@@ -251,7 +352,19 @@ class Orchestrator(app_manager.RyuApp):
         except Exception:
             pass
 
-        # untuk Cisco / Juniper (next)
+        # (Cisco Switch - PARAMIKO)
+        try:
+            with CiscoSSHDriver(dev) as cisco:
+                info = cisco.get_device_info()
+                if info.get('connected'):
+                    info["southbound"] = "paramiko"
+                    info["vendor"] = "Cisco"
+                    info["device_type"] = "switch"
+                    return info
+        except Exception as e:
+            self.logger.debug(f"Cisco detection failed: {e}")
+
+        # (next)
         return {
             "vendor": "Unknown",
             "southbound": "Unknown",
@@ -402,10 +515,15 @@ class Orchestrator(app_manager.RyuApp):
 
     def pick_driver(self, dev):
         sb = dev.get("southbound", "")
-        if sb == "routeros_api":
+        vendor = dev.get("vendor", "")
+        if sb == "routeros_api" and vendor == "Mikrotik":
             return RouterOSApiDriver(dev)
         elif sb == "server_api":
             return ServerAPI(dev)
+        elif sb == "paramiko" and vendor == "Cisco":
+            return CiscoSSHDriver(dev)
+#        elif sb == "paramiko" and vendor == "Unifie":
+#            return UnifieSSHDriver(dev)
         else:
             raise ValueError(f"Unknown southbound driver: {sb}")
 
@@ -505,6 +623,9 @@ class Orchestrator(app_manager.RyuApp):
                     driver_type = "server"
                     wazuh_api = self.wazuh_api if hasattr(self, 'wazuh_api') and self.wazuh_api is not None else None
                     device_actions = ServerActions.get_actions(d, self.wazuh_api)
+                elif 'CiscoSSH' in d.__class__.__name__:
+                    driver_type = "cisco_switch"
+                    device_actions = CiscoSwitchActions.get_actions(d)
 
         # Gabungkan semua actions
         all_actions = {**global_actions, **device_actions}
@@ -516,24 +637,6 @@ class Orchestrator(app_manager.RyuApp):
         try:
             self.jobs.append_log(jid, f"Executing {action} with params: {params}")
             result = all_actions[action](params, logger=lambda s: self.jobs.append_log(jid, s))
-            try:
-                if action in [
-                    "server.firewall.ufw.enable", "server.firewall.ufw.disable", "server.firewall.ufw.reload",
-                    "server.firewall.ufw.reset", "server.firewall.ufw.allow", "server.firewall.ufw.deny",
-                    "server.firewall.ufw.delete", "server.firewall.ufw.allow_in", "server.firewall.ufw.allow_out",
-                    "server.firewall.ufw.deny_in", "server.firewall.ufw.deny_out", "server.firewall.firewalld.reload",
-                    "server.firewall.firewalld.add_port", "server.firewall.firewalld.remove_port", "server.firewall.firewalld.enable_masquerade",
-                    "server.firewall.firewalld.disable_masquerade", "server.firewall.firewalld.command", "server.firewall.nat.add",
-                    "server.firewall.nat.clear", "server.network.interface.configure", "server.network.interface.enable", 
-                    "server.network.interface.disable", "server.network.ip.add", "server.network.ip.remove"
-                ]:
-                    # Trigger auto-update
-                    device_id = params.get("device_id")
-                    if device_id and d and hasattr(d, 'device_id'):
-                        self.jobs.append_log(jid, f"[AUTO] Action {action} completed, database will be updated")
-                        
-            except Exception as update_err:
-                self.jobs.append_log(jid, f"[AUTO-WARNING] {update_err}")
             
             self.jobs.append_log(jid, f"{action} completed successfully")
             return result
@@ -614,6 +717,7 @@ class NorthboundApi(ControllerBase):
             southbound_type = data.get("southbound", "").lower()
             is_server = southbound_type in ["server", "server_api"]
             is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
+            is_cisco = southbound_type in ["cisco", "paramiko"]
             
             # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
@@ -634,8 +738,20 @@ class NorthboundApi(ControllerBase):
                 
                 return f"dev_{hash_digest}"
 
-            device_type = "server" if is_server else "router"
-            registration_mode = "server_agent" if is_server else "active_discovery"
+            if is_server:
+                device_type = "server"
+                registration_mode = "server_agent"
+            elif is_mikrotik:
+                device_type = "router"
+                registration_mode = "active_discovery"
+            elif is_cisco:
+                device_type = "switch" 
+                registration_mode = "paramiko_discovery"
+            else:
+                return self._resp(req, json.dumps({
+                    "status": "error", 
+                    "error": f"Unknown southbound type: {southbound_type}"
+                }), 400)
             
             # === HANDLE SERVER AGENT REGISTRATION ===
             if is_server:
@@ -701,54 +817,6 @@ class NorthboundApi(ControllerBase):
                 # Update data dengan server_data
                 data.update(server_data)
 
-                # Handle interfaces data (outside meta)
-                if "interfaces" in data:
-                    if isinstance(data["interfaces"], dict):
-                        interfaces_data = data["interfaces"]
-                        
-                        # Iterasi semua interfaces
-                        for iface_name, iface_data in interfaces_data.items():
-                            # Skip loopback dan docker/bridge interfaces
-                            if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
-                                continue
-                            
-                            # AMBIL STATUS LANGSUNG DARI PAYLOAD
-                            interface_status = iface_data.get("status", "unknown")
-                            print(f"[DEBUG] Status from payload: {interface_status}")
-                            
-                            # Ambil data IPv4 pertama (jika ada)
-                            ipv4_data = {}
-                            ipv4_list = iface_data.get("ipv4", [])
-                            if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
-                                ipv4_data = ipv4_list[0]  # Ambil IP pertama
-
-                            if interface_status == "unknown":
-                                print(f"[DEBUG] Status unknown, detecting from IP...")
-                                if ipv4_data.get("address"):
-                                    interface_status = "up"
-                                else:
-                                    interface_status = "down"
-                                print(f"[DEBUG] Detected status: {interface_status}")
-                            
-                            # Simpan ke temporary dict
-                            data.setdefault("_interfaces_data", {})[iface_name] = {
-                                "status": interface_status,
-                                "ipv4": ipv4_list,
-                                "mac_address": iface_data.get("mac_address", "unknown")
-                            }
-                    # Hapus dari data utama agar tidak tercampur
-                    del data["interfaces"]
-                
-                # Handle firewall data (outside meta)
-                if "firewall" in data:
-                    # Pastikan firewall adalah dict
-                    if isinstance(data["firewall"], dict):
-                        data["_firewall_data"] = data["firewall"]
-                    else:
-                        data["_firewall_data"] = {}
-                    # Hapus dari data utama agar tidak tercampur
-                    del data["firewall"]
-
             # === HANDLE MIKROTIK/ACTIVE DISCOVERY REGISTRATION ===
             elif is_mikrotik:
                 # Test connection first
@@ -793,6 +861,76 @@ class NorthboundApi(ControllerBase):
                     })
                 except Exception as e:
                     data["snmp_target_status"] = f"failed: {str(e)}"
+
+            elif is_cisco:
+                # Pakai CiscoSSHDriver untuk mendapatkan data REAL dari device
+                try:
+                    # Buat driver untuk test connection
+                    cisco_driver = CiscoSSHDriver({
+                        "ip": data['ip'],
+                        "username": data.get("username", "admin"),
+                        "password": data.get("password", ""),
+                        "enable": True,
+                        "device_id": ""  # Akan diisi nanti
+                    })
+                    
+                    # Test connection dengan driver yang sudah diperbaiki
+                    info = cisco_driver.get_device_info()
+                    
+                    # Validasi info sebelum dipakai
+                    if info is None:
+                        return self._resp(req, json.dumps({
+                            "status": "error",
+                            "error": "Driver failed to return device information (got None)"
+                        }), 400)
+                    
+                    # Pastikan info adalah dictionary sebelum panggil .get()
+                    if not isinstance(info, dict):
+                        return self._resp(req, json.dumps({
+                            "status": "error", 
+                            "error": f"Driver returned invalid data type: {type(info)}"
+                        }), 400)
+                    
+                    # Sekarang baru cek koneksi
+                    if not info.get('connected', False):
+                        return self._resp(req, json.dumps({
+                            "status": "error",
+                            "error": info.get('error', 'Device not connected'),
+                            "details": info
+                        }), 400)
+                    
+                    # Generate device ID
+                    device_id = generate_device_id(data, registration_mode)
+                    data["id"] = device_id
+                    data["device_id"] = device_id
+                    
+                    # Update data dengan info REAL dari device (bukan generic)
+                    data.update({
+                        "status": "active",
+                        "southbound": "paramiko",
+                        "vendor": "Cisco",
+                        "device_type": "switch",
+                        "username": data.get("username", "admin"),
+                        "password": data.get("password", ""),
+                        "identity": info.get('identity', info.get('hostname', f"cisco-{data['ip']}")),
+                        "os_version": info.get('os_version', info.get('ios_version', 'Unknown')),
+                        "model": info.get('model', 'Unknown'),
+                        "serial_number": info.get('serial_number', info.get('serial', '')),
+                        "main_ip_address": info.get('main_ip_address', data['ip']),
+                        "main_mac_address": info.get('main_mac_address', ''),
+                        "main_interface": info.get('main_interface', 'eth0'),
+                        "connected": True,
+                        "last_seen": to_mysql_datetime(time.time()),
+                    })
+                    
+                except Exception as e:
+                    print(f"Cisco registration error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": f"Registration failed: {str(e)}"
+                    }), 400)
                 
             else:
                 return self._resp(req, json.dumps({
@@ -839,64 +977,8 @@ class NorthboundApi(ControllerBase):
                             "last_seen": to_mysql_datetime(time.time())
                         }
                         DeviceRepository.update_server(device_id, server_data)
-                        server_id = DeviceRepository.get_server_id(device_id)
 
-                        # INSERT/UPDATE INTERFACES DATA (jika ada)
-                        if "_interfaces_data" in data:
-                            try:
-                                if server_id:
-                                    # Delete existing interfaces first
-                                    DeviceRepository.delete_server_interfaces(device_id)
-                                    
-                                    # Insert new interfaces
-                                    for iface_name, iface_data in data["_interfaces_data"].items():
-                                        interface_status = iface_data.get("status", "unknown")
-                                        print(f"[DEBUG] Status from payload: {interface_status}")
-                                        
-                                        # Ambil data IPv4 pertama (jika ada)
-                                        ipv4_data = {}
-                                        ipv4_list = iface_data.get("ipv4", [])
-                                        if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
-                                            ipv4_data = ipv4_list[0]  # Ambil IP pertama
-
-                                        # Jika status masih unknown, deteksi dari IP
-                                        if interface_status == "unknown":
-                                            if ipv4_data.get("address"):
-                                                interface_status = "up"
-                                            else:
-                                                interface_status = "down"
-                                        
-                                        # Insert interface dengan data IP
-                                        interface_id = DeviceRepository.insert_server_interface({
-                                            "server_id": server_id,  
-                                            "interface_name": str(iface_name),
-                                            "interface_status": str(interface_status),
-                                            "mac_address": str(iface_data.get("mac_address", "unknown")),
-                                            "ip_address": str(ipv4_data.get("address", "")),
-                                            "ip_netmask": str(ipv4_data.get("netmask", "")),
-                                            "ip_broadcast": str(ipv4_data.get("broadcast", "")),
-                                            "ip_version": "ipv4"
-                                        })
-                            except Exception as e:
-                                self.core.logger.warning(f"Failed to save interfaces: {e}")
-                        
-                        # INSERT/UPDATE FIREWALL DATA (jika ada)
-                        if "_firewall_data" in data:
-                            try:
-                                firewall_data = data["_firewall_data"]
-                                DeviceRepository.upsert_server_firewall({
-                                    "server_id": server_id,
-                                    "firewall_type": firewall_data.get("firewall_type"),
-                                    "status": firewall_data.get("status"),
-                                    "default_zone": firewall_data.get("default_zone"),
-                                    "active_zones": json.dumps(firewall_data.get("active_zones", [])),
-                                    "rules_count": firewall_data.get("rules_count", 0),
-                                    "last_checked": firewall_data.get("last_checked")
-                                })
-                            except Exception as e:
-                                self.core.logger.warning(f"Failed to save firewall: {e}")
-
-                    else:  # router
+                    elif device_type == "router":  # router
                         router_data = {
                             "device_id": device_id,
                             "username": data.get("username", "unknown"),
@@ -914,6 +996,25 @@ class NorthboundApi(ControllerBase):
                             "last_seen": to_mysql_datetime(time.time())
                         }
                         DeviceRepository.update_router(device_id, router_data)
+
+                    elif device_type == "switch":
+                        switch_data = {
+                            "device_id": device_id,
+                            "username": data.get("username", "unknown"),
+                            "password": data.get("password", ""),
+                            "identity": data.get("identity", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "model": data.get("model", "unknown"),
+                            "serial_number": data.get("serial_number", "unknown"),
+                            "vendor": data.get("vendor", "Cisco"),
+                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
+                            "main_mac_address": data.get("main_mac_address", ""),
+                            "main_interface": data.get("main_interface", ""),
+                            "southbound": data.get("southbound", "paramiko"),
+                            "status": "active",
+                            "last_seen": to_mysql_datetime(time.time())
+                        }    
+                        DeviceRepository.update_switch(device_id, switch_data)
                     
                     self.core.logger.info(f"Updated existing device in database: {device_id}")
                     
@@ -940,60 +1041,7 @@ class NorthboundApi(ControllerBase):
                             "status": str(data.get("status", "active")),
                             "virtualization": str(data.get("virtualization", "physical")),
                         }
-                        server_id = DeviceRepository.insert_server(server_data)
-                        try:
-                            # Insert new interfaces
-                            for iface_name, iface_data in data["_interfaces_data"].items():
-                                # Skip loopback dan docker/bridge interfaces jika mau
-                                if iface_name.startswith(('lo', 'docker', 'br-', 'virbr')):
-                                    continue
-
-                                interface_status = iface_data.get("status", "unknown")
-                                    
-                                # Ambil data IPv4 pertama (jika ada)
-                                ipv4_data = {}
-                                ipv4_list = iface_data.get("ipv4", [])
-                                if isinstance(ipv4_list, list) and len(ipv4_list) > 0:
-                                    ipv4_data = ipv4_list[0]  # Ambil IP pertama
-
-                                # Jika status masih unknown, deteksi dari IP
-                                if interface_status == "unknown":
-                                    if ipv4_data.get("address"):
-                                        interface_status = "up"
-                                    else:
-                                        interface_status = "down"
-                                
-                                # Insert interface dengan semua data sekaligus
-                                interface_id = DeviceRepository.insert_server_interface({
-                                    "server_id": server_id,
-                                    "interface_name": str(iface_name),
-                                    "interface_status": str(interface_status),
-                                    "mac_address": str(iface_data.get("mac_address", "unknown")),
-                                    "ip_address": str(ipv4_data.get("address", "")),
-                                    "ip_netmask": str(ipv4_data.get("netmask", "")),
-                                    "ip_broadcast": str(ipv4_data.get("broadcast", "")),
-                                    "ip_version": "ipv4"
-                                }) 
-                        except Exception as e:
-                            self.core.logger.warning(f"Failed to save interfaces: {e}")
-                        
-                        # INSERT FIREWALL DATA (jika ada)
-                        if "_firewall_data" in data:
-                            try:
-                                firewall_data = data["_firewall_data"]
-                                DeviceRepository.upsert_server_firewall({
-                                    "server_id": server_id,
-                                    "firewall_type": str(firewall_data.get("firewall_type")),
-                                    "status": str(firewall_data.get("status")),
-                                    "default_zone": str(firewall_data.get("default_zone")),
-                                    "active_zones": json.dumps(firewall_data.get("active_zones", [])),
-                                    "rules_count": str(firewall_data.get("rules_count", 0)),
-                                    "last_checked": str(firewall_data.get("last_checked"))
-                                })
-                            except Exception as e:
-                                self.core.logger.warning(f"Failed to save firewall: {e}")
-
-                    else:  # router
+                    elif device_type == "router":  # router
                         router_data = {
                             "device_id": device_id,
                             "username": data.get("username", "unknown"),
@@ -1010,6 +1058,24 @@ class NorthboundApi(ControllerBase):
                             "status": "active",
                         }
                         DeviceRepository.insert_router(router_data)
+                    elif device_type == "switch":
+                        switch_data = {
+                            "device_id": device_id,
+                            "username": data.get("username", "unknown"),
+                            "password": data.get("password", ""),
+                            "identity": data.get("identity", "unknown"),
+                            "os_version": data.get("os_version", "unknown"),
+                            "model": data.get("model", "unknown"),
+                            "serial_number": data.get("serial_number", "unknown"),
+                            "vendor": data.get("vendor", "Cisco"),
+                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
+                            "main_mac_address": data.get("main_mac_address", ""),
+                            "main_interface": data.get("main_interface", ""),
+                            "southbound": data.get("southbound", "paramiko"),
+                            "status": "active",
+                            "last_seen": to_mysql_datetime(time.time())
+                        }    
+                        DeviceRepository.insert_switch(switch_data)
                     
                     self.core.logger.info(f"Registered new device in database: {device_id}")
                 
@@ -1126,87 +1192,6 @@ class NorthboundApi(ControllerBase):
                                 "main_interface": dev.get("main_interface"),
                                 "virtualization": dev.get("virtualization"),
                             })
-                            # FETCH INTERFACES DARI TABEL TERPISAH
-                            try:
-                                interfaces = DeviceRepository.get_server_interfaces(dev.get("device_id"))
-                                if interfaces:
-                                    # Format interfaces
-                                    formatted_interfaces = []
-                                    for iface in interfaces:
-                                        iface_created = iface.get("created_at")
-                                        iface_updated = iface.get("updated_at")
-                                        
-                                        if isinstance(iface_created, datetime):
-                                            iface_created = iface_created.strftime('%Y-%m-%d %H:%M:%S')
-                                        if isinstance(iface_updated, datetime):
-                                            iface_updated = iface_updated.strftime('%Y-%m-%d %H:%M:%S')
-
-                                        interface_status = iface.get("interface_status", "unknown")
-
-                                        # Jika masih unknown, coba dari field status (backward compatibility)
-                                        if interface_status == "unknown" and iface.get("status"):
-                                            interface_status = iface.get("status")
-                                        
-                                        # Jika masih unknown, deteksi dari IP
-                                        if interface_status == "unknown":
-                                            if iface.get("ip_address") and iface.get("ip_address") != "":
-                                                interface_status = "up"
-                                            else:
-                                                interface_status = "down"
-                                        
-                                        formatted_iface = {
-                                            "interface_name": iface.get("interface_name"),
-                                            "interface_status": interface_status,
-                                            "mac_address": iface.get("mac_address"),
-                                            "ip_address": iface.get("ip_address"),
-                                            "ip_netmask": iface.get("ip_netmask"),
-                                            "ip_broadcast": iface.get("ip_broadcast"),
-                                            "ip_version": iface.get("ip_version"),
-                                            "all_ips": iface.get("all_ips", []), 
-                                            "created_at": iface_created,
-                                            "updated_at": iface_updated
-                                        }
-                                        formatted_interfaces.append(formatted_iface)
-                                    
-                                    clean_dev["interfaces"] = formatted_interfaces
-                                else:
-                                    clean_dev["interfaces"] = []
-                            except Exception as e:
-                                self.core.logger.warning(f"Failed to fetch interfaces for {dev.get('device_id')}: {e}")
-                                clean_dev["interfaces"] = []
-                            
-                            # FETCH FIREWALL DARI TABEL TERPISAH
-                            try:
-                                firewall = DeviceRepository.get_server_firewall(dev.get("device_id"))
-                                if firewall:
-                                    # Konversi datetime untuk firewall
-                                    firewall_created = firewall.get("created_at")
-                                    firewall_updated = firewall.get("updated_at")
-                                    firewall_last_checked = firewall.get("last_checked")
-                                    
-                                    if isinstance(firewall_created, datetime):
-                                        firewall_created = firewall_created.strftime('%Y-%m-%d %H:%M:%S')
-                                    if isinstance(firewall_updated, datetime):
-                                        firewall_updated = firewall_updated.strftime('%Y-%m-%d %H:%M:%S')
-                                    if isinstance(firewall_last_checked, datetime):
-                                        firewall_last_checked = firewall_last_checked.strftime('%Y-%m-%d %H:%M:%S')
-                                    
-                                    clean_dev["firewall"] = {
-                                        "firewall_type": firewall.get("firewall_type"),
-                                        "status": firewall.get("status"),
-                                        "default_zone": firewall.get("default_zone"),
-                                        "active_zones": json.loads(firewall.get("active_zones", "[]")),
-                                        "rules_count": firewall.get("rules_count", 0),
-                                        "last_checked": firewall_last_checked,
-                                        "created_at": firewall_created,
-                                        "updated_at": firewall_updated
-                                    }
-                                else:
-                                    clean_dev["firewall"] = None
-                            except Exception as e:
-                                self.core.logger.warning(f"Failed to fetch firewall for {dev.get('device_id')}: {e}")
-                                clean_dev["firewall"] = None
-
                         elif dev.get("device_type") == "router":
                             clean_dev.update({
                                 "username": dev.get("username", "unknown"),
@@ -1215,6 +1200,18 @@ class NorthboundApi(ControllerBase):
                                 "board": dev.get("board"),
                                 "serial_number": dev.get("serial_number"),
                                 "vendor": dev.get("vendor", "unknown"),
+                                "main_ip_address": dev.get("main_ip_address"),
+                                "main_mac_address": dev.get("main_mac_address"),
+                                "main_interface": dev.get("main_interface")
+                            })
+                        elif device_type == "switch":
+                            clean_dev.update({
+                                "username": dev.get("username", "unknown"),
+                                "identity": dev.get("identity", "unknown"),
+                                "os_version": dev.get("os_version", "unknown"),
+                                "model": dev.get("model", "unknown"),
+                                "serial_number": dev.get("serial_number"),
+                                "vendor": dev.get("vendor", "Cisco"),
                                 "main_ip_address": dev.get("main_ip_address"),
                                 "main_mac_address": dev.get("main_mac_address"),
                                 "main_interface": dev.get("main_interface")
@@ -1234,7 +1231,15 @@ class NorthboundApi(ControllerBase):
                 clean_devices = []
                 for i, dev in enumerate(memory_devices, 1):
                     # Convert memory format ke database format
-                    device_type = "server" if dev.get("southbound") == "server_api" else "router"
+                    southbound = dev.get("southbound", "")
+                    if southbound == "server_api":
+                        device_type = "server"
+                    elif southbound == "routeros_api":
+                        device_type = "router"
+                    elif southbound == "paramiko":
+                        device_type = "switch"
+                    else:
+                        device_type = "unknown"
                     
                     # Konversi datetime untuk memory registry
                     last_seen = dev.get("last_seen")
@@ -1265,10 +1270,8 @@ class NorthboundApi(ControllerBase):
                             "main_mac_address": dev.get("main_mac_address"),
                             "main_interface": dev.get("main_interface"),
                             "virtualization": dev.get("virtualization"),
-                            "interfaces": dev.get("_interfaces_data", {}),
-                            "firewall": dev.get("_firewall_data")
                         })
-                    else:  # router
+                    elif device_type == "router":  # router
                         clean_dev.update({
                             "username": dev.get("username", "unknown"),
                             "identity": dev.get("identity", dev.get("hostname", "unknown")),
@@ -1279,6 +1282,18 @@ class NorthboundApi(ControllerBase):
                             "main_ip_address": dev.get("ip"),
                             "main_mac_address": dev.get("mac-address"),
                             "main_interface": dev.get("main_interface")
+                        })
+                    elif device_type == "switch":
+                        clean_dev.update({
+                            "username": dev.get("username", "unknown"),
+                            "identity": dev.get("identity", dev.get("hostname", "unknown")),
+                            "os_version": dev.get("os_version", dev.get("version", "unknown")),
+                            "model": dev.get("model", "unknown"),
+                            "serial_number": dev.get("serial_number"),
+                            "vendor": dev.get("vendor", "Cisco"),
+                            "main_ip_address": dev.get("ip"),
+                            "main_mac_address": dev.get("mac_address", ""),
+                            "main_interface": dev.get("main_interface", "")
                         })
                     
                     clean_devices.append(clean_dev)
@@ -1296,14 +1311,163 @@ class NorthboundApi(ControllerBase):
     # Panggil device berdasarkan ID
     @route('devices', '/devices/{device_id}', methods=['GET'])
     def get_device(self, req, device_id, **kwargs):
-        # Get specific device by ID
+        """Get specific device by ID from database"""
         try:
-            device = self.core.devices.get(device_id)
-            body = json.dumps(device)
-        except KeyError:
-            body = json.dumps({"error": "Device not found"})
-        
-        return self._resp(req, body)
+            # 1. Coba ambil dari database dulu
+            try:
+                db_device = DeviceRepository.find_by_device_id(device_id)
+                if db_device:
+                    # Konversi datetime ke string untuk JSON serialization
+                    created_at = db_device.get("created_at")
+                    updated_at = db_device.get("updated_at")
+                    last_seen = db_device.get("last_seen")
+                    
+                    if isinstance(created_at, datetime):
+                        created_at = created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    if isinstance(updated_at, datetime):
+                        updated_at = updated_at.strftime('%Y-%m-%d %H:%M:%S')
+                    if isinstance(last_seen, datetime):
+                        last_seen = last_seen.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Build response berdasarkan device_type
+                    device_type = db_device.get("device_type", "unknown")
+                    clean_dev = {
+                        "id": device_id,
+                        "device_id": db_device.get("device_id"),
+                        "device_type": device_type,
+                        "southbound": db_device.get("southbound", "unknown"),
+                        "status": db_device.get("status", "active"),
+                        "created_at": created_at,
+                        "updated_at": updated_at,
+                        "last_seen": last_seen
+                    }
+                    
+                    # Tambahkan field spesifik berdasarkan device_type
+                    if device_type == "server":
+                        clean_dev.update({
+                            "hostname": db_device.get("hostname", "unknown"),
+                            "main_username": db_device.get("main_username", "unknown"),
+                            "os_version": db_device.get("os_version", "unknown"),
+                            "architecture": db_device.get("architecture"),
+                            "architecture_bits": db_device.get("architecture_bits"),
+                            "processor_type": db_device.get("processor_type"),
+                            "vendor": db_device.get("vendor", "unknown"),
+                            "main_ip_address": db_device.get("main_ip_address"),
+                            "main_mac_address": db_device.get("main_mac_address"),
+                            "main_interface": db_device.get("main_interface"),
+                            "virtualization": db_device.get("virtualization"),
+                        })
+                    elif device_type == "router":
+                        clean_dev.update({
+                            "username": db_device.get("username", "unknown"),
+                            "identity": db_device.get("identity", "unknown"),
+                            "os_version": db_device.get("os_version", "unknown"),
+                            "board": db_device.get("board"),
+                            "serial_number": db_device.get("serial_number"),
+                            "vendor": db_device.get("vendor", "unknown"),
+                            "main_ip_address": db_device.get("main_ip_address"),
+                            "main_mac_address": db_device.get("main_mac_address"),
+                            "main_interface": db_device.get("main_interface")
+                        })
+                    elif device_type == "switch":
+                        clean_dev.update({
+                            "username": db_device.get("username", "unknown"),
+                            "identity": db_device.get("identity", "unknown"),
+                            "os_version": db_device.get("os_version", "unknown"),
+                            "model": db_device.get("model", "unknown"),
+                            "serial_number": db_device.get("serial_number"),
+                            "vendor": db_device.get("vendor", "Cisco"),
+                            "main_ip_address": db_device.get("main_ip_address"),
+                            "main_mac_address": db_device.get("main_mac_address"),
+                            "main_interface": db_device.get("main_interface")
+                        })
+                    
+                    return self._resp(req, json.dumps(clean_dev))
+                    
+            except Exception as db_error:
+                self.core.logger.warning(f"Database lookup failed: {db_error}")
+            
+            # 2. Fallback ke memory registry
+            try:
+                device = self.core.devices.get(device_id)
+                if device:
+                    # Convert memory format ke database format
+                    southbound = device.get("southbound", "")
+                    if southbound == "server_api":
+                        device_type = "server"
+                    elif southbound == "routeros_api":
+                        device_type = "router"
+                    elif southbound == "paramiko":
+                        device_type = "switch"
+                    else:
+                        device_type = "unknown"
+                    
+                    # Konversi datetime untuk memory registry
+                    last_seen = device.get("last_seen")
+                    if isinstance(last_seen, (int, float)):
+                        last_seen = datetime.fromtimestamp(last_seen).strftime('%Y-%m-%d %H:%M:%S')
+                    elif isinstance(last_seen, datetime):
+                        last_seen = last_seen.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    clean_dev = {
+                        "id": device.get("id"),
+                        "device_id": device.get("id"),
+                        "device_type": device_type,
+                        "southbound": device.get("southbound", "unknown"),
+                        "status": device.get("status", "active"),
+                        "last_seen": last_seen
+                    }
+                    
+                    if device_type == "server":
+                        clean_dev.update({
+                            "hostname": device.get("hostname", "unknown"),
+                            "main_username": device.get("main_username", "unknown"),
+                            "os_version": device.get("os", "unknown"),
+                            "architecture": device.get("architecture"),
+                            "architecture_bits": device.get("architecture_bits"),
+                            "processor_type": device.get("processor_type"),
+                            "vendor": device.get("vendor", "unknown"),
+                            "main_ip_address": device.get("main_ip_address"),
+                            "main_mac_address": device.get("main_mac_address"),
+                            "main_interface": device.get("main_interface"),
+                            "virtualization": device.get("virtualization"),
+                        })
+                    elif device_type == "router":  # router
+                        clean_dev.update({
+                            "username": device.get("username", "unknown"),
+                            "identity": device.get("identity", device.get("hostname", "unknown")),
+                            "os_version": device.get("version", "unknown"),
+                            "board": device.get("board"),
+                            "serial_number": device.get("serial-number"),
+                            "vendor": device.get("vendor", "unknown"),
+                            "main_ip_address": device.get("ip"),
+                            "main_mac_address": device.get("mac-address"),
+                            "main_interface": device.get("main_interface")
+                        })
+                    elif device_type == "switch":
+                        clean_dev.update({
+                            "username": device.get("username", "unknown"),
+                            "identity": device.get("identity", device.get("hostname", "unknown")),
+                            "os_version": device.get("os_version", device.get("version", "unknown")),
+                            "model": device.get("model", "unknown"),
+                            "serial_number": device.get("serial_number"),
+                            "vendor": device.get("vendor", "Cisco"),
+                            "main_ip_address": device.get("ip"),
+                            "main_mac_address": device.get("mac_address", ""),
+                            "main_interface": device.get("main_interface", "")
+                        })
+                    
+                    return self._resp(req, json.dumps(clean_dev))
+                    
+            except KeyError:
+                pass  # Device not found in memory registry either
+            
+            # 3. Device not found
+            return self._resp(req, json.dumps({"error": "Device not found"}), 404)
+            
+        except Exception as e:
+            self.core.logger.error(f"Error getting device {device_id}: {e}")
+            return self._resp(req, json.dumps({"error": str(e)}), 500)
     
     @route('devices', '/devices/{did}/heartbeat', methods=['POST'])
     def heartbeat(self, req, did, **kwargs):

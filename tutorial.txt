@@ -47,7 +47,7 @@
 
 ### 3 - Install Requirement for Drivers Server and Run Ryu Manager
 # 1) pip install ryu psutil paramiko netifaces fastapi uvicorn jinja2 SQLAlchemy 
-# 2) pip3 install routeros-api mysql-connector-python librouteros 
+# 2) pip3 install routeros-api mysql-connector-python librouteros ncclient
 # 3) sudo apt install postgresql postgresql-contrib libpq-dev -y
 # 4) RYU_API_KEY="agent-secret-token-1" ryu-manager app/controller.py --verbose
 
