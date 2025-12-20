@@ -11,7 +11,7 @@ class CiscoInterfaceDriver:
             if logger:
                 logger("Getting interfaces...")
             
-            # 1. Dapatkan output dari switch
+            # Dapatkan output dari switch
             self.base.execute_command("terminal length 0", enable_mode=True)
             output = self.base.execute_command("show interfaces", enable_mode=True)
             
@@ -107,7 +107,7 @@ class CiscoInterfaceDriver:
                 if logger:
                     logger(f"Added last interface: {current_interface}")
             
-            # 2. Get IP addresses dari "show ip interface brief"
+            # Get IP addresses dari "show ip interface brief"
             if logger:
                 logger("Getting IP addresses...")
             

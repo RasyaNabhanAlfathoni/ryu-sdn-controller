@@ -39,7 +39,7 @@ class CiscoSSHBase:
             # Create transport dengan manual configuration
             self._transport = paramiko.Transport(sock)
             
-            # FORCE CISCO COMPATIBLE ALGORITHMS
+            # Force Cisco Compatible Algorithm
             self._transport.get_security_options().kex = [
                 'diffie-hellman-group-exchange-sha1',
                 'diffie-hellman-group14-sha1',
@@ -102,7 +102,7 @@ class CiscoSSHBase:
                 time.sleep(1)
             
             self.connected = True
-            print(f"[SSH-BASE] ✓ Connected successfully to {self.config['ip']}")
+            print(f"[SSH-BASE] Connected successfully to {self.config['ip']}")
             
             return True
             
@@ -154,7 +154,7 @@ class CiscoSSHBase:
             pass
     
     def execute_command(self, command, enable_mode=True, timeout=10):
-        """Execute single command - FIXED CLEANING VERSION"""
+        """Execute single command"""
         try:
             with self.lock:
                 print(f"[SSH-BASE] Executing command: {command}")
@@ -200,7 +200,7 @@ class CiscoSSHBase:
                             print(f"[SSH-BASE] Read error: {e}")
                             break
                     
-                    # === PERBAIKAN BESAR: CLEANING OUTPUT YANG LEBIH BAIK ===
+                    # Clean Output
                     lines = output.split('\n')
                     cleaned_lines = []
                     

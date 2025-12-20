@@ -88,7 +88,7 @@ class CiscoSSHDriver:
                 self.snmp.set_base(self.base)
                 print("[CiscoSSHDriver] SNMP driver base connection set")
             
-            # === 1. GET HOSTNAME ===
+            # Get Hostname
             try:
                 host_output = self.base.execute_command("show running-config | include hostname", enable_mode=True)
                 if host_output and "ERROR" not in host_output:
@@ -106,7 +106,7 @@ class CiscoSSHDriver:
                 info['hostname'] = f"cisco-{self.config['ip']}"
                 info['identity'] = info['hostname']
             
-            # === 2. PARSE SHOW VERSION (UTAMA) ===
+            # Parse Result Show Version
             version_output = self.base.execute_command("show version", enable_mode=False)
             
             if version_output and "ERROR" not in version_output:
@@ -183,7 +183,7 @@ class CiscoSSHDriver:
                                 print(f"[DEBUG] Found serial number: {serial}")
                                 break
             
-            # === 3. TRY SHOW INVENTORY UNTUK DATA LEBIH AKURAT ===
+            # Try Show Inventory
             try:
                 inv_output = self.base.execute_command("show inventory", enable_mode=True)
                 if inv_output and "ERROR" not in inv_output:
@@ -210,9 +210,9 @@ class CiscoSSHDriver:
             except Exception as e:
                 print(f"[CiscoSSHDriver] Error getting inventory: {e}")
             
-            # === 4. DETEKSI MAIN INTERFACE===
+            # Get Main Interface
             try:
-                # Strategy 1: Gunakan show ip interface brief untuk menemukan interface dengan IP management
+                # Gunakan show ip interface brief untuk menemukan interface dengan IP management
                 ip_brief = self.base.execute_command("show ip interface brief", enable_mode=True)
                 if ip_brief and "ERROR" not in ip_brief:
                     print(f"[DEBUG] IP Interface Brief:\n{ip_brief[:500]}")
@@ -237,7 +237,7 @@ class CiscoSSHDriver:
                                 print(f"[DEBUG] Found management VLAN interface: {interface} with IP {ip_addr}")
                                 break
                     
-                    # **Strategy 2: Jika ada VLAN interface, cari physical interface yang membawa VLAN tersebut**
+                    # Jika ada VLAN interface, cari physical interface yang membawa VLAN tersebut
                     if vlan_interface and 'vlan' in vlan_interface.lower():
                         try:
                             # Dapatkan VLAN ID dari interface (misal Vlan100 -> 100)
@@ -276,7 +276,7 @@ class CiscoSSHDriver:
                                             if info['main_interface']:
                                                 break
                                 
-                                # *Gunakan show interface status untuk mapping VLAN**
+                                # Gunakan show interface status untuk mapping VLAN
                                 if not info['main_interface']:
                                     int_status = self.base.execute_command("show interface status", enable_mode=True)
                                     if int_status and "ERROR" not in int_status:
@@ -302,12 +302,12 @@ class CiscoSSHDriver:
                         except Exception as e:
                             print(f"[CiscoSSHDriver] Error finding physical interface for VLAN: {e}")
                     
-                    # Strategy 3: Jika interface bukan VLAN, gunakan langsung
+                    # Jika interface bukan VLAN, gunakan langsung
                     elif vlan_interface and not info['main_interface']:
                         info['main_interface'] = vlan_interface
                         print(f"[DEBUG] Using management interface directly: {vlan_interface}")
                     
-                    # Strategy 4: Fallback ke interface fisik connected pertama
+                    # Fallback ke interface fisik connected pertama
                     if not info['main_interface']:
                         int_status = self.base.execute_command("show interface status", enable_mode=True)
                         if int_status and "ERROR" not in int_status:
@@ -333,7 +333,7 @@ class CiscoSSHDriver:
                 print(f"[CiscoSSHDriver] Error detecting main interface: {e}")
                 info['main_interface'] = 'Ethernet0/0'
             
-            # === 5. GET MAC ADDRESS DARI MAIN INTERFACE ===
+            # Get Main Mac Address
             try:
                 if info['main_interface']:
                     mac_cmd = f"show interface {info['main_interface']} | include address|bia"
@@ -372,7 +372,7 @@ class CiscoSSHDriver:
             except Exception as e:
                 print(f"[CiscoSSHDriver] Error getting MAC address: {e}")
             
-            # === 6. FALLBACK DAN VALIDATION ===
+            # Fallback
             # Jika model masih unknown, coba command khusus
             if info['model'] == 'Unknown':
                 try:
@@ -412,7 +412,7 @@ class CiscoSSHDriver:
                 except Exception as e:
                     print(f"[CiscoSSHDriver] Error getting serial from fallback: {e}")
             
-            # === 7. CLEAN UP DAN FINAL OUTPUT ===
+            # Clean & Final Result
             # Hapus whitespace dan karakter tidak perlu
             for key in ['model', 'serial_number', 'os_version', 'ios_version']:
                 if key in info and isinstance(info[key], str):
