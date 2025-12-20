@@ -257,7 +257,7 @@ class CiscoLLDPDriver:
             lines = output.split('\n')
             
             for line in lines:
-                if 'LLDP is globally enabled' in line:
+                if 'Active' in line:
                     enabled = True
                     break
             

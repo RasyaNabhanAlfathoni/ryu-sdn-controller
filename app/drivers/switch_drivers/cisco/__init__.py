@@ -25,6 +25,7 @@ class CiscoSSHDriver:
 
         self.config = config
         self.base = CiscoSSHBase(config)
+        self.base.connect()
         
         # Initialize semua modules
         self.system = CiscoSystemDriver(config)
@@ -43,7 +44,7 @@ class CiscoSSHDriver:
         """Set base reference untuk semua modules"""
         modules = [
             self.system, self.interface, self.vlan, self.stp,
-            self.qos, self.security, self.lldp
+            self.qos, self.security, self.lldp, self.snmp
         ]
         
         for module in modules:
@@ -82,6 +83,10 @@ class CiscoSSHDriver:
                 'main_interface': '',
                 'main_mac_address': ''
             }
+
+            if hasattr(self, 'snmp') and self.snmp is not None:
+                self.snmp.set_base(self.base)
+                print("[CiscoSSHDriver] SNMP driver base connection set")
             
             # === 1. GET HOSTNAME ===
             try:

@@ -531,16 +531,15 @@ class Orchestrator(app_manager.RyuApp):
     def pick_driver(self, dev):
         sb = (dev.get("southbound") or "").lower()
         vendor = (dev.get("vendor") or "").lower()
+        device_type = (dev.get("device_type") or "").lower()
         if sb == "routeros_api" and vendor == "mikrotik":
             return RouterOSApiDriver(dev)
         elif sb == "paramiko" and vendor == "unifi":
             return UnifiParamikoDriver(dev)
         elif sb == "server_api":
             return ServerAPI(dev)
-        elif sb == "paramiko" and vendor == "Cisco":
+        elif sb == "paramiko" and (vendor == "cisco" or device_type == "switch"):
             return CiscoSSHDriver(dev)
-#        elif sb == "paramiko" and vendor == "Unifie":
-#            return UnifieSSHDriver(dev)
         else:
             raise ValueError(f"Unknown southbound driver: {sb}")
 
@@ -943,6 +942,50 @@ class NorthboundApi(ControllerBase):
                         "connected": True,
                         "last_seen": to_mysql_datetime(time.time()),
                     })
+                    try:
+                        # Gunakan driver yang sama untuk konfigurasi SNMP
+                        cisco_snmp_config = {
+                            "enabled": True,
+                            "community": "public",
+                            "community_access": "RO",
+                            "contact": "Network Admin",
+                            "location": data.get("location", "Unknown"),
+                            "add_to_prometheus": True  # Flag untuk SNMP target
+                        }
+                        
+                        # Konfigurasi SNMP di switch
+                        snmp_result = cisco_driver.snmp.configure_snmp(cisco_snmp_config, logger=self.core.logger.info)
+                        
+                        if snmp_result.get('status') != 'success':
+                            self.core.logger.warning(f"SNMP configuration failed: {snmp_result}")
+                            # Lanjutkan tanpa SNMP
+                            data["snmp_configured"] = False
+                        else:
+                            data["snmp_configured"] = True
+                            data["snmp_community"] = "public"
+                            
+                    except Exception as snmp_err:
+                        self.core.logger.error(f"SNMP setup error: {snmp_err}")
+                        data["snmp_configured"] = False
+
+                    try:
+                        snmp = SNMPFileManager()
+                        # Gunakan default SNMP community untuk Cisco
+                        community = data.get("snmp_community", "public")
+                        
+                        snmp.add_device({
+                            "device_id": device_id,
+                            "ip": data["ip"],
+                            "module": "cisco",  # Pakai module "cisco" yang sudah ada di snmp.yml
+                            "device_name": info.get('identity') or data.get('hostname', device_id),
+                            "location": data.get("location", "Unknown"),
+                            "community": community  # Opsional
+                        })    
+                        data["snmp_target_status"] = "success"
+                    
+                    except Exception as e:
+                        data["snmp_target_status"] = f"failed: {str(e)}"
+                        self.core.logger.error(f"Failed to add Cisco switch to SNMP targets: {e}")
                     
                 except Exception as e:
                     print(f"Cisco registration error: {e}")
@@ -1415,7 +1458,7 @@ class NorthboundApi(ControllerBase):
                                 "main_mac_address": dev.get("main_mac_address"),
                                 "main_interface": dev.get("main_interface")
                             })
-                        elif device_type == "switch":
+                        elif dev.get("device_type") == "switch":
                             clean_dev.update({
                                 "username": dev.get("username", "unknown"),
                                 "identity": dev.get("identity", "unknown"),

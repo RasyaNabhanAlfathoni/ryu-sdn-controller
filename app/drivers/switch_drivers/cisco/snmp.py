@@ -109,36 +109,25 @@ class CiscoSnmpDriver:
         return snmp_info
     
     def configure_snmp(self, p, logger=print):
-        """
-        Configure SNMP settings via SSH.
-        Example payload:
-        {
-            "enabled": true,
-            "contact": "Network Admin",
-            "location": "NOC Room",
-            "community": "public",
-            "community_access": "RO",
-            "acl": "10",
-            "traps_enabled": true,
-            "trap_target": "192.168.1.100",
-            "trap_community": "public"
-        }
-        """
+        """Configure SNMP settings via SSH."""
         try:
+            if not self.base:
+                raise Exception("SSH base connection not set")
+            
             if logger:
                 logger(f"Configuring SNMP with params: {p}")
             
             config_commands = []
             
-            # Add contact if provided
+            # 1. Contact
             if p.get('contact'):
                 config_commands.append(f"snmp-server contact {p['contact']}")
             
-            # Add location if provided
+            # 2. Location
             if p.get('location'):
                 config_commands.append(f"snmp-server location {p['location']}")
             
-            # Add community if provided
+            # 3. Community (CORE)
             if p.get('community'):
                 community_name = p['community']
                 community_access = p.get('community_access', 'RO')
@@ -151,26 +140,28 @@ class CiscoSnmpDriver:
                 
                 config_commands.append(community_cmd)
             
-            # Enable traps if specified
-            if p.get('traps_enabled'):
+            # 4. Enable traps
+            if p.get('traps_enabled', True):
                 config_commands.append("snmp-server enable traps")
             
-            # Add trap target if provided
+            # 5. Trap target
             if p.get('trap_target') and p.get('trap_community'):
                 trap_cmd = f"snmp-server host {p['trap_target']} {p['trap_community']} version 2c"
                 config_commands.append(trap_cmd)
             
             # Apply configuration
             if config_commands:
-                result = self.base.configure_terminal(config_commands)
+                # Masuk config mode
+                self.base.execute_command("configure terminal")
                 
-                # Auto-add to Prometheus SNMP targets if community provided
-                if p.get('community') and p.get('add_to_prometheus', True):
-                    try:
-                        self._add_to_prometheus_targets(p, logger)
-                    except Exception as e:
-                        if logger:
-                            logger(f"Warning: Could not add to Prometheus targets: {str(e)}")
+                results = []
+                for cmd in config_commands:
+                    result = self.base.execute_command(cmd)
+                    results.append(result)
+                
+                # Keluar config mode dan save
+                self.base.execute_command("exit")
+                self.base.execute_command("write memory")
                 
                 if logger:
                     logger(f"SNMP configuration updated: {len(config_commands)} commands applied")
@@ -179,7 +170,7 @@ class CiscoSnmpDriver:
                     'status': 'success',
                     'message': 'SNMP configured successfully',
                     'commands_applied': config_commands,
-                    'config': p
+                    'results': results
                 }
             else:
                 return {
@@ -322,7 +313,7 @@ class CiscoSnmpDriver:
             
             # Apply configuration
             config_commands = [community_cmd]
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             # Add to Prometheus if requested
             if p.get('add_to_prometheus', True):
@@ -401,7 +392,7 @@ class CiscoSnmpDriver:
             if result_add.get('status') == 'success':
                 # Apply delete command if adding was successful
                 config_commands = [delete_cmd]
-                self.base.configure_terminal(config_commands)
+                self.base.execute_command(config_commands)
                 
                 if logger:
                     logger(f"Updated SNMP community '{p['name']}'")
@@ -433,7 +424,7 @@ class CiscoSnmpDriver:
             delete_cmd = f"no snmp-server community {p['name']}"
             config_commands = [delete_cmd]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             # Also remove from Prometheus if exists
             try:
@@ -484,7 +475,7 @@ class CiscoSnmpDriver:
                 # Also enable traps by default
                 try:
                     trap_commands = ["snmp-server enable traps"]
-                    self.base.configure_terminal(trap_commands)
+                    self.base.execute_command(trap_commands)
                 except:
                     pass  # Ignore if traps not supported
             
@@ -523,7 +514,7 @@ class CiscoSnmpDriver:
                 delete_commands.append(f"no snmp-server community {community['name']}")
             
             if delete_commands:
-                result = self.base.configure_terminal(delete_commands)
+                result = self.base.execute_command(delete_commands)
             
             # Remove from Prometheus
             try:

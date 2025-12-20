@@ -1,15 +1,21 @@
 auths:
   public_v1:
     community: public
-    security_level: noAuthNoPriv
-    auth_protocol: MD5
-    priv_protocol: DES
+    # security_level: noAuthNoPriv
+    # auth_protocol: MD5
+    # priv_protocol: DES
     version: 1
   public_v2:
     community: public
-    security_level: noAuthNoPriv
-    auth_protocol: MD5
-    priv_protocol: DES
+    # security_level: noAuthNoPriv
+    # auth_protocol: MD5
+    # priv_protocol: DES
+    version: 2
+  cisco_public:
+    community: public
+    # security_level: noAuthNoPriv
+    # auth_protocol: MD5
+    # priv_protocol: DES
     version: 2
 modules:
   mikrotik:
@@ -127,13 +133,10 @@ modules:
 
   cisco:
     walk:
-      - 1.3.6.1.2.1.1
+      - 1.3.6.1.2.1.1 # system
       - 1.3.6.1.2.1.2
       - 1.3.6.1.2.1.31
-      - 1.3.6.1.2.1.47
-      - 1.3.6.1.4.1.9
     metrics:
-      # ===== SYSTEM =====
       - name: SystemDescription
         oid: 1.3.6.1.2.1.1.1.0
         type: DisplayString
@@ -146,7 +149,11 @@ modules:
         oid: 1.3.6.1.2.1.1.5.0
         type: DisplayString
 
-      # ===== HARDWARE (ENTITY-MIB) =====
+      - name: PhysicalDescription
+        oid: 1.3.6.1.2.1.47.1.1.1.1.2.1
+        type: DisplayString
+        help: Spesifikasi fisik perangkat / interface
+
       - name: HardwareModel
         oid: 1.3.6.1.2.1.47.1.1.1.1.13.1
         type: DisplayString
@@ -159,10 +166,63 @@ modules:
         oid: 1.3.6.1.2.1.47.1.1.1.1.11.1
         type: DisplayString
 
-      # ===== INTERFACE TRAFFIC =====
+      - name: CiscoDeviceStatus
+        oid: 1.3.6.1.4.1.9.2.1.2.0
+        type: gauge
+        help: Status perangkat Cisco (vendor specific)
+
+      - name: DeviceBaseMac
+        oid: 1.3.6.1.2.1.17.1.1.0
+        type: OctetString
+        help: MAC address utama perangkat
+
+      - name: InterfaceName
+        oid: 1.3.6.1.2.1.31.1.1.1.1
+        type: DisplayString
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+
+      - name: InterfaceType
+        oid: 1.3.6.1.2.1.2.2.1.3
+        type: gauge
+        help: 6=ethernet, 135=vlan, dll
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+
+      - name: InterfaceStatus
+        oid: 1.3.6.1.2.1.2.2.1.8
+        type: gauge
+        help: 1=up, 2=down
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+
+      - name: InterfaceSpeed
+        oid: 1.3.6.1.2.1.2.2.1.5
+        type: gauge
+        help: Kecepatan interface (bps)
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+
+      - name: InterfaceMAC
+        oid: 1.3.6.1.2.1.2.2.1.6
+        type: OctetString
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+
       - name: ifHCInOctets
         oid: 1.3.6.1.2.1.31.1.1.1.6
         type: counter
+        help: Total bytes diterima
         indexes:
           - labelname: ifIndex
             type: gauge
@@ -175,6 +235,7 @@ modules:
       - name: ifHCOutOctets
         oid: 1.3.6.1.2.1.31.1.1.1.10
         type: counter
+        help: Total bytes dikirim
         indexes:
           - labelname: ifIndex
             type: gauge
@@ -184,26 +245,21 @@ modules:
             oid: 1.3.6.1.2.1.31.1.1.1.1
             type: DisplayString
 
-      - name: InterfaceStatus
-        oid: 1.3.6.1.2.1.2.2.1.8
+      - name: CiscoVlanId
+        oid: 1.3.6.1.4.1.9.9.46.1.3.1.1.4
         type: gauge
         indexes:
-          - labelname: ifIndex
+          - labelname: vlanIndex
             type: gauge
-        lookups:
-          - labels: [ifIndex]
-            labelname: ifName
-            oid: 1.3.6.1.2.1.31.1.1.1.1
-            type: DisplayString
 
-      - name: InterfaceMAC
-        oid: 1.3.6.1.2.1.2.2.1.6
-        type: OctetString
+      - name: CiscoVlanName
+        oid: 1.3.6.1.4.1.9.9.46.1.3.1.1.18
+        type: DisplayString
         indexes:
-          - labelname: ifIndex
+          - labelname: vlanIndex
             type: gauge
-        lookups:
-          - labels: [ifIndex]
-            labelname: ifName
-            oid: 1.3.6.1.2.1.31.1.1.1.1
-            type: DisplayString
+
+      - name: CiscoProcessCpu
+        oid: 1.3.6.1.4.1.9.9.48.1.1.1
+        type: gauge
+        help: Informasi process / CPU Cisco

@@ -134,6 +134,45 @@ class DeviceRepository:
 
             return router_row
 
+            # 3. Check switches
+            sql_switch = """
+                SELECT 
+                    ns.*,
+                    'switch' as device_type,
+                    ns.southbound,
+                    ns.status,
+                    ns.created_at as global_created_at,
+                    ns.updated_at as global_updated_at,
+                    ns.last_seen
+                FROM switchs ns
+                WHERE ns.device_id=%s
+            """
+            cursor.execute(sql_switch, (device_id,))
+            switch_row = cursor.fetchone()
+            cursor.fetchall()
+
+            if switch_row:
+                return switch_row
+
+            # 4. Check access points
+            sql_ap = """
+                SELECT 
+                    ap.*,
+                    'access_point' as device_type,
+                    ap.southbound,
+                    ap.status,
+                    ap.created_at as global_created_at,
+                    ap.updated_at as global_updated_at,
+                    ap.last_seen
+                FROM access_points ap
+                WHERE ap.device_id=%s
+            """
+            cursor.execute(sql_ap, (device_id,))
+            ap_row = cursor.fetchone()
+            cursor.fetchall()
+
+            return ap_row
+
         finally:
             cursor.close()
             conn.close()
@@ -526,20 +565,18 @@ class DeviceRepository:
                 SELECT 
                     ns.device_id,
                     'switch' as device_type,
-                    ns.identity as hostname,
-                    ns.username as main_username,
+                    ns.identity as identity,
+                    ns.username as username,
+                    ns.password as password,
                     ns.os_version,
-                    NULL as architecture,
-                    NULL as architecture_bits,
-                    NULL as processor_type,
                     ns.vendor,
                     ns.model,
+                    ns.serial_number,
                     ns.main_ip_address,
                     ns.main_mac_address,
                     ns.main_interface,
                     ns.southbound,
                     ns.status,
-                    NULL as virtualization,
                     ns.last_seen,
                     ns.created_at,
                     ns.updated_at
@@ -664,7 +701,7 @@ class DeviceRepository:
                 sql = """
                     INSERT INTO access_points
                     (device_id, username, password, identity, os_version,
-                    board, serial_number, vendor, main_ip_address,
+                    model, serial_number, vendor, main_ip_address,
                     main_mac_address, main_interface, southbound, status,
                     created_at, updated_at, last_seen)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -677,7 +714,7 @@ class DeviceRepository:
                     dev.get("password", ""),
                     dev.get("identity", dev.get("hostname", "unknown")),
                     dev.get("os_version", "unknown"),
-                    dev.get("board", dev.get("model", "")),
+                    dev.get("model", ""),
                     dev.get("serial_number", ""),
                     dev.get("vendor", "unifi"),
                     dev.get("main_ip_address"),
@@ -707,7 +744,7 @@ class DeviceRepository:
                     UPDATE access_points
                     SET identity=%s,
                         os_version=%s,
-                        board=%s,
+                        model=%s,
                         vendor=%s,
                         main_ip_address=%s,
                         main_mac_address=%s,
@@ -722,7 +759,7 @@ class DeviceRepository:
                 cursor.execute(sql, (
                     dev.get("identity", dev.get("hostname", "unknown")),
                     dev.get("os_version", "unknown"),
-                    dev.get("board", dev.get("model", "")),
+                    dev.get("model", dev.get("model", "")),
                     dev.get("vendor", "unifi"),
                     dev.get("main_ip_address"),
                     dev.get("main_mac_address", "unknown"),
@@ -752,7 +789,7 @@ class DeviceRepository:
                         ap.identity AS hostname,
                         ap.username AS main_username,
                         ap.os_version,
-                        ap.board AS model,
+                        ap.model AS model,
                         ap.serial_number,
                         NULL AS architecture,
                         NULL AS architecture_bits,
