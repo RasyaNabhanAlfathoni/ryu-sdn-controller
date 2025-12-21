@@ -24,11 +24,6 @@ from actions.routers.mikrotik import MikrotikRouterActions
 from drivers.switch_drivers.cisco import CiscoSSHDriver
 from actions.switchs.cisco import CiscoSwitchActions
 
-# === Switch Driver ===
-# from drivers.switch_drivers.netconf import NetconfApiDriver
-# from actions.switch.cisco import CiscoSwitchActions
-# from actions.switch.mikrotik import MikrotikSwitchActions
-
 # === Access-Point Driver ===
 from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 from drivers.access_point_drivers.unifi.auto_discover import AutoDiscoverAPUnifi
@@ -539,8 +534,6 @@ class Orchestrator(app_manager.RyuApp):
             return ServerAPI(dev)
         elif sb == "paramiko" and vendor == "Cisco":
             return CiscoSSHDriver(dev)
-#        elif sb == "paramiko" and vendor == "Unifie":
-#            return UnifieSSHDriver(dev)
         else:
             raise ValueError(f"Unknown southbound driver: {sb}")
 
@@ -756,6 +749,7 @@ class NorthboundApi(ControllerBase):
                 
                 return f"dev_{hash_digest}"
 
+            device_type = None  
             if is_server:
                 device_type = "server"
                 registration_mode = "server_agent"
@@ -765,7 +759,7 @@ class NorthboundApi(ControllerBase):
             elif is_cisco:
                 device_type = "switch" 
                 registration_mode = "paramiko_discovery"
-            elif is_unifie:
+            elif is_unifi:
                 device_type = "access_point" 
                 registration_mode = "paramiko_discovery"
             else:
@@ -1043,7 +1037,6 @@ class NorthboundApi(ControllerBase):
                         }
                         DeviceRepository.update_server(device_id, server_data)
 
-                    elif device_type == "router":  # router
                         # INSERT/UPDATE INTERFACES DATA (jika ada)
                         if "_interfaces_data" in data:
                             try:
