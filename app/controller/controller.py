@@ -43,7 +43,7 @@ API_INSTANCE_NAME = 'northbound_api'
 # Ini sesuaikan dengan secret key nya (Untuk Server Agent)
 ALLOWED_API_KEYS = set([os.environ.get("RYU_API_KEY", "agent-secret-token-1")])
 
-def to_mysql_datetime(ts):
+def to_postgresql_datetime(ts):
     if isinstance(ts, (int, float)):
         return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
     return ts
@@ -813,7 +813,7 @@ class NorthboundApi(ControllerBase):
                     "main_ip_address": str(data.get("main_ip_address", "")),
                     "main_interface": str(data.get("main_interface", "unknown")),
                     "main_mac_address": str(data.get("main_mac_address", "unknown")),
-                    "last_seen": to_mysql_datetime(time.time())
+                    "last_seen": to_postgresql_datetime(time.time())
                 }
 
                 # Hanya ambil dari meta yang diperlukan
@@ -936,7 +936,7 @@ class NorthboundApi(ControllerBase):
                         "main_mac_address": info.get('main_mac_address', ''),
                         "main_interface": info.get('main_interface', 'eth0'),
                         "connected": True,
-                        "last_seen": to_mysql_datetime(time.time()),
+                        "last_seen": to_postgresql_datetime(time.time()),
                     })
                     try:
                         # Gunakan driver yang sama untuk konfigurasi SNMP
@@ -1051,7 +1051,7 @@ class NorthboundApi(ControllerBase):
                     "device_type": device_type,
                     "southbound": data.get("southbound", "unknown"),
                     "status": "active",
-                    "last_seen": to_mysql_datetime(time.time())
+                    "last_seen": to_postgresql_datetime(time.time())
                 }
                 
                 # Check for duplicates by device_id
@@ -1078,7 +1078,7 @@ class NorthboundApi(ControllerBase):
                             "southbound": data.get("southbound", "unknown"),
                             "status": "active",
                             "virtualization": data.get("virtualization"),
-                            "last_seen": to_mysql_datetime(time.time())
+                            "last_seen": to_postgresql_datetime(time.time())
                         }
                         DeviceRepository.update_server(device_id, server_data)
 
@@ -1152,7 +1152,7 @@ class NorthboundApi(ControllerBase):
                             "main_interface": data.get("main_interface"),
                             "southbound": data.get("southbound", "routeros_api"),
                             "status": "active",
-                            "last_seen": to_mysql_datetime(time.time())
+                            "last_seen": to_postgresql_datetime(time.time())
                         }
                         DeviceRepository.update_router(device_id, router_data)
 
@@ -1171,7 +1171,7 @@ class NorthboundApi(ControllerBase):
                             "main_interface": data.get("main_interface", ""),
                             "southbound": data.get("southbound", "paramiko"),
                             "status": "active",
-                            "last_seen": to_mysql_datetime(time.time())
+                            "last_seen": to_postgresql_datetime(time.time())
                         }    
                         DeviceRepository.update_switch(device_id, switch_data)
                         
@@ -1190,7 +1190,7 @@ class NorthboundApi(ControllerBase):
                             "main_interface": data.get("main_interface", "unknown"),
                             "southbound": data.get("southbound", "unknown"),
                             "status": data.get("status", "active"),
-                            "last_seen": to_mysql_datetime(time.time())
+                            "last_seen": to_postgresql_datetime(time.time())
                         }
                         DeviceRepository.update_access_point(device_id, access_point_data)
                     
@@ -1304,7 +1304,7 @@ class NorthboundApi(ControllerBase):
                             "main_interface": data.get("main_interface", ""),
                             "southbound": data.get("southbound", "paramiko"),
                             "status": "active",
-                            "last_seen": to_mysql_datetime(time.time())
+                            "last_seen": to_postgresql_datetime(time.time())
                         }    
                         DeviceRepository.insert_switch(switch_data)
 

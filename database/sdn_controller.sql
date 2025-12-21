@@ -1,204 +1,158 @@
--- phpMyAdmin SQL Dump
--- version 5.2.3
--- https://www.phpmyadmin.net/
---
--- Host: database
--- Generation Time: Dec 02, 2025 at 07:08 PM
--- Server version: 8.0.44
--- PHP Version: 8.3.28
+-- DATABASE: sdn_controller
 
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-START TRANSACTION;
-SET time_zone = "+07:00";
+-- DEVICES
+CREATE TABLE IF NOT EXISTS devices (
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
+
+    device_type VARCHAR(32) NOT NULL,
+    southbound VARCHAR(32),
+    status VARCHAR(32) DEFAULT 'active',
+
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP
+);
+
+-- SERVERS
+CREATE TABLE IF NOT EXISTS servers (
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
+
+    hostname VARCHAR(128),
+    main_username VARCHAR(64),
+
+    os_version VARCHAR(64),
+    architecture VARCHAR(64),
+    architecture_bits INTEGER,
+    processor_type VARCHAR(128),
+
+    vendor VARCHAR(64),
+
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
+
+    southbound VARCHAR(32),
+    status VARCHAR(32),
+
+    virtualization VARCHAR(32),
+
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
+
+    CONSTRAINT fk_servers_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
+);
+
+-- ROUTERS
+CREATE TABLE IF NOT EXISTS routers (
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
+
+    username VARCHAR(64),
+    password TEXT,
+
+    identity VARCHAR(128),
+    os_version VARCHAR(64),
+
+    model VARCHAR(64),
+    serial_number VARCHAR(128),
+
+    vendor VARCHAR(64),
+
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
+
+    southbound VARCHAR(32),
+    status VARCHAR(32),
+
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
+
+    CONSTRAINT fk_routers_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
+);
 
 
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
+-- SWITCHS
+CREATE TABLE IF NOT EXISTS switchs (
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
---
--- Database: `sdn_controller`
---
+    username VARCHAR(64),
+    password TEXT,
 
--- --------------------------------------------------------
+    identity VARCHAR(128),
+    os_version VARCHAR(64),
 
---
--- Table structure for table `access_points`
---
+    model VARCHAR(64),
+    serial_number VARCHAR(128),
 
-CREATE TABLE `access_points` (
-  `id` int NOT NULL,
-  `device_id` varchar(20) NOT NULL,
-  `username` varchar(100) DEFAULT NULL,
-  `password` varchar(100) DEFAULT NULL,
-  `identity` varchar(100) DEFAULT NULL,
-  `os_version` varchar(100) DEFAULT NULL,
-  `board` varchar(100) DEFAULT NULL,
-  `serial_number` varchar(100) DEFAULT NULL,
-  `vendor` varchar(100) DEFAULT NULL,
-  `main_ip_address` varchar(50) DEFAULT NULL,
-  `main_mac_address` varchar(50) DEFAULT NULL,
-  `main_interface` varchar(50) DEFAULT NULL,
-  `southbound` varchar(50) DEFAULT NULL,
-  `status` enum('active','disconnected') DEFAULT 'disconnected',
-  `last_seen` timestamp NULL DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    vendor VARCHAR(64),
 
--- --------------------------------------------------------
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
 
---
--- Table structure for table `network_devices`
---
+    southbound VARCHAR(32),
+    status VARCHAR(32),
 
-CREATE TABLE `network_devices` (
-  `id` int NOT NULL,
-  `device_id` varchar(20) NOT NULL,
-  `device_type` enum('router','switch','access_point','server') NOT NULL,
-  `southbound` varchar(50) NOT NULL DEFAULT 'routeros_api',
-  `status` enum('active','disconnected') DEFAULT 'disconnected',
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `last_seen` timestamp NULL DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
 
--- --------------------------------------------------------
+    CONSTRAINT fk_switchs_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
+);
 
---
--- Table structure for table `routers`
---
+-- ACCESS POINTS
+CREATE TABLE IF NOT EXISTS access_points (
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
-CREATE TABLE `routers` (
-  `id` int NOT NULL,
-  `device_id` varchar(20) NOT NULL,
-  `username` varchar(100) DEFAULT NULL,
-  `password` varchar(100) DEFAULT NULL,
-  `identity` varchar(100) DEFAULT NULL,
-  `os_version` varchar(100) DEFAULT NULL,
-  `board` varchar(100) DEFAULT NULL,
-  `serial_number` varchar(100) DEFAULT NULL,
-  `vendor` varchar(100) DEFAULT NULL,
-  `main_ip_address` varchar(50) DEFAULT NULL,
-  `main_mac_address` varchar(50) DEFAULT NULL,
-  `main_interface` varchar(50) DEFAULT NULL,
-  `southbound` varchar(50) DEFAULT 'routeros_api',
-  `status` enum('active','disconnected') DEFAULT 'disconnected',
-  `last_seen` timestamp NULL DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    username VARCHAR(64),
+    password TEXT,
 
--- --------------------------------------------------------
+    identity VARCHAR(128),
 
---
--- Table structure for table `switchs`
---
+    os_version VARCHAR(64),
+    model VARCHAR(64),
+    serial_number VARCHAR(128),
 
-CREATE TABLE `switchs` (
-  `id` int NOT NULL,
-  `device_id` varchar(20) NOT NULL,
-  `username` varchar(100) DEFAULT NULL,
-  `password` varchar(100) DEFAULT NULL,
-  `identity` varchar(100) DEFAULT NULL,
-  `os_version` varchar(100) DEFAULT NULL,
-  `board` varchar(100) DEFAULT NULL,
-  `serial_number` varchar(100) DEFAULT NULL,
-  `vendor` varchar(100) DEFAULT NULL,
-  `main_ip_address` varchar(50) DEFAULT NULL,
-  `main_mac_address` varchar(50) DEFAULT NULL,
-  `main_interface` varchar(50) DEFAULT NULL,
-  `southbound` varchar(50) DEFAULT 'routeros_api',
-  `status` enum('active','disconnected') DEFAULT 'disconnected',
-  `last_seen` timestamp NULL DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+    vendor VARCHAR(64),
 
---
--- Indexes for dumped tables
---
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
 
---
--- Indexes for table `access_points`
---
-ALTER TABLE `access_points`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_ap_device_id` (`device_id`);
+    southbound VARCHAR(32),
+    status VARCHAR(32),
 
---
--- Indexes for table `network_devices`
---
-ALTER TABLE `network_devices`
-  ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `device_id` (`device_id`);
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
 
---
--- Indexes for table `routers`
---
-ALTER TABLE `routers`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_router_device_id` (`device_id`);
+    CONSTRAINT fk_access_points_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
+);
 
---
--- Indexes for table `switchs`
---
-ALTER TABLE `switchs`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `fk_switch_device_id` (`device_id`);
+-- INDEXES
+CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
+CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
 
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `access_points`
---
-ALTER TABLE `access_points`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `network_devices`
---
-ALTER TABLE `network_devices`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
-
---
--- AUTO_INCREMENT for table `routers`
---
-ALTER TABLE `routers`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
-
---
--- AUTO_INCREMENT for table `switchs`
---
-ALTER TABLE `switchs`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `access_points`
---
-ALTER TABLE `access_points`
-  ADD CONSTRAINT `fk_ap_device_id` FOREIGN KEY (`device_id`) REFERENCES `network_devices` (`device_id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Constraints for table `routers`
---
-ALTER TABLE `routers`
-  ADD CONSTRAINT `fk_router_device_id` FOREIGN KEY (`device_id`) REFERENCES `network_devices` (`device_id`) ON DELETE CASCADE ON UPDATE CASCADE;
-
---
--- Constraints for table `switchs`
---
-ALTER TABLE `switchs`
-  ADD CONSTRAINT `fk_switch_device_id` FOREIGN KEY (`device_id`) REFERENCES `network_devices` (`device_id`) ON DELETE CASCADE ON UPDATE CASCADE;
-COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+CREATE INDEX IF NOT EXISTS idx_servers_device_id ON servers(device_id);
+CREATE INDEX IF NOT EXISTS idx_routers_device_id ON routers(device_id);
+CREATE INDEX IF NOT EXISTS idx_switchs_device_id ON switchs(device_id);
+CREATE INDEX IF NOT EXISTS idx_access_points_device_id ON access_points(device_id);

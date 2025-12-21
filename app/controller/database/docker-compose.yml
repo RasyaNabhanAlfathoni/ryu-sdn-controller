@@ -1,38 +1,38 @@
 services:
-  # DATABASE
-  database:
-    image: mysql:8.0
-    container_name: db_sdn
+  postgres:
+    image: postgres:18
+    container_name: db_sdn_pg
     restart: on-failure
-    volumes:
-      - volume-sdn:/var/lib/mysql
     environment:
-      - MYSQL_DATABASE=sdn_controller
-      - MYSQL_USER=admin
-      - MYSQL_PASSWORD=admin
-      - MYSQL_ROOT_PASSWORD=admin
+      POSTGRES_DB: sdn_controller
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      TZ: Asia/Jakarta
     ports:
-      - 3306:3306
+      - "5432:5432"
+    volumes:
+      - volume-sdn-pg:/var/lib/postgresql/
     networks:
       - network-sdn
 
-  # PHPMYADMIN
-  phpmyadmin:
-    image: phpmyadmin:latest
-    container_name: phpmyadmin_sdn
+  pgadmin:
+    image: dpage/pgadmin4:9.11.0
+    container_name: pgadmin_sdn
     restart: on-failure
     environment:
-      - PMA_ARBITRARY=1
+      PGADMIN_DEFAULT_EMAIL: admin@local.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+      TZ: Asia/Jakarta
     ports:
-      - 5000:80
+      - "5050:80"
     depends_on:
-      - database
+      - postgres
     networks:
       - network-sdn
 
 volumes:
-  volume-sdn:
-    name: volume-sdn
+  volume-sdn-pg:
+    name: volume-sdn-pg
 
 networks:
   network-sdn:

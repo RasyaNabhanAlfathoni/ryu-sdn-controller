@@ -22,23 +22,14 @@ The central management of Ryu applications.
 - Route messages among Ryu applications
 
 """
-
 import inspect
-import itertools
 import logging
 import sys
 import os
-import gc
 
 from ryu import cfg
-from ryu import utils
 from ryu.app import wsgi
-from ryu.controller.handler import register_instance, get_dependent_services
-from ryu.controller.controller import Datapath
-from ryu.controller import event
-from ryu.controller.event import EventRequestBase, EventReplyBase
 from ryu.lib import hub
-from ryu.ofproto import ofproto_protocol
 
 LOG = logging.getLogger('ryu.base.app_manager')
 

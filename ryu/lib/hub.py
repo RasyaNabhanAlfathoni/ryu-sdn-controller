@@ -39,8 +39,8 @@ if HUB_TYPE == 'eventlet':
     import eventlet.wsgi
     from eventlet import websocket
     import greenlet
-    import ssl
     import socket
+    import ssl
     import traceback
     import sys
 
