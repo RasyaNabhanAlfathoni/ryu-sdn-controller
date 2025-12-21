@@ -9,173 +9,170 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def insert_network_device(dev):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    INSERT INTO devices
+                    (device_id, device_type, southbound, status,
+                     created_at, updated_at, last_seen)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW())
+                """
 
-        try:
-            sql = """
-                INSERT INTO devices
-                (device_id, device_type, southbound, status, created_at, updated_at, last_seen)
-                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW())
-            """
+                cursor.execute(sql, (
+                    dev["device_id"],
+                    dev.get("device_type"),
+                    dev.get("southbound"),
+                    dev.get("status", "active")
+                ))
 
-            cursor.execute(sql, (
-                dev["device_id"],
-                dev.get("device_type"),
-                dev.get("southbound"),
-                dev.get("status", "active")
-            ))
+                conn.commit()
+                return cursor.lastrowid
 
-            conn.commit()
-            return cursor.lastrowid
-
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()
 
     # ============================
     # UPDATE NETWORK DEVICE
     # ============================
     @staticmethod
     def update_network_device(device_id, data):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    UPDATE devices
+                    SET device_type=%s,
+                        southbound=%s,
+                        status=%s,
+                        last_seen=%s,
+                        updated_at=NOW()
+                    WHERE device_id=%s
+                """
 
-        try:
-            sql = """
-                UPDATE devices 
-                SET device_type=%s, southbound=%s, status=%s, last_seen=%s, updated_at=NOW()
-                WHERE device_id=%s
-            """
+                cursor.execute(sql, (
+                    data.get("device_type"),
+                    data.get("southbound"),
+                    data.get("status", "active"),
+                    data.get("last_seen"),
+                    device_id
+                ))
 
-            cursor.execute(sql, (
-                data.get("device_type"),
-                data.get("southbound"),
-                data.get("status", "active"),
-                data.get("last_seen"),
-                device_id
-            ))
+                conn.commit()
 
-            conn.commit()
-
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()
 
     # ============================
     # FIND BY SERIAL (ROUTER)
     # ============================
     @staticmethod
     def find_by_serial(serial):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(dictionary=True)
+            try:
+                sql = """
+                    SELECT 'router' AS type, r.device_id
+                    FROM routers r
+                    WHERE r.serial_number=%s
+                """
 
-        try:
-            sql = """
-                SELECT 'router' AS type, r.device_id
-                FROM routers r
-                WHERE r.serial_number=%s
-            """
-            cursor.execute(sql, (serial,))
-            row = cursor.fetchone()
-            cursor.fetchall()  # consume remainder
-            return row
+                cursor.execute(sql, (serial,))
+                return cursor.fetchone()
 
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()    
 
     # ============================
     # FIND DEVICE BY device_id
     # ============================
     @staticmethod
     def find_by_device_id(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(dictionary=True, buffered=True)
 
-        try:
-            # 1. Check servers
-            sql_server = """
-                SELECT 
-                    s.*,
-                    'server' as device_type,
-                    s.southbound,
-                    s.status,
-                    s.created_at as global_created_at,
-                    s.updated_at as global_updated_at,
-                    s.last_seen
-                FROM servers s
-                WHERE s.device_id=%s
-            """
+            try:
+                # 1. CHECK SERVERS
+                sql_server = """
+                    SELECT 
+                        s.*,
+                        'server' AS device_type,
+                        s.southbound,
+                        s.status,
+                        s.created_at AS global_created_at,
+                        s.updated_at AS global_updated_at,
+                        s.last_seen
+                    FROM servers s
+                    WHERE s.device_id = %s
+                """
+                cursor.execute(sql_server, (device_id,))
+                server_row = cursor.fetchone()
+                cursor.fetchall()  # IMPORTANT FIX
 
-            cursor.execute(sql_server, (device_id,))
-            server_row = cursor.fetchone()
-            cursor.fetchall()   # IMPORTANT FIX
+                if server_row:
+                    return server_row
 
-            if server_row:
-                return server_row
+                # 2. CHECK ROUTERS
+                sql_router = """
+                    SELECT 
+                        r.*,
+                        'router' AS device_type,
+                        r.southbound,
+                        r.status,
+                        r.created_at AS global_created_at,
+                        r.updated_at AS global_updated_at,
+                        r.last_seen
+                    FROM routers r
+                    WHERE r.device_id = %s
+                """
+                cursor.execute(sql_router, (device_id,))
+                router_row = cursor.fetchone()
+                cursor.fetchall()  # IMPORTANT FIX
 
-            # 2. Check routers
-            sql_router = """
-                SELECT 
-                    r.*,
-                    'router' as device_type,
-                    r.southbound,
-                    r.status,
-                    r.created_at as global_created_at,
-                    r.updated_at as global_updated_at,
-                    r.last_seen
-                FROM routers r
-                WHERE r.device_id=%s
-            """
-            cursor.execute(sql_router, (device_id,))
-            router_row = cursor.fetchone()
-            cursor.fetchall()   # IMPORTANT FIX
+                if router_row:
+                    return router_row
 
-            return router_row
+                # 3. CHECK SWITCHES
+                sql_switch = """
+                    SELECT 
+                        sw.*,
+                        'switch' AS device_type,
+                        sw.southbound,
+                        sw.status,
+                        sw.created_at AS global_created_at,
+                        sw.updated_at AS global_updated_at,
+                        sw.last_seen
+                    FROM switches sw
+                    WHERE sw.device_id = %s
+                """
+                cursor.execute(sql_switch, (device_id,))
+                switch_row = cursor.fetchone()
+                cursor.fetchall()
 
-            # 3. Check switches
-            sql_switch = """
-                SELECT 
-                    ns.*,
-                    'switch' as device_type,
-                    ns.southbound,
-                    ns.status,
-                    ns.created_at as global_created_at,
-                    ns.updated_at as global_updated_at,
-                    ns.last_seen
-                FROM switchs ns
-                WHERE ns.device_id=%s
-            """
-            cursor.execute(sql_switch, (device_id,))
-            switch_row = cursor.fetchone()
-            cursor.fetchall()
+                if switch_row:
+                    return switch_row
 
-            if switch_row:
-                return switch_row
+                # 4. CHECK ACCESS POINTS
+                sql_ap = """
+                    SELECT 
+                        ap.*,
+                        'access_point' AS device_type,
+                        ap.southbound,
+                        ap.status,
+                        ap.created_at AS global_created_at,
+                        ap.updated_at AS global_updated_at,
+                        ap.last_seen
+                    FROM access_points ap
+                    WHERE ap.device_id = %s
+                """
+                cursor.execute(sql_ap, (device_id,))
+                ap_row = cursor.fetchone()
+                cursor.fetchall()
 
-            # 4. Check access points
-            sql_ap = """
-                SELECT 
-                    ap.*,
-                    'access_point' as device_type,
-                    ap.southbound,
-                    ap.status,
-                    ap.created_at as global_created_at,
-                    ap.updated_at as global_updated_at,
-                    ap.last_seen
-                FROM access_points ap
-                WHERE ap.device_id=%s
-            """
-            cursor.execute(sql_ap, (device_id,))
-            ap_row = cursor.fetchone()
-            cursor.fetchall()
+                return ap_row
 
-            return ap_row
-
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()
 
     # ============================
     # INSERT SERVER
@@ -593,102 +590,6 @@ class DeviceRepository:
             conn.close()
 
     # ============================
-    # LIST ALL DEVICES
-    # ============================
-    @staticmethod
-    def list_all():
-        servers = DeviceRepository.get_all_servers()
-        routers = DeviceRepository.get_all_routers()
-        switches = DeviceRepository.get_all_switches()
-        access_points = DeviceRepository.get_all_access_points()
-        devices = servers + routers + switches + access_points
-
-        devices.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
-        return devices
-
-    # ============================
-    # DELETE DEVICE
-    # ============================
-    @staticmethod
-    def delete_device(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
-
-        try:
-            cursor.execute("DELETE FROM devices WHERE device_id=%s", (device_id,))
-            conn.commit()
-            return True
-
-        except:
-            conn.rollback()
-            raise
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # HEALTHCHECK DEVICES
-    # ============================
-    @staticmethod
-    def update_device_status(device_id, status, last_seen=None):
-        """Update device status and last_seen timestamp"""
-        try:
-            conn = DBConnection.get_conn()
-            cursor = conn.cursor(dictionary=True)
-            
-            update_query = """
-                UPDATE devices 
-                SET status = %s, 
-                    last_seen = %s,
-                    updated_at = NOW()
-                WHERE device_id = %s
-            """
-            last_seen_val = last_seen if last_seen else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            cursor.execute(update_query, (status, last_seen_val, device_id))
-            
-            # Juga update table specific (servers/routers)
-            cursor.execute("SELECT device_type FROM devices WHERE device_id = %s", (device_id,))
-            device = cursor.fetchone()
-            
-            if device and device['device_type'] == 'server':
-                cursor.execute("""
-                    UPDATE servers 
-                    SET status = %s, 
-                        last_seen = %s,
-                        updated_at = NOW()
-                    WHERE device_id = %s
-                """, (status, last_seen_val, device_id))
-
-            elif device and device['device_type'] == 'router':
-                cursor.execute("""
-                    UPDATE routers 
-                    SET status = %s, 
-                        last_seen = %s,
-                        updated_at = NOW()
-                    WHERE device_id = %s
-                """, (status, last_seen_val, device_id))
-
-            elif device and device['device_type'] == 'switch':
-                cursor.execute("""
-                    UPDATE switchs 
-                    SET status = %s, 
-                        last_seen = %s,
-                        updated_at = NOW()
-                    WHERE device_id = %s
-                """, (status, last_seen_val, device_id))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            return True
-        except Exception as e:
-            print(f"Error updating device status: {e}")
-            return False
-
-    # ============================
     # INSERT ACCESS POINT
     # ============================
     @staticmethod
@@ -811,3 +712,106 @@ class DeviceRepository:
                 return cursor.fetchall()
             finally:
                 cursor.close()
+
+    # ============================
+    # LIST ALL DEVICES
+    # ============================
+    @staticmethod
+    def list_all():
+        servers = DeviceRepository.get_all_servers()
+        routers = DeviceRepository.get_all_routers()
+        switches = DeviceRepository.get_all_switches()
+        access_points = DeviceRepository.get_all_access_points()
+        devices = servers + routers + switches + access_points
+
+        devices.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
+        return devices
+
+    # ============================
+    # DELETE DEVICE
+    # ============================
+    @staticmethod
+    def delete_device(device_id):
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("DELETE FROM devices WHERE device_id=%s", (device_id,))
+
+                conn.commit()
+                return True
+
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    # ============================
+    # HEALTHCHECK DEVICES
+    # ============================
+    @staticmethod
+    def update_device_status(device_id, status, last_seen=None):
+        """Update device status and last_seen timestamp"""
+        try:
+            conn = DBConnection.get_conn()
+            cursor = conn.cursor(dictionary=True)
+            
+            update_query = """
+                UPDATE devices 
+                SET status = %s, 
+                    last_seen = %s,
+                    updated_at = NOW()
+                WHERE device_id = %s
+            """
+            last_seen_val = last_seen if last_seen else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            cursor.execute(update_query, (status, last_seen_val, device_id))
+            
+            # Juga update table specific (servers/routers)
+            cursor.execute("SELECT device_type FROM devices WHERE device_id = %s", (device_id,))
+            device = cursor.fetchone()
+            
+            if device and device['device_type'] == 'server':
+                cursor.execute("""
+                    UPDATE servers 
+                    SET status = %s, 
+                        last_seen = %s,
+                        updated_at = NOW()
+                    WHERE device_id = %s
+                """, (status, last_seen_val, device_id))
+
+            elif device and device['device_type'] == 'router':
+                cursor.execute("""
+                    UPDATE routers 
+                    SET status = %s, 
+                        last_seen = %s,
+                        updated_at = NOW()
+                    WHERE device_id = %s
+                """, (status, last_seen_val, device_id))
+
+            elif device and device['device_type'] == 'switch':
+                cursor.execute("""
+                    UPDATE switchs 
+                    SET status = %s, 
+                        last_seen = %s,
+                        updated_at = NOW()
+                    WHERE device_id = %s
+                """, (status, last_seen_val, device_id))
+
+            elif device and device['device_type'] == 'access_point':
+                cursor.execute("""
+                    UPDATE access_points 
+                    SET status = %s, 
+                        last_seen = %s,
+                        updated_at = NOW()
+                    WHERE device_id = %s
+                """, (status, last_seen_val, device_id))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            return True
+        except Exception as e:
+            print(f"Error updating device status: {e}")
+            return False
