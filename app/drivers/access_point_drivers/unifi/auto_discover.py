@@ -12,7 +12,7 @@ class AutoDiscoverAPUnifi:
     DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
     SETTING_ENDPOINT = f"{UNIFI_BASE}/query_range?field=setting"
 
-    INTERVAL = 10
+    INTERVAL = 60
 
     # SNAPSHOT CACHE (MEMORY)
     _snapshot = {}
@@ -190,7 +190,7 @@ class AutoDiscoverAPUnifi:
     # LOOP
     @classmethod
     def loop(cls):
-        print("[UNIFI-AUTO] UniFi Auto Discovery started (10s interval)")
+        print("[UNIFI-AUTO] UniFi Auto Discovery started (60s interval)")
         while True:
             try:
                 cls.run()

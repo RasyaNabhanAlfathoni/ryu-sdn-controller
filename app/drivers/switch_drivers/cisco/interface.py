@@ -6,89 +6,149 @@ class CiscoInterfaceDriver:
         self.base = None
     
     def get_interfaces(self, logger=None):
-        """Get all interfaces"""
+        """Get all interfaces dengan parsing yang lebih komprehensif"""
         try:
             if logger:
                 logger("Getting interfaces...")
             
+            # Dapatkan output dari switch
+            self.base.execute_command("terminal length 0", enable_mode=True)
             output = self.base.execute_command("show interfaces", enable_mode=True)
+            
+            if logger:
+                logger(f"Output length: {len(output)} chars")
+                logger("Sample output (first 500 chars):")
+                logger(output[:500])
             
             interfaces = []
             current_interface = None
             current_data = {}
             
             lines = output.split('\n')
-            for line in lines:
+            
+            for i, line in enumerate(lines):
                 line = line.strip()
+                if not line:
+                    continue
                 
-                # Deteksi interface baru
-                if line.startswith('GigabitEthernet') or line.startswith('FastEthernet') or line.startswith('TenGigabitEthernet'):
+                if logger and i < 10:  # Log 10 baris pertama untuk debugging
+                    logger(f"Line {i}: '{line}'")
+                
+                # Gunakan regex yang lebih komprehensif untuk semua tipe interface Cisco
+                interface_match = re.match(r'^(Ethernet\d+/\d+|GigabitEthernet\d+/\d+|FastEthernet\d+/\d+|TenGigabitEthernet\d+/\d+|Vlan\d+|Port-channel\d+)\s+', line)
+                
+                if interface_match:
                     if current_interface and current_data:
                         interfaces.append(current_data)
+                        if logger:
+                            logger(f"Added interface: {current_interface}")
                     
                     # Start new interface
-                    current_interface = line.split()[0]
+                    current_interface = interface_match.group(1)
                     current_data = {
                         'interface': current_interface,
-                        'status': 'down',
+                        'status': 'down',  # default
                         'description': '',
                         'mac_address': '',
                         'mtu': '',
                         'bandwidth': '',
                         'ip_address': ''
                     }
-                
-                # Parse status
-                elif 'line protocol is' in line.lower():
-                    if 'up' in line.lower():
+                    
+                    if logger:
+                        logger(f"Found new interface: {current_interface}")
+                    
+                    # Parse status dari baris pertama interface
+                    if 'is up' in line and 'line protocol is up' in line:
                         current_data['status'] = 'up'
-                    else:
-                        current_data['status'] = 'down'
+                    elif 'administratively down' in line:
+                        current_data['status'] = 'admin down'
+                    elif 'is up' in line or 'line protocol is up' in line:
+                        current_data['status'] = 'up (partial)'
                 
-                # Parse description
-                elif 'Description:' in line:
-                    desc = line.split('Description:')[-1].strip()
-                    current_data['description'] = desc
-                
-                # Parse MAC address
-                elif 'Hardware is' in line and 'address is' in line:
-                    mac_match = re.search(r'address is (\S+)', line)
-                    if mac_match:
-                        current_data['mac_address'] = mac_match.group(1)
-                
-                # Parse MTU
-                elif 'MTU' in line:
-                    mtu_match = re.search(r'MTU (\d+)', line)
-                    if mtu_match:
-                        current_data['mtu'] = mtu_match.group(1)
-                
-                # Parse bandwidth
-                elif 'BW' in line and 'Kbit' in line:
-                    bw_match = re.search(r'BW (\d+)', line)
-                    if bw_match:
-                        current_data['bandwidth'] = bw_match.group(1)
+                # Hanya parse jika sedang memproses suatu interface
+                elif current_interface and current_data:
+                    # Parse status (baris terpisah kadang ada status tambahan)
+                    if 'line protocol is' in line.lower():
+                        if 'up' in line.lower():
+                            current_data['status'] = 'up'
+                        else:
+                            current_data['status'] = 'down'
+                    
+                    # Parse description (bisa multi-line)
+                    elif 'Description:' in line:
+                        desc = line.split('Description:', 1)[-1].strip()
+                        if desc:
+                            current_data['description'] = desc
+                    
+                    # Parse MAC address (format: "address is aabb.cc00.0100")
+                    elif 'address is' in line.lower() and not current_data['mac_address']:
+                        mac_match = re.search(r'address is (\S+)', line)
+                        if mac_match:
+                            current_data['mac_address'] = mac_match.group(1)
+                            if logger:
+                                logger(f"  Found MAC for {current_interface}: {current_data['mac_address']}")
+                    
+                    # Parse MTU
+                    elif 'MTU' in line and not current_data['mtu']:
+                        mtu_match = re.search(r'MTU (\d+)', line)
+                        if mtu_match:
+                            current_data['mtu'] = mtu_match.group(1)
+                    
+                    # Parse bandwidth (BW dalam Kbit/sec)
+                    elif 'BW' in line and not current_data['bandwidth']:
+                        bw_match = re.search(r'BW (\d+)', line)
+                        if bw_match:
+                            current_data['bandwidth'] = bw_match.group(1)
             
             # Add last interface
             if current_interface and current_data:
                 interfaces.append(current_data)
+                if logger:
+                    logger(f"Added last interface: {current_interface}")
             
-            # Get IP addresses
-            ip_output = self.base.execute_command("show ip interface brief", enable_mode=True)
-            ip_lines = ip_output.split('\n')
+            # Get IP addresses dari "show ip interface brief"
+            if logger:
+                logger("Getting IP addresses...")
             
-            for line in ip_lines:
-                parts = line.split()
-                if len(parts) >= 4:
-                    intf_name = parts[0]
-                    ip_addr = parts[1]
+            try:
+                ip_output = self.base.execute_command("show ip interface brief", enable_mode=True)
+                
+                if logger:
+                    logger("IP output sample:")
+                    logger(ip_output[:300])
+                
+                ip_lines = ip_output.split('\n')
+                
+                for line in ip_lines:
+                    line = line.strip()
+                    parts = line.split()
                     
-                    # Update interface dengan IP
-                    for intf in interfaces:
-                        if intf['interface'] == intf_name and ip_addr != 'unassigned':
-                            intf['ip_address'] = ip_addr
+                    if len(parts) >= 2:
+                        intf_name = parts[0]
+                        ip_addr = parts[1]
+                        
+                        # Skip header dan unassigned IPs
+                        if intf_name in ['Interface', '']:
+                            continue
+                        
+                        if ip_addr.lower() not in ['unassigned', '--', '']:
+                            # Update interface dengan IP
+                            for intf in interfaces:
+                                if intf['interface'] == intf_name:
+                                    intf['ip_address'] = ip_addr
+                                    if logger:
+                                        logger(f"Assigned IP {ip_addr} to {intf_name}")
+                                    break
+            
+            except Exception as ip_error:
+                if logger:
+                    logger(f"Warning getting IP addresses: {str(ip_error)}")
             
             if logger:
-                logger(f"Found {len(interfaces)} interfaces")
+                logger(f"Found {len(interfaces)} interfaces:")
+                for intf in interfaces:
+                    logger(f"  - {intf['interface']}: status={intf['status']}, mac={intf['mac_address'][:10]}..., ip={intf['ip_address']}")
             
             return {
                 'status': 'success',
@@ -98,6 +158,8 @@ class CiscoInterfaceDriver:
         except Exception as e:
             if logger:
                 logger(f"Error getting interfaces: {str(e)}")
+                import traceback
+                logger(f"Traceback: {traceback.format_exc()}")
             
             return {
                 'status': 'error',

@@ -144,7 +144,7 @@ class CiscoSwitchActions:
         ]
         
         try:
-            result = driver.base.configure_terminal(config_commands)
+            result = driver.base.execute_command(config_commands)
             
             if logger:
                 logger(f"Configured trunk on {interface}: native {native_vlan}, allowed {allowed_vlans}")
