@@ -329,7 +329,7 @@ class DeviceRepository:
             sql = """
                 INSERT INTO routers
                 (device_id, username, password, identity, os_version,
-                board, serial_number, vendor, main_ip_address,
+                model, serial_number, vendor, main_ip_address,
                 main_mac_address, main_interface, southbound, status,
                 created_at, updated_at, last_seen)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
@@ -341,7 +341,7 @@ class DeviceRepository:
                 dev.get("password", ""),
                 dev.get("identity", "unknown"),
                 dev.get("os_version", "unknown"),
-                dev.get("board", ""),
+                dev.get("model", ""),
                 dev.get("serial_number", ""),
                 dev.get("vendor", "unknown"),
                 dev.get("main_ip_address", ""),
@@ -369,7 +369,7 @@ class DeviceRepository:
             sql = """
                 UPDATE routers 
                 SET username=%s, password=%s, identity=%s, os_version=%s,
-                    board=%s, serial_number=%s, vendor=%s, main_ip_address=%s,
+                    model=%s, serial_number=%s, vendor=%s, main_ip_address=%s,
                     main_mac_address=%s, main_interface=%s, southbound=%s, status=%s,
                     updated_at=NOW(), last_seen=NOW()
                 WHERE device_id=%s
@@ -380,7 +380,7 @@ class DeviceRepository:
                 dev.get("password", ""),
                 dev.get("identity", "unknown"),
                 dev.get("os_version", "unknown"),
-                dev.get("board", ""),
+                dev.get("model", ""),
                 dev.get("serial_number", ""),
                 dev.get("vendor", "unknown"),
                 dev.get("main_ip_address", ""),

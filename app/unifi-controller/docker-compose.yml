@@ -28,6 +28,8 @@ services:
     volumes:
       - ./mongo-api:/app
     command: node index.js
+    depends_on:
+      - unifi
     ports:
       - "3000:3000"
     network_mode: host
