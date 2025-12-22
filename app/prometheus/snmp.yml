@@ -130,6 +130,303 @@ modules:
         oid: 1.3.6.1.2.1.1.1.0
         type: DisplayString
         help: Interface Status
+      - name: ifMtu
+        oid: 1.3.6.1.2.1.2.2.1.4
+        type: gauge
+        help: Maximum transmission unit of the interface
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifLastChange
+        oid: 1.3.6.1.2.1.2.2.1.9
+        type: gauge
+        help: Time since interface last changed state (Timeticks)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifInErrors
+        oid: 1.3.6.1.2.1.2.2.1.14
+        type: counter
+        help: Number of inbound packets that contained errors
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifOutErrors
+        oid: 1.3.6.1.2.1.2.2.1.20
+        type: counter
+        help: Number of outbound packets that contained errors
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifInDiscards
+        oid: 1.3.6.1.2.1.2.2.1.13
+        type: counter
+        help: Number of inbound packets discarded
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifOutDiscards
+        oid: 1.3.6.1.2.1.2.2.1.19
+        type: counter
+        help: Number of outbound packets discarded
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+  unifi:
+    walk:
+      - 1.3.6.1.2.1.1        # system
+      - 1.3.6.1.2.1.2        # interface
+      - 1.3.6.1.2.1.25       # hrSystem
+      - 1.3.6.1.4.1.2021     # cpu & memory
+      - 1.3.6.1.4.1.41112   # unifi private mib
+    metrics:
+      - name: SystemName
+        oid: 1.3.6.1.2.1.1.5.0
+        type: DisplayString
+      - name: SystemUptime
+        oid: 1.3.6.1.2.1.25.1.1.0
+        type: gauge
+      - name: FirmwareVersion
+        oid: 1.3.6.1.4.1.41112.1.6.3.6.0
+        type: DisplayString
+      - name: HardwareModel
+        oid: 1.3.6.1.4.1.41112.1.6.3.3.0
+        type: DisplayString
+      - name: SystemIPAddress
+        oid: 1.3.6.1.4.1.41112.1.6.3.1.0
+        type: DisplayString
+      - name: SystemMacAddress
+        oid: 1.3.6.1.4.1.41112.1.6.2.1.1.4.1
+        type: OctetString
+      - name: cpuLoad1m
+        oid: 1.3.6.1.4.1.2021.10.1.6.1
+        type: gauge
+        help: CPU load 1 minute average
+      - name: cpuLoad5m
+        oid: 1.3.6.1.4.1.2021.10.1.6.2
+        type: gauge
+        help: CPU load 5 minute average
+      - name: cpuLoad15m
+        oid: 1.3.6.1.4.1.2021.10.1.6.3
+        type: gauge
+        help: CPU load 15 minute average
+      - name: memTotal
+        oid: 1.3.6.1.4.1.2021.4.5.0
+        type: gauge
+        help: Total memory
+      - name: memAvailable
+        oid: 1.3.6.1.4.1.2021.4.6.0
+        type: gauge
+        help: Available memory
+      - name: memUsed
+        oid: 1.3.6.1.4.1.2021.4.15.0
+        type: gauge
+        help: Used memory
+      - name: ifInOctets
+        oid: 1.3.6.1.2.1.2.2.1.10
+        type: counter
+        help: Bytes received per interface
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifOutOctets
+        oid: 1.3.6.1.2.1.2.2.1.16
+        type: counter
+        help: Bytes sent per interface
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        help: Bytes received per interface (64-bit)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifHCOutOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.10
+        type: counter
+        help: Bytes sent per interface (64-bit)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifOperStatus
+        oid: 1.3.6.1.2.1.2.2.1.8
+        type: gauge
+        help: Interface operational status (1=up,2=down)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifType
+        oid: 1.3.6.1.2.1.2.2.1.3
+        type: gauge
+        help: Interface type (6=ethernet,24=loopback)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifMtu
+        oid: 1.3.6.1.2.1.2.2.1.4
+        type: gauge
+        help: Maximum transmission unit of the interface
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifLastChange
+        oid: 1.3.6.1.2.1.2.2.1.9
+        type: gauge
+        help: Time since interface last changed state (Timeticks)
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifInErrors
+        oid: 1.3.6.1.2.1.2.2.1.14
+        type: counter
+        help: Number of inbound packets that contained errors
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifOutErrors
+        oid: 1.3.6.1.2.1.2.2.1.20
+        type: counter
+        help: Number of outbound packets that contained errors
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifInDiscards
+        oid: 1.3.6.1.2.1.2.2.1.13
+        type: counter
+        help: Number of inbound packets discarded
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: ifOutDiscards
+        oid: 1.3.6.1.2.1.2.2.1.19
+        type: counter
+        help: Number of outbound packets discarded
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
+      - name: InterfaceMAC
+        oid: 1.3.6.1.2.1.2.2.1.6
+        type: OctetString
+        help: Mac Address per interface
+        indexes:
+          - labelname: InterfaceIndex
+            type: gauge
+        lookups:
+          - labels:
+              - InterfaceIndex
+            labelname: ifName
+            oid: 1.3.6.1.2.1.2.2.1.2
+            type: DisplayString
 
   cisco:
     walk:
@@ -140,49 +437,39 @@ modules:
       - name: SystemDescription
         oid: 1.3.6.1.2.1.1.1.0
         type: DisplayString
-
       - name: SystemUptime
         oid: 1.3.6.1.2.1.1.3.0
         type: gauge
-
       - name: SystemName
         oid: 1.3.6.1.2.1.1.5.0
         type: DisplayString
-
       - name: PhysicalDescription
         oid: 1.3.6.1.2.1.47.1.1.1.1.2.1
         type: DisplayString
         help: Spesifikasi fisik perangkat / interface
-
       - name: HardwareModel
         oid: 1.3.6.1.2.1.47.1.1.1.1.13.1
         type: DisplayString
-
       - name: SoftwareVersion
         oid: 1.3.6.1.2.1.47.1.1.1.1.9.1
         type: DisplayString
-
       - name: SerialNumber
         oid: 1.3.6.1.2.1.47.1.1.1.1.11.1
         type: DisplayString
-
       - name: CiscoDeviceStatus
         oid: 1.3.6.1.4.1.9.2.1.2.0
         type: gauge
         help: Status perangkat Cisco (vendor specific)
-
       - name: DeviceBaseMac
         oid: 1.3.6.1.2.1.17.1.1.0
         type: OctetString
         help: MAC address utama perangkat
-
       - name: InterfaceName
         oid: 1.3.6.1.2.1.31.1.1.1.1
         type: DisplayString
         indexes:
           - labelname: ifIndex
             type: gauge
-
       - name: InterfaceType
         oid: 1.3.6.1.2.1.2.2.1.3
         type: gauge
@@ -190,7 +477,6 @@ modules:
         indexes:
           - labelname: ifIndex
             type: gauge
-
       - name: InterfaceStatus
         oid: 1.3.6.1.2.1.2.2.1.8
         type: gauge
@@ -203,7 +489,6 @@ modules:
             labelname: ifName
             oid: 1.3.6.1.2.1.31.1.1.1.1
             type: DisplayString
-
       - name: InterfaceSpeed
         oid: 1.3.6.1.2.1.2.2.1.5
         type: gauge
@@ -211,14 +496,12 @@ modules:
         indexes:
           - labelname: ifIndex
             type: gauge
-
       - name: InterfaceMAC
         oid: 1.3.6.1.2.1.2.2.1.6
         type: OctetString
         indexes:
           - labelname: ifIndex
             type: gauge
-
       - name: ifHCInOctets
         oid: 1.3.6.1.2.1.31.1.1.1.6
         type: counter
@@ -231,7 +514,6 @@ modules:
             labelname: ifName
             oid: 1.3.6.1.2.1.31.1.1.1.1
             type: DisplayString
-
       - name: ifHCOutOctets
         oid: 1.3.6.1.2.1.31.1.1.1.10
         type: counter
@@ -244,21 +526,18 @@ modules:
             labelname: ifName
             oid: 1.3.6.1.2.1.31.1.1.1.1
             type: DisplayString
-
       - name: CiscoVlanId
         oid: 1.3.6.1.4.1.9.9.46.1.3.1.1.4
         type: gauge
         indexes:
           - labelname: vlanIndex
             type: gauge
-
       - name: CiscoVlanName
         oid: 1.3.6.1.4.1.9.9.46.1.3.1.1.18
         type: DisplayString
         indexes:
           - labelname: vlanIndex
             type: gauge
-
       - name: CiscoProcessCpu
         oid: 1.3.6.1.4.1.9.9.48.1.1.1
         type: gauge

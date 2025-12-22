@@ -12,8 +12,8 @@ services:
       - MEM_STARTUP=1024 #optional
 
     ports:
-      - "8880:8080"
-      - "8883:8443"
+      - "8080:8080"
+      - "8443:8443"
       - "3478:3478/udp"
 
     volumes:
@@ -28,6 +28,8 @@ services:
     volumes:
       - ./mongo-api:/app
     command: node index.js
+    depends_on:
+      - unifi
     ports:
       - "3000:3000"
     network_mode: host
