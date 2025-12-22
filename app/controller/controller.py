@@ -764,7 +764,7 @@ class NorthboundApi(ControllerBase):
             elif is_cisco:
                 device_type = "switch" 
                 registration_mode = "paramiko_discovery"
-            elif is_unifie:
+            elif is_unifi:
                 device_type = "access_point" 
                 registration_mode = "paramiko_discovery"
             else:
