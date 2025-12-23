@@ -1,13 +1,1 @@
-[
-  {
-    "targets": [
-      "192.168.100.88"
-    ],
-    "labels": {
-      "id": "dev_76299b09a4",
-      "module": "unifi",
-      "device_name": "AP UNIFI",
-      "location": "Lab School"
-    }
-  }
-]
+[]

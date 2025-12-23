@@ -18,6 +18,7 @@ RUN pip install setuptools==20.3.4
 
 # install ryu controller
 RUN git clone https://github.com/faucetsdn/ryu.git . \
+    && cd ryu \
     && pip install .
 
 # install dependency
@@ -30,11 +31,6 @@ ENV PYTHONUNBUFFERED=1
 # copy isi file app controller
 COPY . .
 COPY entrypoint.sh .
-
-#RUN mkdir -p /opt/prometheus \
-#    && cp /opt/sdn-controller/snmp_targets.json /opt/prometheus/ \
-#    && cp /opt/sdn-controller/server_targets.json /opt/prometheus/ \
-#    && cp /opt/sdn-controller/snmp.yml /opt/prometheus/
 
 RUN chmod +x entrypoint.sh
 ENTRYPOINT ["./entrypoint.sh"]

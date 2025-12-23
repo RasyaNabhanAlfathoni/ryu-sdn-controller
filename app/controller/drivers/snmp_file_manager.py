@@ -6,9 +6,6 @@ class SNMPFileManager:
 
         self.snmp_yml_path = os.path.join(BASE_PROM_DIR, "snmp.yml")
         self.snmp_targets_path = os.path.join(BASE_PROM_DIR, "snmp_targets.json")
-        # base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus'))
-        # self.snmp_yml_path = os.path.join(base_dir, 'snmp.yml')     
-        # self.snmp_targets_path = os.path.join(base_dir, 'snmp_targets.json')
 
     # === DEVICE MANAGEMENT ===
     def add_device(self, data):
