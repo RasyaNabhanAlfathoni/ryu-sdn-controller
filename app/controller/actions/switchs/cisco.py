@@ -56,11 +56,16 @@ class CiscoSwitchActions:
             # === STP Management ===
             "switch.stp.info": lambda p, logger: driver.stp.get_stp_info(logger),
             "switch.stp.enable": lambda p, logger: driver.stp.enable_stp(logger),
-            "switch.stp.disable": lambda p, logger: driver.stp.disable_stp(logger),
-            "switch.stp.set.priority": lambda p, logger: driver.stp.set_bridge_priority(
-                p['priority'], p.get('vlan'), logger
+            "switch.stp.vlan.enable": lambda p, logger: driver.stp.enable_stp_vlan(
+                p['vlan'], logger
             ),
-            "switch.stp.portfast": lambda p, logger: driver.stp.configure_portfast(
+            "switch.stp.vlan.disable": lambda p, logger: driver.stp.disable_stp_vlan(
+                p['vlan'], logger
+            ),
+            "switch.stp.vlan.priority": lambda p, logger: driver.stp.set_bridge_priority(
+                p['priority'], p['vlan'], logger
+            ),
+            "switch.stp.interface.portfast": lambda p, logger: driver.stp.configure_portfast(
                 p.get('interface'), logger
             ),
             
@@ -130,41 +135,54 @@ class CiscoSwitchActions:
     
     @staticmethod
     def _assign_vlan_trunk(driver, params, logger):
-        """Assign VLAN trunk configuration via SSH"""
-        interface = params['interface']
-        native_vlan = params.get('native_vlan', 1)
-        allowed_vlans = params.get('allowed_vlans', 'all')
-        
-        config_commands = [
-            f"interface {interface}",
-            "switchport mode trunk",
-            f"switchport trunk native vlan {native_vlan}",
-            f"switchport trunk allowed vlan {allowed_vlans}",
-            "exit"
-        ]
-        
         try:
-            result = driver.base.execute_command(config_commands)
-            
+            interface = params['interface']
+            native_vlan = params.get('native_vlan', 1)
+            allowed_vlans = params.get('allowed_vlans', 'all')
+
+            if isinstance(allowed_vlans, list):
+                allowed_vlans = ",".join(map(str, allowed_vlans))
+
             if logger:
-                logger(f"Configured trunk on {interface}: native {native_vlan}, allowed {allowed_vlans}")
-            
+                logger(f"Configuring trunk on {interface}")
+
+            driver.base.execute_command("configure terminal", enable_mode=True)
+            driver.base.execute_command(f"interface {interface}", enable_mode=True)
+            driver.base.execute_command("switchport mode trunk", enable_mode=True)
+            driver.base.execute_command(f"switchport trunk native vlan {native_vlan}", enable_mode=True)
+            driver.base.execute_command(f"switchport trunk allowed vlan {allowed_vlans}", enable_mode=True)
+            driver.base.execute_command("exit", enable_mode=True)
+            driver.base.execute_command("end", enable_mode=True)
+
+            # Verifikasi Commandnya
+            verify = driver.base.execute_command(
+                "show interface trunk",
+                enable_mode=True
+            )
+
+            if interface not in verify:
+                raise Exception("Trunk configuration verification failed")
+
+            driver.base.execute_command("write memory", enable_mode=True)
+
+            if logger:
+                logger(f"Trunk successfully configured on {interface}")
+
             return {
-                'status': 'success',
-                'message': f'Trunk configured on {interface}',
-                'interface': interface,
-                'native_vlan': native_vlan,
-                'allowed_vlans': allowed_vlans,
-                'commands': config_commands
+                "status": "success",
+                "interface": interface,
+                "mode": "trunk",
+                "native_vlan": native_vlan,
+                "allowed_vlans": allowed_vlans
             }
-            
+
         except Exception as e:
             if logger:
-                logger(f"Error configuring trunk: {str(e)}")
-            
+                logger(f"Error configuring trunk on {interface}: {e}")
+
             return {
-                'status': 'error',
-                'error': str(e)
+                "status": "error",
+                "error": str(e)
             }
     
     @staticmethod

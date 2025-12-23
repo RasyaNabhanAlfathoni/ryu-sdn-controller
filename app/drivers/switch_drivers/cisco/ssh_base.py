@@ -264,9 +264,26 @@ class CiscoSSHBase:
         except Exception as e:
             print(f"[SSH-BASE] Outer execute_command error: {e}")
             return f"ERROR: {str(e)}"
+
+    def save_configuration(self):
+        """Save configuration to startup"""
+        try:
+            # Kirim command write memory atau copy running-config startup-config
+            result = self.execute_command("write memory", enable_mode=True)
+            
+            return {
+                'status': 'success',
+                'message': 'Configuration saved',
+                'result': result
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
     
     def _detect_capabilities(self):
-        """Detect capabilities - SIMPLIFIED"""
+        """Detect capabilities"""
         try:
             self._capabilities = {
                 'stp': True,

@@ -27,7 +27,7 @@ class CiscoQoSDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"Rate limit {rate_kbps} kbps set on {interface}")
@@ -72,7 +72,7 @@ class CiscoQoSDriver:
             "exit"
         ]
         
-        result = self.base.configure_terminal(config_commands)
+        result = self.base.execute_command(config_commands)
         
         return {
             'status': 'success',
@@ -97,7 +97,7 @@ class CiscoQoSDriver:
             
             config_commands.append("exit")
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"QoS policy {policy_name} created")
@@ -130,7 +130,7 @@ class CiscoQoSDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"QoS policy applied to {interface}")

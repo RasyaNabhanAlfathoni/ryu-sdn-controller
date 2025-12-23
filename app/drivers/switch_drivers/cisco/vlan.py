@@ -46,101 +46,99 @@ class CiscoVlanDriver:
             }
     
     def create_vlan(self, vlan_id, name=None, logger=None):
-        """Create VLAN"""
         try:
             if logger:
                 logger(f"Creating VLAN {vlan_id}...")
-            
-            config_commands = [
-                f"vlan {vlan_id}"
-            ]
-            
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+
+            self.base.execute_command(f"vlan {vlan_id}", enable_mode=True)
+
             if name:
-                config_commands.append(f"name {name}")
-            
-            config_commands.append("exit")
-            
-            result = self.base.configure_terminal(config_commands)
-            
+                self.base.execute_command(f"name {name}", enable_mode=True)
+
+            self.base.execute_command("end", enable_mode=True)
+
+            # Verifikasi Command
+            verify = self.base.execute_command(
+                f"show vlan id {vlan_id}",
+                enable_mode=True
+            )
+
+            if "not found" in verify.lower():
+                raise Exception("VLAN not created (verification failed)")
+
             if logger:
-                logger(f"VLAN {vlan_id} created")
-            
+                logger(f"VLAN {vlan_id} successfully verified")
+
             return {
                 'status': 'success',
                 'message': f'VLAN {vlan_id} created',
                 'vlan_id': vlan_id,
                 'name': name or f'VLAN{vlan_id}'
             }
-            
+
         except Exception as e:
             if logger:
                 logger(f"Error creating VLAN: {str(e)}")
-            
+
             return {
                 'status': 'error',
                 'error': str(e)
             }
+
     
     def delete_vlan(self, vlan_id, logger=None):
-        """Delete VLAN"""
         try:
             if logger:
                 logger(f"Deleting VLAN {vlan_id}...")
-            
-            config_commands = [
-                f"no vlan {vlan_id}"
-            ]
-            
-            result = self.base.configure_terminal(config_commands)
-            
-            if logger:
-                logger(f"VLAN {vlan_id} deleted")
-            
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"no vlan {vlan_id}", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
+
+            verify = self.base.execute_command(
+                f"show vlan id {vlan_id}",
+                enable_mode=True
+            )
+
+            if "not found" not in verify.lower():
+                raise Exception("VLAN still exists after delete")
+
+            self.base.execute_command("write memory", enable_mode=True)
+
             return {
-                'status': 'success',
-                'message': f'VLAN {vlan_id} deleted'
+                "status": "success",
+                "message": f"VLAN {vlan_id} deleted"
             }
-            
+
         except Exception as e:
             if logger:
-                logger(f"Error deleting VLAN: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
-    
+                logger(f"Error deleting VLAN: {e}")
+            return {"status": "error", "error": str(e)}
+
     def assign_vlan_access(self, interface_name, vlan_id, logger=None):
-        """Assign VLAN access port"""
         try:
             if logger:
-                logger(f"Assigning {interface_name} to VLAN {vlan_id} as access port...")
-            
-            config_commands = [
-                f"interface {interface_name}",
-                "switchport mode access",
-                f"switchport access vlan {vlan_id}",
-                "exit"
-            ]
-            
-            result = self.base.configure_terminal(config_commands)
-            
-            if logger:
-                logger(f"Interface {interface_name} assigned to VLAN {vlan_id}")
-            
+                logger(f"Assigning {interface_name} to VLAN {vlan_id}")
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface_name}", enable_mode=True)
+            self.base.execute_command("switchport mode access", enable_mode=True)
+            self.base.execute_command(f"switchport access vlan {vlan_id}", enable_mode=True)
+            self.base.execute_command("exit", enable_mode=True)
+            self.base.execute_command("end",enable_mode=True)
+
+            self.base.execute_command("write memory", enable_mode=True)
+
             return {
-                'status': 'success',
-                'message': f'Interface {interface_name} assigned to VLAN {vlan_id}',
-                'interface': interface_name,
-                'vlan_id': vlan_id,
-                'mode': 'access'
+                "status": "success",
+                "interface": interface_name,
+                "vlan_id": vlan_id,
+                "mode": "access"
             }
-            
+
         except Exception as e:
             if logger:
-                logger(f"Error assigning VLAN access: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+                logger(f"Error assigning VLAN: {e}")
+            return {"status": "error", "error": str(e)}

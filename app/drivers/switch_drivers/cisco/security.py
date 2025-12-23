@@ -29,7 +29,7 @@ class CiscoSecurityDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"Port security enabled on {interface}")
@@ -63,7 +63,7 @@ class CiscoSecurityDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"Port security disabled on {interface}")
@@ -95,7 +95,7 @@ class CiscoSecurityDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"Sticky MAC enabled on {interface}")
@@ -134,7 +134,7 @@ class CiscoSecurityDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             if logger:
                 logger(f"Static MAC {mac_address} added to {interface}")
@@ -241,7 +241,7 @@ class CiscoSecurityDriver:
                 "exit"
             ]
             
-            result = self.base.configure_terminal(config_commands)
+            result = self.base.execute_command(config_commands)
             
             # Clear port security counters
             clear_cmd = f"clear port-security sticky interface {interface}"

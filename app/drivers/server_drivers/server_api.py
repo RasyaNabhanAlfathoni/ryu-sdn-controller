@@ -1,13 +1,15 @@
 import requests
 import json
+import os
 from typing import Dict, List, Optional
 
 class ServerAPI:
     name = "AgentClient"  # Ganti nama untuk clarity
 
     def __init__(self, dev):
-        self.agent_ip = dev.get("ip")  # IP agent (contoh: 192.168.221.163)
-        self.agent_url = f"http://{self.agent_ip}:8081"  # Agent URL API endpoint
+        self.agent_ip = dev.get("main_ip_address")  # IP agent (contoh: 192.168.221.163)
+        self.agent_port = (dev.get("api_port") or int(os.environ.get("SERVER_AGENT_API_PORT", 8081))) # Port Agent
+        self.agent_url = f"http://{self.agent_ip}:{self.agent_port}"  # Agent URL API endpoint
         self.device_id = dev.get("id")
         self.device_data = dev
         print(f"[AgentClient] Initialized for {self.device_id} at {self.agent_url}")
