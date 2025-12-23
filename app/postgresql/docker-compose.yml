@@ -25,6 +25,8 @@ services:
       TZ: Asia/Jakarta
     ports:
       - "5050:80"
+    volumes:
+      - volume-sdn-pgadmin:/var/lib/pgadmin
     depends_on:
       - postgres
     networks:
@@ -33,6 +35,8 @@ services:
 volumes:
   volume-sdn-pg:
     name: volume-sdn-pg
+  volume-sdn-pgadmin:
+    name: volume-sdn-pgadmin
 
 networks:
   network-sdn:

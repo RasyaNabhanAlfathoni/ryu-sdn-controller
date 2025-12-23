@@ -1,5 +1,5 @@
 import os, sys 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 sys.path.append(BASE_DIR)
 
 from ryu.base import app_manager
@@ -12,6 +12,7 @@ import socket
 
 # === Database Integration ===
 from database.device_repository import DeviceRepository
+from database.db_connection import DBConnection
 
 # === SNMP Driver ===
 from drivers.snmp_file_manager import SNMPFileManager
@@ -712,6 +713,35 @@ class NorthboundApi(ControllerBase):
     def get_job(self, req, jid, **kwargs):
         b = json.dumps(self.core.jobs.data.get(jid, {"error":"not found"}))
         return self._resp(req, b)
+
+    @route('health', '/health', methods=['GET'])
+    def health_controller_db(self, req, **kwargs):
+        status = {
+            "controller": "ok",
+            "database": "unknown"
+        }
+
+        # cek koneksi database
+        try:
+            from database.db_connection import DBConnection
+
+            with DBConnection.get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT 1;")
+                cur.fetchone()
+                cur.close()
+
+            status["database"] = "ok"
+
+        except Exception as e:
+            status["database"] = "error"
+            status["db_error"] = str(e)
+
+        # status
+        if status["database"] == "ok":
+            return self._resp(req, json.dumps(status), status=200)
+        else:
+            return self._resp(req, json.dumps(status), status=500)
 
     # === Device Management ===
     # Create devices, disini ambil data dari payload agent_register

@@ -2,9 +2,13 @@ import yaml, json, subprocess, os
 
 class SNMPFileManager:
     def __init__(self):
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus'))
-        self.snmp_yml_path = os.path.join(base_dir, 'snmp.yml')
-        self.snmp_targets_path = os.path.join(base_dir, 'snmp_targets.json')
+        BASE_PROM_DIR = os.getenv("PROMETHEUS_DIR", "/opt/prometheus")
+
+        self.snmp_yml_path = os.path.join(BASE_PROM_DIR, "snmp.yml")
+        self.snmp_targets_path = os.path.join(BASE_PROM_DIR, "snmp_targets.json")
+        # base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'prometheus'))
+        # self.snmp_yml_path = os.path.join(base_dir, 'snmp.yml')     
+        # self.snmp_targets_path = os.path.join(base_dir, 'snmp_targets.json')
 
     # === DEVICE MANAGEMENT ===
     def add_device(self, data):
@@ -35,7 +39,7 @@ class SNMPFileManager:
         with open(self.snmp_targets_path, "w") as f:
             json.dump(targets, f, indent=2)
 
-        self.restart_prometheus()
+        # self.restart_prometheus()
         return new_target
 
 
@@ -51,7 +55,7 @@ class SNMPFileManager:
         with open(self.snmp_targets_path, "w") as f:
             json.dump(new_targets, f, indent=2)
 
-        self.restart_prometheus()
+        # self.restart_prometheus()
         return True
 
     def edit_device(self, device_id, new_data):
@@ -78,7 +82,7 @@ class SNMPFileManager:
         with open(self.snmp_targets_path, "w") as f:
             json.dump(targets, f, indent=2)
 
-        self.restart_prometheus()
+        # self.restart_prometheus()
         return True
 
     # === METRIC MANAGEMENT ===
@@ -134,7 +138,7 @@ class SNMPFileManager:
         with open(self.snmp_yml_path, "w") as f:
             yaml.dump(yml, f, sort_keys=False)
 
-        self.restart_snmp_exporter()
+        # self.restart_snmp_exporter()
         return metric
 
     def delete_metric(self, module, name):
@@ -161,7 +165,7 @@ class SNMPFileManager:
         with open(self.snmp_yml_path, "w") as f:
             yaml.dump(yml, f, sort_keys=False)
 
-        self.restart_snmp_exporter()
+        # self.restart_snmp_exporter()
         return True
 
     def edit_metric(self, module, name, new_values):
@@ -189,21 +193,21 @@ class SNMPFileManager:
         with open(self.snmp_yml_path, "w") as f:
             yaml.dump(yml, f, sort_keys=False)
 
-        self.restart_snmp_exporter()
+        # self.restart_snmp_exporter()
         return True
 
-    # === Restart Functions ===
-    def restart_snmp_exporter(self):
-        try:
-            subprocess.run(["docker", "restart", "snmp_exporter"], check=True)
-        except Exception as e:
-            raise Exception(f"Failed to restart snmp_exporter: {str(e)}")
+    # # === Restart Functions ===
+    # def restart_snmp_exporter(self):
+    #     try:
+    #         subprocess.run(["docker", "restart", "snmp_exporter"], check=True)
+    #     except Exception as e:
+    #         raise Exception(f"Failed to restart snmp_exporter: {str(e)}")
 
-    def restart_prometheus(self):
-        try:
-            subprocess.run(["docker", "restart", "prometheus"], check=True)
-        except Exception as e:
-            raise Exception(f"Failed to restart prometheus: {str(e)}")
+    # def restart_prometheus(self):
+    #     try:
+    #         subprocess.run(["docker", "restart", "prometheus"], check=True)
+    #     except Exception as e:
+    #         raise Exception(f"Failed to restart prometheus: {str(e)}")
 
     # === SNMP Tester ===
     def test_snmp(self, ip, community, oid, version=None):

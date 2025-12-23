@@ -1,0 +1,14 @@
+# controller
+eventlet
+webob
+psycopg2-binary
+pymongo
+
+# southbound
+paramiko
+cryptography
+requests>=2.25.0
+psutil
+PyYAML==6.0.1
+routeros-api
+librouteros

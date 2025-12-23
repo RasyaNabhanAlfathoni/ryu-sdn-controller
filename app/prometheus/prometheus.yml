@@ -5,6 +5,8 @@ global:
 scrape_configs:
   - job_name: "snmp"
     metrics_path: /snmp
+    scrape_interval: 25s
+    scrape_timeout: 22s
     file_sd_configs:
       - files:
           - snmp_targets.json
@@ -25,7 +27,7 @@ scrape_configs:
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__
-        replacement: snmp_exporter:9116
+        replacement: 192.168.100.85:9116 # bisa juga snmp_exporter:9116
 
   # Node Exporter - Dynamic via Controller API
   - job_name: "node-exporter-servers"
