@@ -176,16 +176,23 @@ class ServerActions:
             
             # ================= WAZUH AGENT =================
             # Wazuh actions
-            "server.wazuh.install": lambda p, logger: wazuh_api.install_agent(
+            "server.wazuh.agent.install": lambda p, logger: wazuh_api.install_agent(
                 device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                 manager_ip=p.get("manager_ip"), 
                 logger=logger
             ),
-            "server.wazuh.uninstall": lambda p, logger: wazuh_api.uninstall_agent(
+            "server.wazuh.agent.uninstall": lambda p, logger: wazuh_api.uninstall_agent(
                 device_id=getattr(d, 'device_id', None) or p.get("device_id"),
                 logger=logger
             ),
-            "server.wazuh.status": lambda p, logger: d.wazuh_agent_status(logger=logger),
+            "server.wazuh.agent.status": lambda p, logger: d.wazuh_agent_status(logger=logger),
+            "server.wazuh.agent.config.get": lambda p, logger=None: d.wazuh_get_config(
+                logger=logger
+            ),
+            "server.wazuh.agent.config.update": lambda p, logger=None: d.wazuh_update_config( 
+                config_content=p["config_content"],
+                logger=logger
+            )
         }
     
     @staticmethod

@@ -1,13 +1,15 @@
 import requests
 import json
+import os
 from typing import Dict, List, Optional
 
 class ServerAPI:
     name = "AgentClient"  # Ganti nama untuk clarity
 
     def __init__(self, dev):
-        self.agent_ip = dev.get("ip")  # IP agent (contoh: 192.168.221.163)
-        self.agent_url = f"http://{self.agent_ip}:8081"  # Agent URL API endpoint
+        self.agent_ip = dev.get("main_ip_address")  # IP agent (contoh: 192.168.221.163)
+        self.agent_port = (dev.get("api_port") or int(os.environ.get("SERVER_AGENT_API_PORT", 8081))) # Port Agent
+        self.agent_url = f"http://{self.agent_ip}:{self.agent_port}"  # Agent URL API endpoint
         self.device_id = dev.get("id")
         self.device_data = dev
         print(f"[AgentClient] Initialized for {self.device_id} at {self.agent_url}")
@@ -440,3 +442,67 @@ class ServerAPI:
     def wazuh_agent_status(self, logger=None):
         """Get Wazuh agent status via agent API"""
         return self._call_agent("/api/wazuh/status", logger=logger)
+    
+    def wazuh_get_config(self, logger=None) -> Dict:
+        """Get Wazuh agent config remotely"""
+        return self._call_agent("/api/wazuh/config", method='GET', logger=logger)
+
+    def wazuh_update_config(self, config_content: str, logger=None) -> Dict:
+        """Update Wazuh agent config remotely"""
+        try:            
+            # Validate config content
+            if not config_content or not isinstance(config_content, str):
+                return {"success": False, "error": "config_content must be a non-empty string"}
+            
+            # Prepare request data
+            data = {"config_content": config_content}
+            
+            # Use requests.put directly instead of _call_agent
+            url = f"{self.agent_url}/api/wazuh/config"
+            headers = {'Content-Type': 'application/json'}
+            
+            try:
+                # Send PUT request directly
+                response = requests.put(
+                    url,
+                    json=data,
+                    headers=headers,
+                    timeout=30
+                )
+                
+                # Parse response
+                if response.status_code == 200:
+                    result = response.json()
+                    if isinstance(result, dict):
+                        if result.get("success") or result.get("status") == "success":
+                            return {
+                                "success": True,
+                                "message": "Configuration updated successfully",
+                                "details": result
+                            }
+                        else:
+                            return {
+                                "success": False,
+                                "error": result.get("error", "Unknown error from agent"),
+                                "details": result
+                            }
+                    else:
+                        return {"success": False, "error": f"Unexpected response: {result}"}
+                else:
+                    return {
+                        "success": False,
+                        "error": f"HTTP {response.status_code}: {response.text}",
+                        "status_code": response.status_code
+                    }
+                    
+            except requests.exceptions.Timeout:
+                return {"success": False, "error": "Request timeout - agent not responding"}
+            except requests.exceptions.ConnectionError:
+                return {"success": False, "error": "Connection refused - agent API not available"}
+            except Exception as e:
+                return {"success": False, "error": f"Request failed: {str(e)}"}
+                
+        except Exception as e:
+            if logger:
+                logger(f"[ERROR] wazuh_update_config failed: {str(e)}")
+            return {"success": False, "error": str(e)}

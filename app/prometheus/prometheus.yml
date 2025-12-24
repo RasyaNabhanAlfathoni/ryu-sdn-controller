@@ -15,6 +15,13 @@ scrape_configs:
         target_label: __param_target
       - source_labels: [module]
         target_label: __param_module
+      - source_labels: [community]
+        regex: public
+        replacement: cisco_public
+        target_label: __param_auth
+      # DROP label community agar tidak ikut ke request
+      - regex: community
+        action: labeldrop
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__

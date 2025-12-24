@@ -1,0 +1,39 @@
+services:
+  unifi:
+    image: jacobalberty/unifi
+    container_name: unifi
+    restart: unless-stopped
+    init: true
+    user: unifi
+
+    environment:
+      - TZ=Asia/Jakarta
+      - MEM_LIMIT=1024 #optional
+      - MEM_STARTUP=1024 #optional
+
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "3478:3478/udp"
+
+    volumes:
+      - unifi:/unifi
+
+    network_mode: host # Debug, agar bisa connect ke network luar supaya kehubung ke ip AP
+
+  unifi-mongo-api:
+    image: node:20
+    container_name: unifi-mongo-api
+    working_dir: /app
+    volumes:
+      - ./mongo-api:/app
+    command: node index.js
+    depends_on:
+      - unifi
+    ports:
+      - "3000:3000"
+    network_mode: host
+
+
+volumes:
+  unifi:

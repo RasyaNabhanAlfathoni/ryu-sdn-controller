@@ -25,6 +25,9 @@ class SNMPFileManager:
                 "location": data["location"]
             }
         }
+        
+        if "community" in data:
+            new_target["labels"]["community"] = data["community"]
 
         # Append device baru ke array
         targets.append(new_target)

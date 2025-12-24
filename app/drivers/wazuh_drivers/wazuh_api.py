@@ -618,8 +618,7 @@ class WazuhAPI:
                 }
             
             # Extract agents list from response
-            agents_data = agents_response.get("data", {})
-            agents_list = agents_data.get("agents", [])
+            agents_list = agents_response.get("agents", [])
             
             if not agents_list:
                 return {
@@ -747,76 +746,6 @@ class WazuhAPI:
                     "modified": len([d for d in data if d.get('type') == 'modified']),
                     "added": len([d for d in data if d.get('type') == 'added']),
                     "deleted": len([d for d in data if d.get('type') == 'deleted'])
-                },
-                "timestamp": datetime.datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
-    
-    def get_logs(self, agent_id: str = None, query: Dict = None, logger=None) -> Dict:
-        """Get security logs with filtering"""
-        log = logger or self._log
-        log(f"Getting logs for agent {agent_id or 'all'}...")
-        
-        try:
-            params = query or {}
-            params['limit'] = params.get('limit', 100)
-            
-            endpoint = f"/syscollector/{agent_id}" if agent_id else "/manager/logs"
-            result = self._make_request('GET', endpoint, params=params)
-            
-            data = result.get('data', {}).get('affected_items', [])
-            
-            # Categorize logs
-            log_levels = {}
-            for log_entry in data:
-                level = log_entry.get('level', 'unknown')
-                log_levels[level] = log_levels.get(level, 0) + 1
-            
-            return {
-                "status": "success",
-                "logs": data,
-                "summary": {
-                    "total_logs": len(data),
-                    "log_levels": log_levels,
-                    "time_range": {
-                        "from": params.get('offset', '0'),
-                        "limit": params['limit']
-                    }
-                },
-                "timestamp": datetime.datetime.now().isoformat()
-            }
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
-    
-    def get_threat_hunting(self, query: Dict = None, logger=None) -> Dict:
-        """Get security events for threat hunting"""
-        log = logger or self._log
-        log("Getting threat hunting data...")
-        
-        try:
-            params = query or {}
-            params['limit'] = params.get('limit', 50)
-            params['sort'] = params.get('sort', '-timestamp')
-            
-            result = self._make_request('GET', '/security/events', params=params)
-            data = result.get('data', {}).get('affected_items', [])
-            
-            # Threat analysis
-            high_severity = [d for d in data if d.get('level', 0) >= 10]
-            by_category = {}
-            for event in data:
-                category = event.get('rule', {}).get('category', 'unknown')
-                by_category[category] = by_category.get(category, 0) + 1
-            
-            return {
-                "status": "success",
-                "events": data,
-                "threat_analysis": {
-                    "total_events": len(data),
-                    "high_severity": len(high_severity),
-                    "events_by_category": by_category,
-                    "time_range": params.get('time_range', 'last 24 hours')
                 },
                 "timestamp": datetime.datetime.now().isoformat()
             }
