@@ -9,25 +9,26 @@ class CiscoQoSDriver:
         """Set base SSH connection"""
         self.base = base
     
-    def set_rate_limit(self, interface, rate_kbps, direction='both', logger=None):
+    def set_rate_limit(self, interface, rate_kbps, direction='input', logger=None):
         """Set rate limiting on interface"""
         try:
+            policy = f"RL_{interface.replace('/', '_')}"
             if logger:
                 logger(f"Setting rate limit on {interface} to {rate_kbps} kbps...")
             
             # Convert kbps to Mbps jika perlu
-            rate_mbps = rate_kbps / 1000.0
-            
-            config_commands = [
-                f"interface {interface}",
-                "srr-queue bandwidth share 10 10 60 20",
-                "srr-queue bandwidth shape 10 0 0 0",
-                f"priority-queue out",
-                f"shape average {int(rate_kbps)}",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+            rate_bps = rate_kbps * 1000
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"policy-map {policy}", enable_mode=True)
+            self.base.execute_command("class class-default", enable_mode=True)
+            self.base.execute_command(f"police {rate_bps} conform-action transmit exceed-action drop", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            self.base.execute_command(f"service-policy {direction} {policy}", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
+
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"Rate limit {rate_kbps} kbps set on {interface}")
@@ -37,6 +38,7 @@ class CiscoQoSDriver:
                 'message': f'Rate limit {rate_kbps} kbps set on {interface}',
                 'interface': interface,
                 'rate_kbps': rate_kbps,
+                'rate_mbps': rate_bps,
                 'direction': direction
             }
             
@@ -60,24 +62,70 @@ class CiscoQoSDriver:
         
         # Convert to bps untuk police command
         rate_bps = rate_kbps * 1000
+
+        self.base.execute_command("configure terminal", enable_mode=True)
+        self.base.execute_command(f"interface {interface}", enable_mode=True)
+        self.base.execute_command(f"service-policy input limit-{interface}", enable_mode=True)
+        self.base.execute_command("exit", enable_mode=True)
+        self.base.execute_command("configure terminal", enable_mode=True)
+        self.base.execute_command(f"policy-map limit-{interface}", enable_mode=True)
+        self.base.execute_command(f"class class-default", enable_mode=True)
+        self.base.execute_command(f"police {rate_bps} conform-action transmit exceed-action drop", enable_mode=True)
+        self.base.execute_command("exit", enable_mode=True)
+        self.base.execute_command("end", enable_mode=True)
         
-        config_commands = [
-            f"interface {interface}",
-            f"service-policy input limit-{interface}",
-            "exit",
-            f"policy-map limit-{interface}",
-            f"class class-default",
-            f"police {rate_bps} conform-action transmit exceed-action drop",
-            "exit",
-            "exit"
-        ]
-        
-        result = self.base.execute_command(config_commands)
+        save_result = self.base.save_configuration()
         
         return {
             'status': 'success',
             'message': f'Rate limit {rate_kbps} kbps set using police method',
             'method': 'police'
+        }
+
+    def get_rate_limit(self, interface=None, logger=None):
+        if logger:
+            logger("Checking rate limit configuration (policy-map based)...")
+
+        limits = []
+
+        # 1. Ambil policy yang ter-apply ke interface
+        out_intf = self.base.execute_command(
+            "show policy-map interface", enable_mode=True
+        )
+
+        policy_map = None
+        for line in out_intf.splitlines():
+            line = line.strip()
+            if interface and interface in line:
+                continue
+            if line.startswith("Service-policy input:"):
+                policy_map = line.split(":")[-1].strip()
+                break
+
+        if not policy_map:
+            return {"status": "success", "rate_limits": []}
+
+        # 2. Ambil detail policy-map
+        out_policy = self.base.execute_command(
+            f"show policy-map {policy_map}", enable_mode=True
+        )
+
+        for line in out_policy.splitlines():
+            line = line.strip()
+            if line.startswith("police"):
+                m = re.search(r'police\s+(\d+)', line)
+                if m:
+                    rate_bps = int(m.group(1))
+                    limits.append({
+                        "interface": interface,
+                        "direction": "input",
+                        "rate_kbps": rate_bps // 1000,
+                        "policy": policy_map
+                    })
+
+        return {
+            "status": "success",
+            "rate_limits": limits
         }
     
     def create_qos_policy(self, policy_name, class_maps, logger=None):
@@ -85,19 +133,18 @@ class CiscoQoSDriver:
         try:
             if logger:
                 logger(f"Creating QoS policy {policy_name}...")
-            
-            config_commands = [
-                f"policy-map {policy_name}"
-            ]
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"policy-map {policy_name}", enable_mode=True)
             
             for class_name, bandwidth_percent in class_maps.items():
-                config_commands.append(f"class {class_name}")
-                config_commands.append(f"bandwidth percent {bandwidth_percent}")
-                config_commands.append("exit")
+                self.base.execute_command(f"class {class_name}", enable_mode=True)
+                self.base.execute_command(f"bandwith percent {bandwidth_percent}", enable_mode=True)
+                self.base.execute_command("exit", enable_mode=True)
             
-            config_commands.append("exit")
+            self.base.execute_command("end", enable_mode=True)
             
-            result = self.base.execute_command(config_commands)
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"QoS policy {policy_name} created")
@@ -123,14 +170,13 @@ class CiscoQoSDriver:
         try:
             if logger:
                 logger(f"Applying QoS policy {policy_name} to {interface}...")
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            self.base.execute_command(f"service-policy {direction} {policy_name}", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
             
-            config_commands = [
-                f"interface {interface}",
-                f"service-policy {direction} {policy_name}",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"QoS policy applied to {interface}")
@@ -224,7 +270,7 @@ class CiscoQoSDriver:
         for line in lines:
             line = line.strip()
             
-            if line.startswith('GigabitEthernet') or line.startswith('FastEthernet'):
+            if line.startswith('GigabitEthernet') or line.startswith('FastEthernet') or line.startswith('Ethernet'):
                 if current_interface:
                     applied.append(current_interface)
                 
