@@ -38,6 +38,38 @@ class RouterOSIpDriver:
         finally:
             pool.disconnect()
 
+    def list_addresses(self, p=None, logger=print):
+        """
+        Mengambil seluruh IP address dari /ip/address.
+        Parameter optional:
+        {
+            "interface": "ether1"  # optional
+        }
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/address')
+
+            if p and "interface" in p:
+                # Filter berdasarkan interface
+                records = res.get(interface=p["interface"])
+                logger(f"📌 Found {len(records)} IPs on interface {p['interface']}")
+                return records
+
+            # Ambil semua IP
+            records = res.get()
+            logger(f"📌 Total IPs fetched: {len(records)}")
+
+            return records
+
+        except Exception as e:
+            logger(f"❌ List failed: {str(e)}")
+            raise Exception(f"Failed to list addresses: {str(e)}")
+
+        finally:
+            pool.disconnect()
+
+
     def add_address(self, p, logger=print):
         pool, api = self.core.get_api()
         try:
