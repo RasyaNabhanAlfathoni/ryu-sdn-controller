@@ -6,6 +6,37 @@ class RouterOSIpDriver:
         core_driver = instance dari RouterOSApiDriver
         """
         self.core = core_driver
+    def list_addresses(self, p, logger=print):
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/address')
+
+            query = {}
+
+            if p.get("interface"):
+                query["interface"] = p["interface"]
+
+            if p.get("address"):
+                query["address"] = p["address"]
+
+            if "disabled" in p:
+                if p["disabled"] in [True, "true", "yes", "1"]:
+                    query["disabled"] = "yes"
+                elif p["disabled"] in [False, "false", "no", "0"]:
+                    query["disabled"] = "no"
+
+            items = res.get(**query) if query else res.get()
+
+            logger(f"📄 Listed {len(items)} IP address(es)")
+
+            return items
+
+        except Exception as e:
+            logger(f"❌ List failed: {str(e)}")
+            raise Exception(f"Failed to list addresses: {str(e)}")
+
+        finally:
+            pool.disconnect()
 
     def add_address(self, p, logger=print):
         pool, api = self.core.get_api()
