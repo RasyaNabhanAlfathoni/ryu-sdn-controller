@@ -65,6 +65,30 @@ scrape_configs:
       - source_labels: ["__syslog_message_facility"]
         target_label: "syslog_facility"
 
+  - job_name: cisco_switch-syslog
+    syslog:
+      listen_address: 0.0.0.0:1516
+      listen_protocol: udp
+      idle_timeout: 60s
+      syslog_format: rfc3164
+      label_structured_data: false
+      labels:
+        job: "cisco_switch"
+        service_name: "cisco_switch"
+
+    relabel_configs:
+      - source_labels: ["__syslog_connection_ip_address"]
+        target_label: "source_address"
+
+      - source_labels: ["__syslog_message_hostname"]
+        target_label: "hostname"
+
+      - source_labels: ["__syslog_message_severity"]
+        target_label: "syslog_severity"
+
+      - source_labels: ["__syslog_message_facility"]
+        target_label: "syslog_facility"
+
   - job_name: network_devices-syslog
     syslog:
       listen_address: 0.0.0.0:514

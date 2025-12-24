@@ -2,34 +2,36 @@
 Cisco Port Security Management
 """
 import re
+from .interface import CiscoInterfaceDriver
 
 class CiscoSecurityDriver:
     def __init__(self, config):
         self.config = config
         self.base = None
+        self.interface_driver = CiscoInterfaceDriver(config=self.config)
     
     def set_base(self, base):
         """Set base SSH connection"""
         self.base = base
     
-    def enable_port_security(self, interface, max_mac=1, violation='shutdown', logger=None):
+    def enable_port_security(self, interface, max_mac=1, violation='restrict', logger=None):
         """Enable port security on interface"""
         try:
             if logger:
                 logger(f"Enabling port security on {interface}...")
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            self.base.execute_command("switchport mode access", enable_mode=True)
+            self.base.execute_command("switchport port-security", enable_mode=True)
+            self.base.execute_command("switchport port-security mac-address sticky", enable_mode=True)
+            self.base.execute_command(f"switchport port-security maximum {max_mac}", enable_mode=True)
+            self.base.execute_command(f"switchport port-security violation {violation}", enable_mode=True)
+            self.base.execute_command("switchport port-security aging time 5", enable_mode=True)
+            self.base.execute_command("switchport port-security aging type inactivity", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)            
             
-            config_commands = [
-                f"interface {interface}",
-                "switchport mode access",
-                "switchport port-security",
-                f"switchport port-security maximum {max_mac}",
-                f"switchport port-security violation {violation}",
-                "switchport port-security aging time 5",
-                "switchport port-security aging type inactivity",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"Port security enabled on {interface}")
@@ -56,14 +58,13 @@ class CiscoSecurityDriver:
         try:
             if logger:
                 logger(f"Disabling port security on {interface}...")
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            self.base.execute_command("no switchport port-security", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
             
-            config_commands = [
-                f"interface {interface}",
-                "no switchport port-security",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"Port security disabled on {interface}")
@@ -88,14 +89,13 @@ class CiscoSecurityDriver:
         try:
             if logger:
                 logger(f"Enabling sticky MAC on {interface}...")
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface} ", enable_mode=True)
+            self.base.execute_command("switchport port-security mac-address sticky", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
             
-            config_commands = [
-                f"interface {interface}",
-                "switchport port-security mac-address sticky",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"Sticky MAC enabled on {interface}")
@@ -127,14 +127,13 @@ class CiscoSecurityDriver:
                 mac_formatted = '.'.join([mac_clean[i:i+4] for i in range(0, 12, 4)])
             else:
                 mac_formatted = mac_address
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            self.base.execute_command(f"switchport port-security mac-address {mac_formatted} vlan {vlan}", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
             
-            config_commands = [
-                f"interface {interface}",
-                f"switchport port-security mac-address {mac_formatted} vlan {vlan}",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"Static MAC {mac_address} added to {interface}")
@@ -157,95 +156,79 @@ class CiscoSecurityDriver:
             }
     
     def get_port_security_status(self, interface=None, logger=None):
-        """Get port security status"""
         try:
-            if logger:
-                logger(f"Getting port security status for {interface or 'all'}...")
-            
             if interface:
-                cmd = f"show port-security interface {interface}"
-            else:
-                cmd = "show port-security"
-            
-            output = self.base.execute_command(cmd, enable_mode=True)
-            
-            status = self._parse_port_security(output)
-            
-            if logger:
-                logger(f"Port security status collected")
-            
+                output = self.base.execute_command(
+                    f"show port-security interface {interface}",
+                    enable_mode=True
+                )
+                return {
+                    "status": "success",
+                    "port_security": self._parse_single_interface(output, interface)
+                }
+
+            # Untuk Global
+            interfaces = self.interface_driver.get_interfaces()
+            results = []
+
+            for iface in interfaces:
+                out = self.base.execute_command(
+                    f"show port-security interface {iface}",
+                    enable_mode=True
+                )
+                parsed = self._parse_single_interface(out, iface)
+                if parsed["enabled"]:
+                    results.append(parsed)
+
             return {
-                'status': 'success',
-                'port_security': status
+                "status": "success",
+                "port_security": {
+                    "enabled": bool(results),
+                    "interfaces": results
+                }
             }
-            
+
         except Exception as e:
-            if logger:
-                logger(f"Error getting port security status: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+            return {"status": "error", "error": str(e)}
     
-    def _parse_port_security(self, output):
-        """Parse show port-security output"""
-        status = {
-            'enabled': False,
-            'interfaces': []
+    def _parse_single_interface(self, output, interface):
+        data = {
+            "interface": interface,
+            "enabled": False,
+            "details": {}
         }
-        
-        lines = output.split('\n')
-        current_interface = None
-        
-        for line in lines:
-            line = line.strip()
-            
-            if 'Port Security' in line and 'Enabled' in line:
-                status['enabled'] = True
-            
-            elif line.startswith('Gi') or line.startswith('Fa'):
-                if current_interface:
-                    status['interfaces'].append(current_interface)
-                
-                parts = line.split()
-                if len(parts) >= 2:
-                    current_interface = {
-                        'interface': parts[0],
-                        'status': parts[1] if len(parts) > 1 else 'unknown'
-                    }
-            
-            elif current_interface and ':' in line:
-                key_val = line.split(':', 1)
-                if len(key_val) == 2:
-                    key = key_val[0].strip().lower().replace(' ', '_')
-                    value = key_val[1].strip()
-                    current_interface[key] = value
-        
-        if current_interface:
-            status['interfaces'].append(current_interface)
-        
-        return status
+
+        for line in output.splitlines():
+            if ':' in line:
+                k, v = line.split(':', 1)
+                key = k.strip().lower().replace(' ', '_')
+                val = v.strip()
+                data["details"][key] = val
+
+                if key == "port_security" and val.lower() == "enabled":
+                    data["enabled"] = True
+
+        return data
     
     def clear_port_security(self, interface, logger=None):
         """Clear port security violation on interface"""
         try:
             if logger:
                 logger(f"Clearing port security on {interface}...")
-            
-            # First shut and no shut
-            config_commands = [
-                f"interface {interface}",
-                "shutdown",
-                "no shutdown",
-                "exit"
-            ]
-            
-            result = self.base.execute_command(config_commands)
+
+            # Disable dulu
+            disable_security = self.disable_port_security(interface, logger)    
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            self.base.execute_command("shutdown", enable_mode=True)
+            self.base.execute_command("no shutdown", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
             
             # Clear port security counters
-            clear_cmd = f"clear port-security sticky interface {interface}"
-            clear_output = self.base.execute_command(clear_cmd, enable_mode=True)
+            self.base.execute_command(f"clear port-security sticky interface {interface}", enable_mode=True)
+            
+            save_result = self.base.save_configuration()
             
             if logger:
                 logger(f"Port security cleared on {interface}")
