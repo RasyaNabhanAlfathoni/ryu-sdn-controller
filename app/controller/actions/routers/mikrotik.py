@@ -23,7 +23,7 @@ class MikrotikRouterActions:
         return {
             # IP Address Management
             "ip.address.add": lambda p, logger: RouterOSIpDriver(d).add_address(p, logger),
-            "ip.address.delete": lambda p, logger: RouterOSIpDriver(d).delete_address(p, logger),
+            "ip.address.delete": lambda p, logger: RouterOSIpDriver(d).remove_address(p, logger),
             "ip.address.edit": lambda p, logger: RouterOSIpDriver(d).edit_address(p, logger),
             "ip.address.disable": lambda p, logger: RouterOSIpDriver(d).disable_address(p, logger),
             "ip.address.enable": lambda p, logger: RouterOSIpDriver(d).enable_address(p, logger),
