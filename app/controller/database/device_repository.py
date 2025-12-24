@@ -601,8 +601,24 @@ class DeviceRepository:
         conn = DBConnection.get_conn()
         cursor = conn.cursor(buffered=True)
 
-            finally:
-                cursor.close()
+        try:
+            sql = """
+                DELETE si FROM server_interfaces si
+                INNER JOIN servers s ON si.server_id = s.id
+                WHERE s.device_id = %s
+            """
+            cursor.execute(sql, (device_id,))
+            conn.commit()
+            return True
+
+        except Exception:
+            conn.rollback()
+            raise
+
+        finally:
+            cursor.close()
+            conn.close()
+
 
     # ============================
     # INSERT ROUTER
