@@ -4,7 +4,7 @@ services:
     container_name: sdn_controller
     environment:
       CONTROLLER_PORT: 9090
-      SERVER_AGENT_API_PORT: 8500
+      SERVER_AGENT_API_PORT: 8500 # Port Koneksi Server Agent API
       POSTGRES_HOST: 192.168.100.85
       POSTGRES_PORT: 5432
       POSTGRES_DB: sdn_controller
