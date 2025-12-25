@@ -67,7 +67,7 @@ services:
       lldpd -d &
       sleep 3 &&
       echo 'Starting Agent API...' &&
-      exec python3 agent_api.py --verbose
+      exec python3 agent_api.py
       "
     cap_add:
       - SYS_ADMIN # Untuk system operations
