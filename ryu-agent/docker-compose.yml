@@ -54,7 +54,7 @@ services:
       - /usr/bin/nsenter:/usr/bin/nsenter:ro
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - AGENT_API_PORT=8081 # Untuk Port Koneksi Agent API
+      - AGENT_API_PORT=8500 # Untuk Port Koneksi Agent API (Harus sama dengan sisi Manager)
       - AGENT_API_HOST=0.0.0.0 # Untuk Host Receive Agent API
       - AGENT_DEBUG=false # Untuk Debug Mode Agent API
     privileged: true # Untuk Akses command system pada Server

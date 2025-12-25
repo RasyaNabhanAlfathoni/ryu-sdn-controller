@@ -1,7 +1,7 @@
-## device_repository
 from database.db_connection import DBConnection
 import json
 import datetime
+import psycopg2.extras
 
 class DeviceRepository:
 
@@ -10,8 +10,22 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def insert_network_device(dev):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    INSERT INTO devices
+                    (device_id, device_type, southbound, status, created_at, updated_at, last_seen)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW())
+                    ON CONFLICT (device_id)
+                    DO UPDATE SET
+                        device_type = EXCLUDED.device_type,
+                        southbound = EXCLUDED.southbound,
+                        status = EXCLUDED.status,
+                        updated_at = NOW(),
+                        last_seen = NOW()
+                    RETURNING id
+                """
 
         try:
             sql = """
@@ -20,12 +34,9 @@ class DeviceRepository:
                 VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW())
             """
 
-            cursor.execute(sql, (
-                dev["device_id"],
-                dev.get("device_type"),
-                dev.get("southbound"),
-                dev.get("status", "active")
-            ))
+                row_id = cursor.fetchone()[0]
+                conn.commit()
+                return row_id
 
             conn.commit()
             return cursor.lastrowid
@@ -68,8 +79,16 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def find_by_serial(serial):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
+            try:
+                sql = """
+                    SELECT 'router' AS type, r.device_id
+                    FROM routers r
+                    WHERE r.serial_number=%s
+                """
 
         try:
             sql = """
@@ -82,70 +101,95 @@ class DeviceRepository:
             cursor.fetchall()  # consume remainder
             return row
 
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close() 
 
     # ============================
     # FIND DEVICE BY device_id
     # ============================
     @staticmethod
     def find_by_device_id(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
 
-        try:
-            # 1. Check servers
-            sql_server = """
-                SELECT 
-                    s.*,
-                    'server' as device_type,
-                    s.southbound,
-                    s.status,
-                    s.created_at as global_created_at,
-                    s.updated_at as global_updated_at,
-                    s.last_seen
-                FROM servers s
-                WHERE s.device_id=%s
-            """
+            try:
+                # SERVERS
+                cursor.execute("""
+                    SELECT 
+                        s.*,
+                        'server' AS device_type,
+                        s.created_at AS global_created_at,
+                        s.updated_at AS global_updated_at
+                    FROM servers s
+                    WHERE s.device_id=%s
+                """, (device_id,))
+                row = cursor.fetchone()
+                if row:
+                    return row
 
-            cursor.execute(sql_server, (device_id,))
-            server_row = cursor.fetchone()
-            cursor.fetchall()   # IMPORTANT FIX
+                # ROUTERS
+                cursor.execute("""
+                    SELECT 
+                        r.*,
+                        'router' AS device_type,
+                        r.created_at AS global_created_at,
+                        r.updated_at AS global_updated_at
+                    FROM routers r
+                    WHERE r.device_id=%s
+                """, (device_id,))
+                row = cursor.fetchone()
+                if row:
+                    return row
 
-            if server_row:
-                return server_row
+                # SWITCHES
+                cursor.execute("""
+                    SELECT 
+                        sw.*,
+                        'switch' AS device_type,
+                        sw.created_at AS global_created_at,
+                        sw.updated_at AS global_updated_at
+                    FROM switchs sw
+                    WHERE sw.device_id=%s
+                """, (device_id,))
+                row = cursor.fetchone()
+                if row:
+                    return row
 
-            # 2. Check routers
-            sql_router = """
-                SELECT 
-                    r.*,
-                    'router' as device_type,
-                    r.southbound,
-                    r.status,
-                    r.created_at as global_created_at,
-                    r.updated_at as global_updated_at,
-                    r.last_seen
-                FROM routers r
-                WHERE r.device_id=%s
-            """
-            cursor.execute(sql_router, (device_id,))
-            router_row = cursor.fetchone()
-            cursor.fetchall()   # IMPORTANT FIX
+                # ACCESS POINTS
+                cursor.execute("""
+                    SELECT 
+                        ap.*,
+                        'access_point' AS device_type,
+                        ap.created_at AS global_created_at,
+                        ap.updated_at AS global_updated_at
+                    FROM access_points ap
+                    WHERE ap.device_id=%s
+                """, (device_id,))
+                return cursor.fetchone()
 
-            return router_row
-
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()
 
     # ============================
     # INSERT SERVER
     # ============================
     @staticmethod
     def insert_server(dev):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    INSERT INTO servers
+                    (device_id, hostname, main_username, os_version, architecture,
+                    architecture_bits, processor_type, vendor, main_ip_address,
+                    main_mac_address, main_interface, southbound, status,
+                    virtualization, created_at, updated_at, last_seen)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            NOW(), NOW(), NOW())
+                    RETURNING id
+                """
 
         try:
             sql = """
@@ -157,37 +201,30 @@ class DeviceRepository:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
             """
 
-            cursor.execute(sql, (
-                dev["device_id"],
-                dev.get("hostname", "unknown"),
-                dev.get("main_username", "unknown"),
-                dev.get("os_version", "unknown"),
-                dev.get("architecture"),
-                dev.get("architecture_bits"),
-                dev.get("processor_type"),
-                dev.get("vendor", "unknown"),
-                dev.get("main_ip_address"),
-                dev.get("main_mac_address", "unknown"),
-                dev.get("main_interface", "unknown"),
-                dev.get("southbound", "server_api"),
-                dev.get("status", "active"),
-                dev.get("virtualization", "physical")
-            ))
+                server_id = cursor.fetchone()[0]
+                conn.commit()
+                return server_id
 
-            conn.commit()
-            return cursor.lastrowid
-
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()
 
     # ============================
     # UPDATE SERVER
     # ============================
     @staticmethod
     def update_server(device_id, dev):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    UPDATE servers 
+                    SET hostname=%s, main_username=%s, os_version=%s, architecture=%s,
+                        architecture_bits=%s, processor_type=%s, vendor=%s,
+                        main_ip_address=%s, main_mac_address=%s, main_interface=%s,
+                        southbound=%s, status=%s, virtualization=%s,
+                        updated_at=NOW(), last_seen=NOW()
+                    WHERE device_id=%s
+                """
 
         try:
             sql = """
@@ -199,36 +236,25 @@ class DeviceRepository:
                 WHERE device_id=%s
             """
 
-            cursor.execute(sql, (
-                dev.get("hostname", "unknown"),
-                dev.get("main_username", "unknown"),
-                dev.get("os_version", "unknown"),
-                dev.get("architecture"),
-                dev.get("architecture_bits"),
-                dev.get("processor_type"),
-                dev.get("vendor", "unknown"),
-                dev.get("main_ip_address"),
-                dev.get("main_mac_address", "unknown"),
-                dev.get("main_interface", "unknown"),
-                dev.get("southbound", "server_api"),
-                dev.get("status", "active"),
-                dev.get("virtualization", "physical"),
-                device_id
-            ))
+                conn.commit()
 
-            conn.commit()
-
-        finally:
-            cursor.close()
-            conn.close()
+            finally:
+                cursor.close()
 
     # ============================
     # INSERT ROUTER
     # ============================
     @staticmethod
-    def insert_router(dev):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
+    def get_server_id(device_id):
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT id FROM servers WHERE device_id=%s",
+                    (device_id,)
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
 
         try:
             sql = """
@@ -307,317 +333,35 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def get_all_servers():
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
-
-        try:
-            sql = """
-                SELECT 
-                    s.device_id,
-                    'server' as device_type,
-                    s.hostname,
-                    s.main_username,
-                    s.os_version,
-                    s.architecture,
-                    s.architecture_bits,
-                    s.processor_type,
-                    s.vendor,
-                    s.main_ip_address,
-                    s.main_mac_address,
-                    s.main_interface,
-                    s.southbound,
-                    s.status,
-                    s.virtualization,
-                    s.last_seen,
-                    s.created_at,
-                    s.updated_at
-                FROM servers s
-                ORDER BY s.last_seen DESC
-            """
-            
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            return rows
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # GET ALL ROUTERS
-    # ============================
-    @staticmethod
-    def get_all_routers():
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
-
-        try:
-            sql = """
-                SELECT 
-                    r.device_id,
-                    'router' as device_type,
-                    r.identity as hostname,
-                    r.username as main_username,
-                    r.os_version,
-                    NULL as architecture,
-                    NULL as architecture_bits,
-                    NULL as processor_type,
-                    r.vendor,
-                    r.main_ip_address,
-                    r.main_mac_address,
-                    r.main_interface,
-                    r.southbound,
-                    r.status,
-                    NULL as virtualization,
-                    r.last_seen,
-                    r.created_at,
-                    r.updated_at
-                FROM routers r
-                ORDER BY r.last_seen DESC
-            """
-            
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-            return rows
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # LIST ALL DEVICES
-    # ============================
-    @staticmethod
-    def list_all():
-        servers = DeviceRepository.get_all_servers()
-        routers = DeviceRepository.get_all_routers()
-        devices = servers + routers
-
-        devices.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
-        return devices
-
-    # ============================
-    # DELETE DEVICE
-    # ============================
-    @staticmethod
-    def delete_device(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
-
-        try:
-            sql_delete_firewalls = """
-                DELETE sf FROM server_firewalls sf
-                INNER JOIN servers s ON sf.server_id = s.id
-                WHERE s.device_id = %s
-            """
-            cursor.execute(sql_delete_firewalls, (device_id,))
-
-            sql_delete_interfaces = """
-                DELETE si FROM server_interfaces si
-                INNER JOIN servers s ON si.server_id = s.id
-                WHERE s.device_id = %s
-            """
-            cursor.execute(sql_delete_interfaces, (device_id,))
-
-            cursor.execute("DELETE FROM servers WHERE device_id=%s", (device_id,))
-            if cursor.rowcount == 0:
-                cursor.execute("DELETE FROM routers WHERE device_id=%s", (device_id,))
-
-            cursor.execute("DELETE FROM devices WHERE device_id=%s", (device_id,))
-            conn.commit()
-            return True
-
-        except:
-            conn.rollback()
-            raise
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # GET SERVER INTERFACES
-    # ============================
-    @staticmethod
-    def get_server_interfaces(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
-
-        try:
-            sql = """
-                SELECT 
-                    si.id,
-                    si.interface_name,
-                    si.mac_address,
-                    si.ip_address,
-                    si.ip_netmask,
-                    si.ip_broadcast,
-                    si.ip_version,
-                    si.created_at,
-                    si.updated_at
-                FROM server_interfaces si
-                INNER JOIN servers s ON si.server_id = s.id
-                WHERE s.device_id = %s
-                ORDER BY si.interface_name
-            """
-            
-            cursor.execute(sql, (device_id,))
-            return cursor.fetchall()
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # GET SERVER FIREWALL
-    # ============================
-    @staticmethod
-    def get_server_firewall(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(dictionary=True, buffered=True)
-
-        try:
-            sql = """
-                SELECT 
-                    sf.firewall_type,
-                    sf.status,
-                    sf.default_zone,
-                    sf.active_zones,
-                    sf.rules_count,
-                    sf.last_checked,
-                    sf.created_at,
-                    sf.updated_at
-                FROM server_firewalls sf
-                INNER JOIN servers s ON sf.server_id = s.id
-                WHERE s.device_id = %s
-            """
-            cursor.execute(sql, (device_id,))
-            row = cursor.fetchone()
-            cursor.fetchall()
-            return row
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # INSERT SERVER INTERFACE
-    # ============================
-    @staticmethod
-    def insert_server_interface(data):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
-
-        try:
-            sql = """
-                INSERT INTO server_interfaces
-                (server_id, interface_name, mac_address,
-                ip_address, ip_netmask, ip_broadcast, ip_version,
-                created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-            """
-
-            cursor.execute(sql, (
-                data.get("server_id"),
-                data.get("interface_name"),
-                data.get("mac_address", "unknown"),
-                data.get("ip_address", ""),
-                data.get("ip_netmask", ""),
-                data.get("ip_broadcast", ""),
-                data.get("ip_version", "ipv4")
-            ))
-
-            conn.commit()
-            return cursor.lastrowid
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # UPSERT SERVER FIREWALL
-    # ============================
-    @staticmethod
-    def upsert_server_firewall(data):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
-
-        try:
-            sql = """
-                INSERT INTO server_firewalls
-                (server_id, firewall_type, status, default_zone, active_zones, 
-                 rules_count, last_checked, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    firewall_type = VALUES(firewall_type),
-                    status = VALUES(status),
-                    default_zone = VALUES(default_zone),
-                    active_zones = VALUES(active_zones),
-                    rules_count = VALUES(rules_count),
-                    last_checked = VALUES(last_checked),
-                    updated_at = NOW()
-            """
-
-            cursor.execute(sql, (
-                data.get("server_id"),
-                data.get("firewall_type"),
-                data.get("status"),
-                data.get("default_zone"),
-                data.get("active_zones"),
-                data.get("rules_count", 0),
-                data.get("last_checked")
-            ))
-
-            conn.commit()
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # GET SERVER ID
-    # ============================
-    @staticmethod
-    def get_server_id(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
-
-        try:
-            sql = "SELECT id FROM servers WHERE device_id = %s"
-            cursor.execute(sql, (device_id,))
-            row = cursor.fetchone()
-            cursor.fetchall()
-            return row[0] if row else None
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    # ============================
-    # DELETE SERVER INTERFACES
-    # ============================
-    @staticmethod
-    def delete_server_interfaces(device_id):
-        conn = DBConnection.get_conn()
-        cursor = conn.cursor(buffered=True)
-
-        try:
-            sql = """
-                DELETE si FROM server_interfaces si
-                INNER JOIN servers s ON si.server_id = s.id
-                WHERE s.device_id = %s
-            """
-            cursor.execute(sql, (device_id,))
-            conn.commit()
-            return True
-
-        except Exception:
-            conn.rollback()
-            raise
-
-        finally:
-            cursor.close()
-            conn.close()
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
+            try:
+                cursor.execute("""
+                    SELECT 
+                        s.device_id,
+                        'server' AS device_type,
+                        s.hostname,
+                        s.main_username,
+                        s.os_version,
+                        s.architecture,
+                        s.architecture_bits,
+                        s.processor_type,
+                        s.vendor,
+                        s.main_ip_address,
+                        s.main_mac_address,
+                        s.main_interface,
+                        s.southbound,
+                        s.status,
+                        s.virtualization,
+                        s.last_seen,
+                        s.created_at,
+                        s.updated_at
+                    FROM servers s
+                    ORDER BY s.last_seen DESC
+                """)
+                return cursor.fetchall()
 
 
     # ============================
@@ -626,7 +370,7 @@ class DeviceRepository:
     @staticmethod
     def insert_router(dev):
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(buffered=True)
+            cursor = conn.cursor()
             try:
                 sql = """
                     INSERT INTO routers
@@ -634,7 +378,9 @@ class DeviceRepository:
                     model, serial_number, vendor, main_ip_address,
                     main_mac_address, main_interface, southbound, status,
                     created_at, updated_at, last_seen)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            NOW(), NOW(), NOW())
+                    RETURNING id
                 """
 
                 cursor.execute(sql, (
@@ -653,9 +399,9 @@ class DeviceRepository:
                     dev.get("status", "active")
                 ))
 
+                router_id = cursor.fetchone()[0]
                 conn.commit()
-                return cursor.lastrowid
-
+                return router_id
             finally:
                 cursor.close()
 
@@ -665,13 +411,14 @@ class DeviceRepository:
     @staticmethod
     def update_router(device_id, dev):
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(buffered=True)
+            cursor = conn.cursor()
             try:
                 sql = """
                     UPDATE routers 
                     SET username=%s, password=%s, identity=%s, os_version=%s,
-                        model=%s, serial_number=%s, vendor=%s, main_ip_address=%s,
-                        main_mac_address=%s, main_interface=%s, southbound=%s, status=%s,
+                        model=%s, serial_number=%s, vendor=%s,
+                        main_ip_address=%s, main_mac_address=%s,
+                        main_interface=%s, southbound=%s, status=%s,
                         updated_at=NOW(), last_seen=NOW()
                     WHERE device_id=%s
                 """
@@ -693,7 +440,6 @@ class DeviceRepository:
                 ))
 
                 conn.commit()
-                return cursor.lastrowid
 
             finally:
                 cursor.close()
@@ -704,35 +450,36 @@ class DeviceRepository:
     @staticmethod
     def get_all_routers():
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(dictionary=True, buffered=True)
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
             try:
                 sql = """
                     SELECT 
                         r.device_id,
-                        'router' as device_type,
-                        r.identity as hostname,
-                        r.username as main_username,
+                        'router' AS device_type,
+                        r.identity AS hostname,
+                        r.username AS main_username,
                         r.os_version,
-                        NULL as architecture,
-                        NULL as architecture_bits,
-                        NULL as processor_type,
+                        NULL AS architecture,
+                        NULL AS architecture_bits,
+                        NULL AS processor_type,
                         r.vendor,
                         r.main_ip_address,
                         r.main_mac_address,
                         r.main_interface,
                         r.southbound,
                         r.status,
-                        NULL as virtualization,
+                        NULL AS virtualization,
                         r.last_seen,
                         r.created_at,
                         r.updated_at
                     FROM routers r
                     ORDER BY r.last_seen DESC
                 """
-                
+
                 cursor.execute(sql)
-                rows = cursor.fetchall()
-                return rows
+                return cursor.fetchall()
 
             finally:
                 cursor.close()
@@ -742,26 +489,25 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def find_switch(device_id):
-        """Find switch by device_id"""
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(dictionary=True, buffered=True)
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
             try:
                 sql = """
                     SELECT 
                         ns.*,
-                        'switch' as device_type,
+                        'switch' AS device_type,
                         ns.southbound,
                         ns.status,
-                        ns.created_at as global_created_at,
-                        ns.updated_at as global_updated_at,
+                        ns.created_at AS global_created_at,
+                        ns.updated_at AS global_updated_at,
                         ns.last_seen
-                FROM switchs ns
-                WHERE ns.device_id=%s
+                    FROM switchs ns
+                    WHERE ns.device_id = %s
                 """
                 cursor.execute(sql, (device_id,))
-                row = cursor.fetchone()
-                cursor.fetchall()  
-                return row
+                return cursor.fetchone()
 
             finally:
                 cursor.close()
@@ -772,7 +518,7 @@ class DeviceRepository:
     @staticmethod
     def insert_switch(dev):
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(buffered=True)
+            cursor = conn.cursor()
             try:
                 sql = """
                     INSERT INTO switchs
@@ -780,7 +526,9 @@ class DeviceRepository:
                     model, serial_number, vendor, main_ip_address,
                     main_mac_address, main_interface, southbound, status,
                     created_at, updated_at, last_seen)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            NOW(), NOW(), NOW())
+                    RETURNING id
                 """
 
                 cursor.execute(sql, (
@@ -799,9 +547,9 @@ class DeviceRepository:
                     dev.get("status", "active")
                 ))
 
+                switch_id = cursor.fetchone()[0]
                 conn.commit()
-                return cursor.lastrowid
-
+                return switch_id
             finally:
                 cursor.close()
 
@@ -811,13 +559,14 @@ class DeviceRepository:
     @staticmethod
     def update_switch(device_id, dev):
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(buffered=True)
+            cursor = conn.cursor()
             try:
                 sql = """
                     UPDATE switchs 
                     SET username=%s, password=%s, identity=%s, os_version=%s,
-                        model=%s, serial_number=%s, vendor=%s, main_ip_address=%s,
-                        main_mac_address=%s, main_interface=%s, southbound=%s, status=%s,
+                        model=%s, serial_number=%s, vendor=%s,
+                        main_ip_address=%s, main_mac_address=%s,
+                        main_interface=%s, southbound=%s, status=%s,
                         updated_at=NOW(), last_seen=NOW()
                     WHERE device_id=%s
                 """
@@ -839,7 +588,6 @@ class DeviceRepository:
                 ))
 
                 conn.commit()
-                return cursor.lastrowid
 
             finally:
                 cursor.close()
@@ -850,15 +598,17 @@ class DeviceRepository:
     @staticmethod
     def get_all_switches():
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(dictionary=True, buffered=True)
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
             try:
                 sql = """
                     SELECT 
                         ns.device_id,
-                        'switch' as device_type,
-                        ns.identity as identity,
-                        ns.username as username,
-                        ns.password as password,
+                        'switch' AS device_type,
+                        ns.identity,
+                        ns.username,
+                        ns.password,
                         ns.os_version,
                         ns.vendor,
                         ns.model,
@@ -874,10 +624,9 @@ class DeviceRepository:
                     FROM switchs ns
                     ORDER BY ns.last_seen DESC
                 """
-                
+
                 cursor.execute(sql)
-                rows = cursor.fetchall()
-                return rows
+                return cursor.fetchall()
 
             finally:
                 cursor.close()
@@ -898,6 +647,7 @@ class DeviceRepository:
                     created_at, updated_at, last_seen)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                             NOW(), NOW(), NOW())
+                    RETURNING id
                 """
 
                 cursor.execute(sql, (
@@ -916,8 +666,9 @@ class DeviceRepository:
                     dev.get("status", "active")
                 ))
 
+                ap_id = cursor.fetchone()[0]
                 conn.commit()
-                return cursor.lastrowid
+                return ap_id
 
             finally:
                 cursor.close()
@@ -949,7 +700,7 @@ class DeviceRepository:
                 cursor.execute(sql, (
                     dev.get("identity", dev.get("hostname", "unknown")),
                     dev.get("os_version", "unknown"),
-                    dev.get("model", dev.get("model", "")),
+                    dev.get("model", ""),
                     dev.get("vendor", "unifi"),
                     dev.get("main_ip_address"),
                     dev.get("main_mac_address", "unknown"),
@@ -960,7 +711,6 @@ class DeviceRepository:
                 ))
 
                 conn.commit()
-                return cursor.lastrowid
 
             finally:
                 cursor.close()
@@ -971,7 +721,9 @@ class DeviceRepository:
     @staticmethod
     def get_all_access_points():
         with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(dictionary=True)
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
             try:
                 sql = """
                     SELECT 
@@ -980,7 +732,7 @@ class DeviceRepository:
                         ap.identity AS hostname,
                         ap.username AS main_username,
                         ap.os_version,
-                        ap.model AS model,
+                        ap.model,
                         ap.serial_number,
                         NULL AS architecture,
                         NULL AS architecture_bits,
@@ -998,8 +750,10 @@ class DeviceRepository:
                     FROM access_points ap
                     ORDER BY ap.last_seen DESC
                 """
+
                 cursor.execute(sql)
                 return cursor.fetchall()
+
             finally:
                 cursor.close()
 
@@ -1008,99 +762,14 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def list_all():
-        with DBConnection.get_conn() as conn:
-            cursor = conn.cursor(dictionary=True)
-            try:
-                # Query semua device dalam satu query JOIN
-                sql = """
-                    SELECT 
-                        d.device_id,
-                        d.device_type,
-                        d.southbound,
-                        d.status,
-                        d.created_at,
-                        d.updated_at,
-                        d.last_seen,
-                        COALESCE(s.hostname, r.identity, sw.identity, ap.identity) as hostname,
-                        COALESCE(s.main_username, r.username, sw.username, ap.username) as main_username,
-                        COALESCE(s.os_version, r.os_version, sw.os_version, ap.os_version) as os_version,
-                        s.architecture,
-                        s.architecture_bits,
-                        s.processor_type,
-                        COALESCE(s.vendor, r.vendor, sw.vendor, ap.vendor) as vendor,
-                        COALESCE(s.main_ip_address, r.main_ip_address, sw.main_ip_address, ap.main_ip_address) as main_ip_address,
-                        COALESCE(s.main_mac_address, r.main_mac_address, sw.main_mac_address, ap.main_mac_address) as main_mac_address,
-                        COALESCE(s.main_interface, r.main_interface, sw.main_interface, ap.main_interface) as main_interface,
-                        s.virtualization,
-                        r.model as router_model,
-                        sw.model as switch_model,
-                        ap.model as ap_model,
-                        r.serial_number as router_serial,
-                        sw.serial_number as switch_serial,
-                        ap.serial_number as ap_serial
-                    FROM devices d
-                    LEFT JOIN servers s ON d.device_id = s.device_id
-                    LEFT JOIN routers r ON d.device_id = r.device_id
-                    LEFT JOIN switchs sw ON d.device_id = sw.device_id
-                    LEFT JOIN access_points ap ON d.device_id = ap.device_id
-                    ORDER BY d.last_seen DESC
-                """
-                cursor.execute(sql)
-                rows = cursor.fetchall()
-                
-                # Format data agar konsisten
-                devices = []
-                for row in rows:
-                    device_type = row.get('device_type', 'unknown')
-                    device_data = {
-                        'device_id': row['device_id'],
-                        'device_type': device_type,
-                        'southbound': row['southbound'],
-                        'status': row['status'],
-                        'created_at': row['created_at'],
-                        'updated_at': row['updated_at'],
-                        'last_seen': row['last_seen'],
-                        'hostname': row['hostname'] or 'unknown',
-                        'main_username': row['main_username'] or 'unknown',
-                        'os_version': row['os_version'] or 'unknown',
-                        'vendor': row['vendor'] or 'unknown',
-                        'main_ip_address': row['main_ip_address'] or '',
-                        'main_mac_address': row['main_mac_address'] or '',
-                        'main_interface': row['main_interface'] or 'unknown'
-                    }
-                    
-                    # Tambahkan field spesifik berdasarkan device_type
-                    if device_type == 'server':
-                        device_data.update({
-                            'architecture': row['architecture'],
-                            'architecture_bits': row['architecture_bits'],
-                            'processor_type': row['processor_type'],
-                            'virtualization': row['virtualization'] or 'physical'
-                        })
-                    elif device_type == 'router':
-                        device_data.update({
-                            'model': row['router_model'] or '',
-                            'serial_number': row['router_serial'] or '',
-                            'username': row['main_username'] or 'admin'
-                        })
-                    elif device_type == 'switch':
-                        device_data.update({
-                            'model': row['switch_model'] or '',
-                            'serial_number': row['switch_serial'] or '',
-                            'username': row['main_username'] or 'admin'
-                        })
-                    elif device_type == 'access_point':
-                        device_data.update({
-                            'model': row['ap_model'] or '',
-                            'serial_number': row['ap_serial'] or '',
-                            'username': row['main_username'] or 'ubnt'
-                        })
-                    
-                    devices.append(device_data)
-                
-                return devices
-            finally:
-                cursor.close()
+        servers = DeviceRepository.get_all_servers()
+        routers = DeviceRepository.get_all_routers()
+        switches = DeviceRepository.get_all_switches()
+        access_points = DeviceRepository.get_all_access_points()
+        devices = servers + routers + switches + access_points
+
+        devices.sort(key=lambda x: x.get('last_seen', ''), reverse=True)
+        return devices
 
     # ============================
     # DELETE DEVICE
@@ -1126,20 +795,50 @@ class DeviceRepository:
     # ============================
     @staticmethod
     def update_device_status(device_id, status, last_seen=None):
-        """Update device status and last_seen timestamp"""
-        try:
-            server_id = DeviceRepository.get_server_id(device_id)
-            if not server_id:
-                return False
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
 
-            cursor.execute("DELETE FROM server_interfaces WHERE server_id=%s", (server_id,))
-            conn.commit()
-            return True
+            try:
+                last_seen_val = last_seen or datetime.datetime.now()
 
-        except:
-            conn.rollback()
-            raise
+                cursor.execute("""
+                    UPDATE devices
+                    SET status=%s,
+                        last_seen=%s,
+                        updated_at=NOW()
+                    WHERE device_id=%s
+                """, (status, last_seen_val, device_id))
 
-        finally:
-            cursor.close()
-            conn.close()
+                cursor.execute("""
+                    SELECT device_type FROM devices WHERE device_id=%s
+                """, (device_id,))
+                device = cursor.fetchone()
+
+                if not device:
+                    conn.commit()
+                    return True
+
+                table_map = {
+                    "server": "servers",
+                    "router": "routers",
+                    "switch": "switchs",
+                    "access_point": "access_points"
+                }
+
+                table = table_map.get(device["device_type"])
+                if table:
+                    cursor.execute(f"""
+                        UPDATE {table}
+                        SET status=%s,
+                            last_seen=%s,
+                            updated_at=NOW()
+                        WHERE device_id=%s
+                    """, (status, last_seen_val, device_id))
+
+                conn.commit()
+                return True
+
+            finally:
+                cursor.close()
