@@ -2,143 +2,157 @@
 
 -- DEVICES
 CREATE TABLE IF NOT EXISTS devices (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    device_id VARCHAR(100) NOT NULL UNIQUE,
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
-    device_type ENUM('router', 'server', 'switch', 'AP') NOT NULL,
-    southbound VARCHAR(50) NOT NULL,
+    device_type VARCHAR(32) NOT NULL,
+    southbound VARCHAR(32),
+    status VARCHAR(32) DEFAULT 'active',
 
-    status VARCHAR(20) DEFAULT 'active',
-
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_seen TIMESTAMP NULL,
-
-    INDEX idx_device_id (device_id),
-    INDEX idx_device_type (device_type)
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP
 );
 
 -- SERVERS
 CREATE TABLE IF NOT EXISTS servers (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    device_id VARCHAR(100) NOT NULL UNIQUE,
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
-    hostname VARCHAR(255) DEFAULT 'unknown',
-    main_username VARCHAR(100) DEFAULT 'unknown',
+    hostname VARCHAR(128),
+    main_username VARCHAR(64),
 
-    os_version VARCHAR(100) DEFAULT 'unknown',
-    architecture VARCHAR(50),
-    architecture_bits INT,
-    processor_type VARCHAR(100),
+    os_version VARCHAR(64),
+    architecture VARCHAR(64),
+    architecture_bits INTEGER,
+    processor_type VARCHAR(128),
 
-    vendor VARCHAR(100) DEFAULT 'unknown',
+    vendor VARCHAR(64),
 
-    main_ip_address VARCHAR(45),
-    main_mac_address VARCHAR(20) DEFAULT 'unknown',
-    main_interface VARCHAR(50) DEFAULT 'unknown',
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
 
-    southbound VARCHAR(50) DEFAULT 'server_api',
-    status VARCHAR(20) DEFAULT 'active',
-    virtualization VARCHAR(50) DEFAULT 'physical',
+    southbound VARCHAR(32),
+    status VARCHAR(32),
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_seen TIMESTAMP NULL,
+    virtualization VARCHAR(32),
 
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE,
-    INDEX idx_server_device_id (device_id),
-    INDEX idx_main_ip (main_ip_address)
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
+
+    CONSTRAINT fk_servers_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
 );
 
 -- ROUTERS
 CREATE TABLE IF NOT EXISTS routers (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    device_id VARCHAR(100) NOT NULL UNIQUE,
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
-    username VARCHAR(100) DEFAULT 'admin',
-    password VARCHAR(255),
+    username VARCHAR(64),
+    password TEXT,
 
-    identity VARCHAR(255) DEFAULT 'unknown',
-    os_version VARCHAR(100) DEFAULT 'unknown',
+    identity VARCHAR(128),
+    os_version VARCHAR(64),
 
-    model VARCHAR(100),
-    serial_number VARCHAR(100),
+    model VARCHAR(64),
+    serial_number VARCHAR(128),
 
-    vendor VARCHAR(100) DEFAULT 'unknown',
+    vendor VARCHAR(64),
 
-    main_ip_address VARCHAR(45),
-    main_mac_address VARCHAR(20),
-    main_interface VARCHAR(50) DEFAULT 'ether1',
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
 
-    southbound VARCHAR(50) DEFAULT 'routeros_api',
-    status VARCHAR(20) DEFAULT 'active',
+    southbound VARCHAR(32),
+    status VARCHAR(32),
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_seen TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
 
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE,
-    INDEX idx_router_device_id (device_id),
-    INDEX idx_router_serial (serial_number)
+    CONSTRAINT fk_routers_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
 );
 
 
 -- SWITCHS
 CREATE TABLE IF NOT EXISTS switchs (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    device_id VARCHAR(100) UNIQUE NOT NULL,
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
-    username VARCHAR(100),
-    password VARCHAR(255),
+    username VARCHAR(64),
+    password TEXT,
 
-    identity VARCHAR(100),
-    os_version VARCHAR(100),
+    identity VARCHAR(128),
+    os_version VARCHAR(64),
 
-    model VARCHAR(100),
-    serial_number VARCHAR(100),
+    model VARCHAR(64),
+    serial_number VARCHAR(128),
 
-    vendor VARCHAR(50) DEFAULT 'Cisco',
+    vendor VARCHAR(64),
 
-    main_ip_address VARCHAR(45),
-    main_mac_address VARCHAR(20),
-    main_interface VARCHAR(50),
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
 
-    southbound VARCHAR(50) DEFAULT 'snmp',
-    status VARCHAR(20) DEFAULT 'active',
+    southbound VARCHAR(32),
+    status VARCHAR(32),
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_seen TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
 
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+    CONSTRAINT fk_switchs_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
 );
 
 -- ACCESS POINTS
 CREATE TABLE IF NOT EXISTS access_points (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    device_id VARCHAR(100) NOT NULL UNIQUE,
+    id BIGSERIAL PRIMARY KEY,
+    device_id VARCHAR(64) UNIQUE NOT NULL,
 
-    username VARCHAR(100) DEFAULT 'admin',
-    password VARCHAR(255),
+    username VARCHAR(64),
+    password TEXT,
 
-    identity VARCHAR(255) DEFAULT 'unknown',
-    os_version VARCHAR(100) DEFAULT 'unknown',
+    identity VARCHAR(128),
 
-    model VARCHAR(100),
-    serial_number VARCHAR(100),
+    os_version VARCHAR(64),
+    model VARCHAR(64),
+    serial_number VARCHAR(128),
 
-    vendor VARCHAR(100) DEFAULT 'unknown',
+    vendor VARCHAR(64),
 
-    main_ip_address VARCHAR(45),
-    main_mac_address VARCHAR(20),
-    main_interface VARCHAR(50) DEFAULT 'ether1',
+    main_ip_address VARCHAR(64),
+    main_mac_address VARCHAR(64),
+    main_interface VARCHAR(64),
 
-    southbound VARCHAR(50) DEFAULT '',
-    status VARCHAR(20) DEFAULT 'active',
+    southbound VARCHAR(32),
+    status VARCHAR(32),
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_seen TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    last_seen  TIMESTAMP,
 
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE CASCADE
+    CONSTRAINT fk_access_points_device
+        FOREIGN KEY (device_id)
+        REFERENCES devices(device_id)
+        ON DELETE CASCADE
 );
+
+-- INDEXES
+CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
+CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
+
+CREATE INDEX IF NOT EXISTS idx_servers_device_id ON servers(device_id);
+CREATE INDEX IF NOT EXISTS idx_routers_device_id ON routers(device_id);
+CREATE INDEX IF NOT EXISTS idx_switchs_device_id ON switchs(device_id);
+CREATE INDEX IF NOT EXISTS idx_access_points_device_id ON access_points(device_id);
