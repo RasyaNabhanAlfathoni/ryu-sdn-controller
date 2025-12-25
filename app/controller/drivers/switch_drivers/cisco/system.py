@@ -40,6 +40,7 @@ class CiscoSystemDriver:
             }
     
     def reboot(self, logger=None, confirm=False, user="system"):
+        """Reboot Cisco switch"""
         if not confirm:
             return {
                 "status": "error",
@@ -74,6 +75,7 @@ class CiscoSystemDriver:
             return {"status": "error", "error": str(e)}
     
     def get_running_config(self, logger=None):
+        """Get Cisco switch running config"""
         try:
             raw = self.base.execute_command("show running-config", enable_mode=True)
 
@@ -92,3 +94,53 @@ class CiscoSystemDriver:
 
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+    def set_identity(self, hostname, logger=None):
+        """Set Cisco switch hostname/identity"""
+        try:
+            if not hostname or not isinstance(hostname, str):
+                return {
+                    "status": "error",
+                    "error": "hostname is required and must be a string"
+                }
+
+            # Basic Cisco hostname validation
+            if len(hostname) > 63 or " " in hostname:
+                return {
+                    "status": "error",
+                    "error": "invalid hostname format"
+                }
+
+            if logger:
+                logger(f"Setting switch identity to '{hostname}'")
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"hostname {hostname}", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
+
+            # Save config
+            self.save_config(logger)
+
+            # Verify hostname
+            verify = self.base.execute_command(
+                "show running-config | include hostname",
+                enable_mode=True
+            )
+
+            if hostname not in verify:
+                raise Exception("hostname verification failed")
+
+            return {
+                "status": "success",
+                "hostname": hostname,
+                "message": "Switch identity updated successfully"
+            }
+
+        except Exception as e:
+            if logger:
+                logger(f"Error setting hostname: {str(e)}")
+
+            return {
+                "status": "error",
+                "error": str(e)
+            }

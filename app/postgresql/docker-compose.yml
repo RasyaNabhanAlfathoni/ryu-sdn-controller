@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: db_sdn_pg
+    restart: on-failure
+    environment:
+      POSTGRES_DB: sdn_controller
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      TZ: Asia/Jakarta
+    ports:
+      - "5432:5432"
+    volumes:
+      - volume-sdn-pg:/var/lib/postgresql/
+    networks:
+      - network-sdn
+
+  pgadmin:
+    image: dpage/pgadmin4:9.11.0
+    container_name: pgadmin_sdn
+    restart: on-failure
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+      TZ: Asia/Jakarta
+    ports:
+      - "5050:80"
+    volumes:
+      - volume-sdn-pgadmin:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - network-sdn
+
+volumes:
+  volume-sdn-pg:
+    name: volume-sdn-pg
+  volume-sdn-pgadmin:
+    name: volume-sdn-pgadmin
+
+networks:
+  network-sdn:
+    name: network-sdn

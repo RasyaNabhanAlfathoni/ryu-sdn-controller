@@ -31,7 +31,7 @@ scrape_configs:
   - job_name: "node-exporter-servers"
     file_sd_configs:
       - files:
-          - server_targets.json # File yang digenerate controller
+          - server_targets.json
         refresh_interval: 30s
     scrape_interval: 15s
     metrics_path: /metrics

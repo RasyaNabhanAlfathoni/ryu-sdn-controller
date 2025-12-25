@@ -158,6 +158,10 @@ class CiscoSwitchActions:
             
             # === System Configuration ===
             "switch.cisco.system.config.get": lambda p, logger: driver.system.get_running_config(logger),
+            "switch.cisco.system.identity.set": lambda p, logger: driver.system.set_identity(
+                p['hostname'],
+                logger
+            ),
             "switch.cisco.system.reboot": lambda p, logger: driver.system.reboot(logger=logger,
                 confirm=p.get("confirm", False),
                 user=p.get("user", "unknown")
