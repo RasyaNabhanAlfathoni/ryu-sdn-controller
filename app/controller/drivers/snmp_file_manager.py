@@ -2,7 +2,7 @@ import yaml, json, subprocess, os
 
 class SNMPFileManager:
     def __init__(self):
-        BASE_PROM_DIR = os.getenv("PROMETHEUS_DIR", "/opt/prometheus")
+        BASE_PROM_DIR = os.getenv("PROMETHEUS_DIR", "/home/student/ryu/ryu/prometheus")
 
         self.snmp_yml_path = os.path.join(BASE_PROM_DIR, "snmp.yml")
         self.snmp_targets_path = os.path.join(BASE_PROM_DIR, "snmp_targets.json")

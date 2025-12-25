@@ -7,7 +7,7 @@ from datetime import datetime
 class ServerFileManager:
     def __init__(self):
         # Path ke folder Prometheus
-        BASE_DIR = os.getenv("PROMETHEUS_DIR", "/opt/prometheus")
+        BASE_DIR = os.getenv("PROMETHEUS_DIR", "/home/student/ryu/ryu/prometheus")
         self.targets_file = os.path.join(BASE_DIR, 'server_targets.json')
         
         # Inisialisasi file

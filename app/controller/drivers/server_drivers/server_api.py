@@ -7,12 +7,46 @@ class ServerAPI:
     name = "AgentClient"  # Ganti nama untuk clarity
 
     def __init__(self, dev):
-        self.agent_ip = dev.get("main_ip_address")  # IP agent (contoh: 192.168.221.163)
-        self.agent_port = (dev.get("api_port") or int(os.environ.get("SERVER_AGENT_API_PORT", 8081))) # Port Agent
-        self.agent_url = f"http://{self.agent_ip}:{self.agent_port}"  # Agent URL API endpoint
-        self.device_id = dev.get("id")
+        # === VALIDASI DEVICE OBJECT ===
+        if not isinstance(dev, dict):
+            raise ValueError("dev must be a dict")
+
+        # === IP AGENT (WAJIB ADA) ===
+        self.agent_ip = dev.get("main_ip_address")
+        if not self.agent_ip:
+            raise ValueError("main_ip_address is missing in device data")
+
+        # === PORT AGENT (URUTAN PRIORITAS JELAS) ===
+        # 1. dari dev (database / memory)
+        # 2. dari ENV
+        # 3. fallback HARDCODED
+        raw_port = (
+            dev.get("api_port")
+            or os.environ.get("SERVER_AGENT_API_PORT")
+            or 8081
+        )
+
+        try:
+            self.agent_port = int(raw_port)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid agent port value: {raw_port}")
+
+        # === FINAL AGENT URL ===
+        self.agent_url = f"http://{self.agent_ip}:{self.agent_port}"
+
+        # === IDENTITAS DEVICE ===
+        self.device_id = dev.get("id") or dev.get("device_id") or "unknown"
         self.device_data = dev
-        print(f"[AgentClient] Initialized for {self.device_id} at {self.agent_url}")
+
+        # === DEBUG LOG (PENTING) ===
+        print(
+            f"[AgentClient] Initialized\n"
+            f"  device_id : {self.device_id}\n"
+            f"  agent_ip  : {self.agent_ip}\n"
+            f"  agent_port: {self.agent_port}\n"
+            f"  agent_url : {self.agent_url}"
+        )
+
 
     def _call_agent(self, endpoint, data=None, logger=None, method=None):
         """Call agent HTTP API"""
@@ -428,12 +462,37 @@ class ServerAPI:
 
     ## === Wazuh Commands ===
     def wazuh_install(self, manager_ip, agent_key, agent_name, logger=None):
-        """Trigger Wazuh agent installation via agent API"""
-        return self._call_agent("/api/wazuh/install", {
+        """Trigger Wazuh agent installation via agent API (FIXED)"""
+
+        payload = {
             "manager_ip": manager_ip,
-            "agent_key": agent_key, 
+            "agent_key": agent_key,
             "agent_name": agent_name
-        }, logger=logger)
+        }
+
+        if logger:
+            logger(f"[WAZUH-INSTALL] Payload: {payload}")
+            logger(f"[WAZUH-INSTALL] URL: {self.agent_url}/api/wazuh/install")
+
+        try:
+            response = requests.post(
+                f"{self.agent_url}/api/wazuh/install",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=300
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            return {
+                "error": f"HTTP {response.status_code}: {response.text}"
+            }
+
+        except Exception as e:
+            return {
+                "error": f"Request failed: {str(e)}"
+            }
 
     def wazuh_uninstall(self, logger=None):
         """Trigger Wazuh agent uninstallation via agent API"""

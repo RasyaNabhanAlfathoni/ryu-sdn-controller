@@ -13,9 +13,9 @@ class DBConnection:
             maxconn=15,
             host=os.getenv("POSTGRES_HOST", "localhost"),
             port=int(os.getenv("POSTGRES_PORT", 5432)),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", ""),
-            database=os.getenv("POSTGRES_DB", "postgres"),
+            user=os.getenv("POSTGRES_USER", "admin"),
+            password=os.getenv("POSTGRES_PASSWORD", "admin"),
+            database=os.getenv("POSTGRES_DB", "sdn_controller"),
             connect_timeout=5 
         )
 
