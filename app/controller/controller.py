@@ -2,6 +2,13 @@ import os, sys
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 sys.path.append(BASE_DIR)
 
+# Untuk Wazuh Cert
+try:
+    import ssl_patch  # Ini akan apply monkey patch
+    print("SSL patch imported successfully")
+except ImportError:
+    print("Warning: ssl_patch.py not found, SSL recursion bug may occur")
+
 from ryu.base import app_manager
 from ryu.app.wsgi import WSGIApplication, ControllerBase, route
 from ryu.lib import hub

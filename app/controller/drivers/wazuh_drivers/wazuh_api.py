@@ -7,36 +7,6 @@ import ssl
 import sys
 import datetime
 
-# Workaround untuk SSL recursion error di Python 3.9
-def patch_ssl():
-    """Patch SSL context untuk menghindari recursion error"""
-    try:
-        # Method 1: Disable SSL verification completely
-        import ssl
-        ssl._create_default_https_context = ssl._create_unverified_context
-    except:
-        pass
-    
-    # Method 2: Disable urllib3 warnings
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    # Method 3: Patch untuk Python 3.9 SSL recursion bug
-    try:
-        import urllib3.util.ssl_ as ssl_
-        original_create_urllib3_context = ssl_.create_urllib3_context
-        
-        def patched_create_urllib3_context():
-            context = original_create_urllib3_context()
-            # Skip problematic minimum_version setting
-            return context
-            
-        ssl_.create_urllib3_context = patched_create_urllib3_context
-    except Exception as e:
-        print(f"SSL context patch 2 warning: {e}")
-
-# Apply patch saat module load
-patch_ssl()
-
 class WazuhAPI:
     def __init__(self, base_url: str, username: str, password: str, core=None, logger=None):
         self.base_url = base_url.rstrip('/')
