@@ -27,14 +27,12 @@ services:
       - ./config:/mnt/config # promtail-config.yaml di sini
       - /var/log:/var/log # membaca log system
     ports:
-      - "514:514/udp" # port default syslog
-      - "514:514/tcp"
-      - "1514:1514/udp" # Syslog dari network devices
-      - "1514:1514/tcp"
-      - "1515:1515/udp" # Syslog dari unifi access point devices
-      - "1515:1515/tcp"
-      - "2514:2514/udp" # Syslog dari servers
-      - "2514:2514/tcp"
+      - "1510:1510/udp" # Syslog dari router network devices
+      - "1510:1510/tcp"
+      - "1511:1511/udp" # Syslog dari switch network devices
+      - "1511:1511/tcp"
+      - "1512:1512/udp" # Syslog dari access point devices
+      - "1512:1512/tcp"
     restart: unless-stopped
     environment:
       - TZ=Asia/Jakarta

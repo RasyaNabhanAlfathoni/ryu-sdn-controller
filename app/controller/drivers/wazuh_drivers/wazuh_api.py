@@ -206,7 +206,14 @@ class WazuhAPI:
             return {"status": "error", "error": f"Device {device_id} not found"}
         
         agent_name = device.get('hostname', f"device-{device_id}")
-        agent_ip = device.get('ip') or device.get('main_ip_address', 'unknown')
+        agent_ip = (
+            device.get("main_ip_address")
+            or device.get("ip")
+            or device.get("meta", {}).get("ip")
+        )
+
+        if not agent_ip:
+            raise Exception(f"Cannot determine agent_ip for device {device_id}")
         
         log(f"Starting COMPLETE Wazuh installation for {agent_name}...")
         

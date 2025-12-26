@@ -15,7 +15,7 @@ scrape_configs:
           - localhost
         labels:
           job: varlogs
-          __path__: /var/log/*log
+          _path_: /var/log/*log
 
   - job_name: router-syslog
     syslog:
