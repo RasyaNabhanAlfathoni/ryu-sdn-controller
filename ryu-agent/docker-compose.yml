@@ -4,7 +4,7 @@ services:
     build: .
     container_name: ryu-agent-register
     environment:
-      - RYU_CONTROLLER_URL=http://192.168.221.133:8080 # http:// dan port dari Ryu Manager
+      - RYU_CONTROLLER_URL=http://192.168.221.133:9090 # http:// dan port dari Ryu Manager
       - RYU_API_KEY=agent-secret-token-1 # API Key dari Ryu Manager
       - AGENT_IP=192.168.221.133 # IP Server Agent yang 1 Network atau dapat diPing dengan Server Ryu Manager
     volumes:
@@ -107,7 +107,6 @@ services:
       - /var/log/journal:/var/log/journal:ro
     environment:
       - LOKI_URL=http://192.168.221.133:3100 # IP controller
-      - HOSTNAME=ryu-agent # Hostname Server Agent
     restart: unless-stopped
     network_mode: host # Agar bisa kirim log ke controller
     privileged: true # Untuk Akses command system pada Server

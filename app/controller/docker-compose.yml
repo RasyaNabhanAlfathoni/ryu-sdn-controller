@@ -1,11 +1,12 @@
 services:
   ryu-controller:
-    image: sdn-controller:1.0.0
+    # image: sdn-controller:1.0.0
+    build: .
     container_name: sdn_controller
     environment:
       CONTROLLER_PORT: 9090
       SERVER_AGENT_API_PORT: 8500 # Port Koneksi Server Agent API
-      POSTGRES_HOST: 192.168.100.85
+      POSTGRES_HOST: 192.168.221.133
       POSTGRES_PORT: 5432
       POSTGRES_DB: sdn_controller
       POSTGRES_USER: admin
@@ -16,6 +17,7 @@ services:
       WAZUH_INDEXER_URL:
       WAZUH_INDEXER_USER:
       WAZUH_INDEXER_PASSWORD:
+      LOKI_URL:
       TZ: Asia/Jakarta
     ports:
       - "9090:9090" # Sesuaikan Port ini dengan CONTROLLER_PORT

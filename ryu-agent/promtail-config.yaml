@@ -8,9 +8,9 @@ positions:
 clients:
   - url: ${LOKI_URL:-http://localhost:3100}/loki/api/v1/push
     external_labels:
-      hostname: ${HOSTNAME:-unknown}
       job: server-logs
       component: linux-server
+      service_name: server
 
 scrape_configs:
   # === SYSTEM LOGS ===
@@ -19,9 +19,10 @@ scrape_configs:
       path: /var/log/journal
       labels:
         job: systemd-journal
+        component: linux-server
     relabel_configs:
       - source_labels: ["__journal__hostname"]
-        target_label: host
+        target_label: hostname
       - source_labels: ["__journal__systemd_unit"]
         target_label: systemd_unit
         regex: "(.+)"

@@ -46,6 +46,9 @@ from drivers.server_file_manager import ServerFileManager
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
 from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 
+# === Loki Driver ===
+from drivers.loki_api import LokiAPI
+
 API_INSTANCE_NAME = 'northbound_api'
 
 # Ini sesuaikan dengan secret key nya (Untuk Server Agent)
@@ -157,6 +160,20 @@ class Orchestrator(app_manager.RyuApp):
         except Exception as e:
             self.logger.error(f"Wazuh Indexer init failed: {e}")
             self.wazuh_indexer = None
+
+        try:
+            from database.device_repository import DeviceRepository
+            loki_url = os.environ.get('LOKI_URL', 'http://localhost:3100')
+            
+            self.loki_api = LokiAPI(
+                base_url=loki_url,
+                device_repository=DeviceRepository,
+                logger=self.logger.info
+            )
+            self.logger.info("Loki API initialized with device validation")
+        except Exception as e:
+            self.logger.error(f"Loki initialization failed: {e}")
+            self.loki_api = None
 
     def health_check_loop(self):
         """Background thread untuk health check semua devices"""
@@ -438,11 +455,15 @@ class Orchestrator(app_manager.RyuApp):
             "snmp.metric.delete", "snmp.metric.edit", "snmp.device.delete", 
             "snmp.device.edit"
         ]
+
+        # SNMP ACTIONS (GLOBAL - TIDAK BUTUH device_id)
+        loki_global_actions = [
+            "loki.query.logs", "loki.search.logs", "loki.health"
+        ]
         
         # GLOBAL ACTIONS = WAJUH MANAGER + SNMP + UNIFI
         global_actions = (
-            wazuh_global_actions +
-            snmp_global_actions +
+            wazuh_global_actions + snmp_global_actions + loki_global_actions +
             list(UnifiAccessPointGlobalActions.get_actions(None).keys())
         )
         
@@ -646,6 +667,21 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.system.processes": lambda p, logger: self.wazuh_api.get_syscollector_processes(
                 agent_id=p.get("agent_id"),
                 filters=p.get("filters", {}),
+                logger=logger
+            ),
+
+            # === LOKI ACTIONS ===
+            "loki.query.logs": lambda p, logger: self.loki_api.query_range(
+                query=p.get("query", ""),
+                limit=p.get("limit", 100),
+                hours=p.get("hours", 1)
+            ),
+            "loki.search.logs": lambda p, logger: self.loki_api.search_logs(
+                params=p,
+                logger=logger
+            ),
+            "loki.health": lambda p, logger: self.loki_api.health(
+                params=p,
                 logger=logger
             ),
         }
