@@ -95,6 +95,17 @@ def disable_interface():
         log_message(f"Error in disable_interface: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/network/interfaces', methods=['GET'])
+def list_interfaces():
+    """List all network interfaces"""
+    try:
+        log_message("GET /api/network/interfaces")
+        result = network_driver.list_interfaces()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in list_interfaces: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/network/interface/<iface>/info', methods=['GET'])
 def get_ip_info(iface):
     # Get IP info for specific interface
@@ -401,6 +412,17 @@ def firewall_command():
 
 # === NAT FIREWALL ENDPOINTS ===
 
+@app.route('/api/firewall/nat/list', methods=['GET'])
+def list_nat():
+    # Get NAT rules list
+    try:
+        log_message("GET /api/firewall/nat/list")
+        result = firewall_driver.get_nat_rules()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in list_nat: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/firewall/nat/setup', methods=['POST'])
 def setup_nat():
     # Setup NAT
@@ -551,6 +573,215 @@ def get_lldp_status():
 
 
 # === SYSTEM ENDPOINTS ===
+
+@app.route('/api/system/users', methods=['GET'])
+def get_users():
+    """Get list of system users"""
+    try:
+        log_message("GET /api/system/users")
+        result = system_driver.get_users()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_users: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/<username>', methods=['GET'])
+def get_user_info(username):
+    """Get detailed information about a specific user"""
+    try:
+        log_message(f"GET /api/system/users/{username}")
+        result = system_driver.get_user_info(username)
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_user_info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/create', methods=['POST'])
+def create_user():
+    """Create a new system user"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/create - {data}")
+        
+        result = system_driver.create_user(
+            username=data['username'],
+            password=data.get('password'),
+            shell=data.get('shell', '/bin/bash'),
+            home_dir=data.get('home_dir')
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in create_user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/delete', methods=['POST'])
+def delete_user():
+    """Delete a system user"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/delete - {data}")
+        
+        result = system_driver.delete_user(
+            username=data['username'],
+            remove_home=data.get('remove_home', False)
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in delete_user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/modify', methods=['POST'])
+def modify_user():
+    """Modify user properties"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/modify - {data}")
+        
+        result = system_driver.modify_user(
+            username=data['username'],
+            shell=data.get('shell'),
+            home_dir=data.get('home_dir')
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in modify_user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/change-password', methods=['POST'])
+def change_user_password():
+    """Change user password"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/change-password - {data}")
+        
+        # Don't log the password
+        safe_data = data.copy()
+        if 'password' in safe_data:
+            safe_data['password'] = '******'
+        log_message(f"POST /api/system/users/change-password - {safe_data}")
+        
+        result = system_driver.change_user_password(
+            username=data['username'],
+            password=data['password']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in change_user_password: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/add-to-group', methods=['POST'])
+def add_user_to_group():
+    """Add user to group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/add-to-group - {data}")
+        
+        result = system_driver.add_user_to_group(
+            username=data['username'],
+            group=data['group']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in add_user_to_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/remove-from-group', methods=['POST'])
+def remove_user_from_group():
+    """Remove user from group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/remove-from-group - {data}")
+        
+        result = system_driver.remove_user_from_group(
+            username=data['username'],
+            group=data['group']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in remove_user_from_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/groups', methods=['GET'])
+def get_groups():
+    """Get list of system groups"""
+    try:
+        log_message("GET /api/system/groups")
+        result = system_driver.get_groups()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/groups/create', methods=['POST'])
+def create_group():
+    """Create a new system group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/groups/create - {data}")
+        
+        result = system_driver.create_group(
+            group_name=data['group_name']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in create_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/groups/delete', methods=['POST'])
+def delete_group():
+    """Delete a system group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/groups/delete - {data}")
+        
+        result = system_driver.delete_group(
+            group_name=data['group_name']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in delete_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/hostname', methods=['GET'])
+def get_hostname():
+    """Get current hostname"""
+    try:
+        log_message("GET /api/system/hostname")
+        result = system_driver.get_hostname()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_hostname: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/hostname/set', methods=['POST'])
+def set_hostname():
+    """Set new hostname"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/hostname/set - {data}")
+        
+        result = system_driver.set_hostname(
+            hostname=data['hostname']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in set_hostname: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/reboot', methods=['POST'])
+def reboot():
+    """Reboot the system"""
+    try:
+        data = request.json
+        log_message("POST /api/system/reboot")
+        
+        result = system_driver.reboot(
+            delay_seconds=data.get('delay_seconds', 0)
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in reboot: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/system/logs', methods=['GET'])
 def get_logs():

@@ -51,7 +51,7 @@ from drivers.loki_api import LokiAPI
 
 API_INSTANCE_NAME = 'northbound_api'
 
-# Ini sesuaikan dengan secret key nya (Untuk Server Agent)
+# Ini sesuaikan dengan secret key nya
 ALLOWED_API_KEYS = set([os.environ.get("RYU_API_KEY", "agent-secret-token-1")])
 
 def to_postgresql_datetime(ts):

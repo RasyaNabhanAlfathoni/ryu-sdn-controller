@@ -8,6 +8,7 @@ class ServerAPI:
 
     def __init__(self, dev):
         self.agent_ip = dev.get("main_ip_address")  # IP agent (contoh: 192.168.221.163)
+        self.controller_port = int(os.environ.get("CONTROLLER_PORT", 9090))
         self.agent_port = (dev.get("api_port") or int(os.environ.get("SERVER_AGENT_API_PORT", 8081))) # Port Agent
         self.agent_url = f"http://{self.agent_ip}:{self.agent_port}"  # Agent URL API endpoint
         self.device_id = dev.get("id")
@@ -124,9 +125,7 @@ class ServerAPI:
                 parsed_result = {
                     "interface": result.get("interface", iface),
                     "mac": result.get("mac_address", "unknown"),
-                    "address": "",
-                    "netmask": "",
-                    "broadcast": "",
+                    "ip_addresses": [],
                     "status": interface_status 
                 }
                 
@@ -136,35 +135,35 @@ class ServerAPI:
                     
                     # Ambil IP pertama untuk backward compatibility
                     if result["ip_addresses"] and len(result["ip_addresses"]) > 0:
-                        first_ip = result["ip_addresses"][0]
-                        if "/" in first_ip:
-                            ip_parts = first_ip.split("/")
-                            parsed_result["address"] = ip_parts[0]
-                            parsed_result["netmask"] = ip_parts[1]
-                            
-                            # Hitung broadcast untuk IP pertama
-                            try:
-                                import ipaddress
-                                if "." in parsed_result["netmask"]:
-                                    mask = parsed_result["netmask"]
-                                    prefix = sum(bin(int(x)).count('1') for x in mask.split('.'))
-                                    cidr = f"{parsed_result['address']}/{prefix}"
-                                else:
-                                    cidr = f"{parsed_result['address']}/{parsed_result['netmask']}"
-                                
-                                network = ipaddress.IPv4Network(cidr, strict=False)
-                                parsed_result["broadcast"] = str(network.broadcast_address)
-                            except Exception as e:
-                                if logger:
-                                    logger(f"[DEBUG] Cannot calculate broadcast: {e}")
+                        first_ip_info = result["ip_addresses"][0]
+                        parsed_result["primary_ip"] = {
+                            "address": first_ip_info.get("address", ""),
+                            "netmask": first_ip_info.get("netmask", ""),
+                            "cidr": first_ip_info.get("cidr", ""),
+                            "network": first_ip_info.get("network", ""),
+                            "broadcast": first_ip_info.get("broadcast", "")
+                        }
+                        
+                        # Set legacy fields
+                        parsed_result["address"] = first_ip_info.get("address", "")
+                        parsed_result["netmask"] = first_ip_info.get("netmask", "")
+                        parsed_result["network"] = first_ip_info.get("network", "")
+                        parsed_result["broadcast"] = first_ip_info.get("broadcast", "")
                 else:
                     # Format lama (single IP)
                     parsed_result["address"] = result.get("address", "")
                     parsed_result["netmask"] = result.get("netmask", "")
+                    parsed_result["network"] = result.get("network", "")
                     parsed_result["broadcast"] = result.get("broadcast", "")
                     
                     # Buat array ip_addresses dari data lama
                     if parsed_result["address"]:
+                        ip_info = {
+                            "address": parsed_result["address"],
+                            "netmask": parsed_result["netmask"],
+                            "network": parsed_result.get("network", ""),
+                            "broadcast": parsed_result["broadcast"]
+                        }
                         if parsed_result["netmask"]:
                             parsed_result["ip_addresses"] = [f"{parsed_result['address']}/{parsed_result['netmask']}"]
                         else:
@@ -182,6 +181,7 @@ class ServerAPI:
                     "interface": iface,
                     "address": "",
                     "netmask": "", 
+                    "network": "",
                     "broadcast": "",
                     "mac": "unknown",
                     "ip_addresses": [],
@@ -201,6 +201,10 @@ class ServerAPI:
                 "status": "unknown",
                 "error": str(e)
             }
+        
+    def list_interfaces(self, logger=None):
+        """List all network interfaces"""
+        return self._call_agent("/api/network/interfaces", logger=logger)
 
     # === Advanced Network Management Methods ===
     
@@ -223,22 +227,38 @@ class ServerAPI:
         return self._call_agent("/api/firewall/ufw/status", logger=logger)
     
     def ufw_enable(self, logger=None):
-        """Enable UFW firewall on agent"""
+        """Enable UFW firewall on agent with essential ports"""
         try:
-            # 1. FIRST: Allow port 8081 for API access
-            allow_result = self._call_agent("/api/firewall/ufw/allow", {
-                "port_proto": "8081/tcp"
-            }, logger=logger)
+            # List port yang harus di-allow sebelum enable UFW
+            essential_ports = [
+                f"{self.agent_port}/tcp",      # Agent API port
+                f"{self.controller_port}/tcp",  # Controller port
+                "22/tcp"                        # SSH port
+            ]
             
-            if logger:
-                logger(f"Allow port 8081 result: {allow_result}")
+            allow_results = {}
             
-            # 2. THEN: Enable UFW
+            # Allow semua port penting
+            for port_proto in essential_ports:
+                if logger:
+                    logger(f"Allowing port {port_proto} before enabling UFW")
+                
+                allow_result = self._call_agent("/api/firewall/ufw/allow", {
+                    "port_proto": port_proto
+                }, logger=logger)
+                
+                allow_results[f"allow_{port_proto.replace('/', '_')}"] = allow_result
+                
+                if logger:
+                    logger(f"Allow port {port_proto} result: {allow_result}")
+            
+            # Enable UFW
             enable_result = self._call_agent("/api/firewall/ufw/enable", data={}, logger=logger)
             
             return {
-                "allow_port_8081": allow_result,
-                "enable_ufw": enable_result
+                **allow_results,  # Include semua allow results
+                "enable_ufw": enable_result,
+                "essential_ports_allowed": essential_ports
             }
         except Exception as e:
             return {"error": str(e)}
@@ -253,7 +273,40 @@ class ServerAPI:
     
     def ufw_reset(self, logger=None):
         """Reset UFW firewall on agent"""
-        return self._call_agent("/api/firewall/ufw/reset", data={}, logger=logger)
+        try:
+            # Reset UFW dulu
+            reset_result = self._call_agent("/api/firewall/ufw/reset", data={}, logger=logger)
+            
+            if logger:
+                logger(f"UFW reset result: {reset_result}")
+            
+            # List port yang harus di-allow setelah reset
+            essential_ports = [
+                f"{self.agent_port}/tcp",      # Agent API port
+                f"{self.controller_port}/tcp",  # Controller port
+                "22/tcp"                        # SSH port
+            ]
+            
+            allow_results = {}
+            
+            # Allow semua port penting setelah reset
+            for port_proto in essential_ports:
+                allow_result = self._call_agent("/api/firewall/ufw/allow", {
+                    "port_proto": port_proto
+                }, logger=logger)
+                
+                allow_results[f"allow_{port_proto.replace('/', '_')}"] = allow_result
+                
+                if logger:
+                    logger(f"Allow agent port {port_proto} after reset: {allow_result}")
+            
+            return {
+                "reset_ufw": reset_result,
+                **allow_results,  # Include semua allow results
+                "essential_ports_allowed": essential_ports
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     def ufw_allow(self, port_proto, logger=None):
         """Allow port/protocol in UFW on agent"""
@@ -300,28 +353,128 @@ class ServerAPI:
         return self._call_agent("/api/firewall/firewalld/list-ports", logger=logger)
     
     def firewall_reload(self, logger=None):
-        """Reload firewalld on agent"""
-        return self._call_agent("/api/firewall/firewalld/reload", logger=logger)
+        """Reload firewalld on agent with essential ports"""
+        try:
+            # List port yang harus di-allow sebelum reload
+            essential_ports = [
+                f"{self.agent_port}/tcp",      # Agent API port
+                f"{self.controller_port}/tcp",  # Controller port
+                "22/tcp"                        # SSH port
+            ]
+            
+            ensure_results = {}
+            
+            # Ensure semua port penting di-allow
+            for port_proto in essential_ports:
+                if logger:
+                    logger(f"Ensuring port {port_proto} is allowed in firewalld")
+                
+                ensure_result = self._call_agent("/api/firewall/firewalld/add-port", {
+                    "port_proto": port_proto
+                }, logger=logger)
+                
+                ensure_results[f"ensure_{port_proto.replace('/', '_')}"] = ensure_result
+                
+                if logger:
+                    logger(f"Ensure port {port_proto} result: {ensure_result}")
+            
+            # Reload firewalld
+            reload_result = self._call_agent("/api/firewall/firewalld/reload", logger=logger)
+            
+            return {
+                **ensure_results,  # Include semua ensure results
+                "reload_firewalld": reload_result,
+                "essential_ports_ensured": essential_ports
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     def firewall_add_port(self, port_proto, logger=None):
         """Add port to firewalld on agent"""
+        # Jika port_proto adalah string kosong atau None, gunakan agent port
+        if not port_proto:
+            port_proto = f"{self.agent_port}/tcp"
+            if logger:
+                logger(f"No port specified, using agent port: {port_proto}")
+        
         return self._call_agent("/api/firewall/firewalld/add-port", {
             "port_proto": port_proto
         }, logger=logger)
     
     def firewall_remove_port(self, port_proto, logger=None):
         """Remove port from firewalld on agent"""
+        # Jangan izinkan remove port penting (agent, controller, ssh)
+        essential_ports = [
+            f"{self.agent_port}/tcp",
+            f"{self.controller_port}/tcp",
+            "22/tcp"
+        ]
+        
+        if port_proto in essential_ports:
+            warning_msg = f"Cannot remove essential port: {port_proto}"
+            if logger:
+                logger(f"WARNING: {warning_msg}")
+            return {"warning": warning_msg, "port_proto": port_proto}
+        
         return self._call_agent("/api/firewall/firewalld/remove-port", {
             "port_proto": port_proto
         }, logger=logger)
     
     def firewall_enable_masquerade(self, logger=None):
         """Enable masquerade in firewalld on agent"""
-        return self._call_agent("/api/firewall/firewalld/enable-masquerade", logger=logger)
+        try:
+            # Ensure port penting sebelum enable masquerade
+            essential_ports = [
+                f"{self.agent_port}/tcp",
+                f"{self.controller_port}/tcp",
+                "22/tcp"
+            ]
+            
+            ensure_results = {}
+            for port_proto in essential_ports:
+                ensure_result = self._call_agent("/api/firewall/firewalld/add-port", {
+                    "port_proto": port_proto
+                }, logger=logger)
+                ensure_results[f"ensure_{port_proto.replace('/', '_')}"] = ensure_result
+            
+            # Enable masquerade
+            masquerade_result = self._call_agent("/api/firewall/firewalld/enable-masquerade", logger=logger)
+            
+            return {
+                **ensure_results,
+                "enable_masquerade": masquerade_result,
+                "essential_ports_ensured": essential_ports
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     def firewall_disable_masquerade(self, logger=None):
         """Disable masquerade in firewalld on agent"""
-        return self._call_agent("/api/firewall/firewalld/disable-masquerade", logger=logger)
+        try:
+            # Ensure port penting sebelum disable masquerade
+            essential_ports = [
+                f"{self.agent_port}/tcp",
+                f"{self.controller_port}/tcp",
+                "22/tcp"
+            ]
+            
+            ensure_results = {}
+            for port_proto in essential_ports:
+                ensure_result = self._call_agent("/api/firewall/firewalld/add-port", {
+                    "port_proto": port_proto
+                }, logger=logger)
+                ensure_results[f"ensure_{port_proto.replace('/', '_')}"] = ensure_result
+            
+            # Disable masquerade
+            masquerade_result = self._call_agent("/api/firewall/firewalld/disable-masquerade", logger=logger)
+            
+            return {
+                **ensure_results,
+                "disable_masquerade": masquerade_result,
+                "essential_ports_ensured": essential_ports
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     def firewall_cmd(self, args, logger=None):
         """Run firewall-cmd on agent"""
@@ -331,6 +484,10 @@ class ServerAPI:
 
     
     # === NAT Firewall Management Methods ===
+
+    def get_nat_rules(self, logger=None):
+        """Get current NAT rules from agent"""
+        return self._call_agent("/api/firewall/nat/list", logger=logger)
     
     def setup_nat(self, interface, logger=None):
         """Setup NAT on agent"""
@@ -340,7 +497,7 @@ class ServerAPI:
     
     def clear_nat(self, logger=None):
         """Clear NAT rules on agent"""
-        return self._call_agent("/api/firewall/nat/clear", logger=logger)
+        return self._call_agent("/api/firewall/nat/clear", data={}, logger=logger, method='POST')
     
     def status_all(self, logger=None):
         """Get complete firewall status from agent"""
@@ -420,11 +577,108 @@ class ServerAPI:
             return {"status": "error", "error": error_msg}
 
 
+    # === System Users & Group Management ===
+    def get_users(self, logger=None):
+        """Get list of system users"""
+        return self._call_agent("/api/system/users", logger=logger)
+
+    def get_user_info(self, username, logger=None):
+        """Get detailed information about a specific user"""
+        return self._call_agent(f"/api/system/users/{username}", logger=logger)
+
+    def create_user(self, username, password=None, shell="/bin/bash", home_dir=None, logger=None):
+        """Create a new system user"""
+        data = {
+            "username": username,
+            "password": password,
+            "shell": shell,
+            "home_dir": home_dir
+        }
+        return self._call_agent("/api/system/users/create", data=data, logger=logger)
+
+    def delete_user(self, username, remove_home=False, logger=None):
+        """Delete a system user"""
+        data = {
+            "username": username,
+            "remove_home": remove_home
+        }
+        return self._call_agent("/api/system/users/delete", data=data, logger=logger)
+
+    def modify_user(self, username, shell=None, home_dir=None, logger=None):
+        """Modify user properties"""
+        data = {
+            "username": username,
+            "shell": shell,
+            "home_dir": home_dir
+        }
+        return self._call_agent("/api/system/users/modify", data=data, logger=logger)
+
+    def change_user_password(self, username, password, logger=None):
+        """Change user password"""
+        data = {
+            "username": username,
+            "password": password
+        }
+        return self._call_agent("/api/system/users/change-password", data=data, logger=logger)
+
+    def add_user_to_group(self, username, group, logger=None):
+        """Add user to group"""
+        data = {
+            "username": username,
+            "group": group
+        }
+        return self._call_agent("/api/system/users/add-to-group", data=data, logger=logger)
+
+    def remove_user_from_group(self, username, group, logger=None):
+        """Remove user from group"""
+        data = {
+            "username": username,
+            "group": group
+        }
+        return self._call_agent("/api/system/users/remove-from-group", data=data, logger=logger)
+
+    def get_groups(self, logger=None):
+        """Get list of system groups"""
+        return self._call_agent("/api/system/groups", logger=logger)
+
+    def create_group(self, group_name, logger=None):
+        """Create a new system group"""
+        data = {
+            "group_name": group_name
+        }
+        return self._call_agent("/api/system/groups/create", data=data, logger=logger)
+
+    def delete_group(self, group_name, logger=None):
+        """Delete a system group"""
+        data = {
+            "group_name": group_name
+        }
+        return self._call_agent("/api/system/groups/delete", data=data, logger=logger)
+
+
     # === System Monitoring Methods ===
-    
     def get_logs(self, n=50, logger=None):
         """Get system logs from agent"""
         return self._call_agent(f"/api/system/logs?lines={n}", logger=logger)
+    
+    def get_hostname(self, logger=None):
+        """Get current hostname"""
+        return self._call_agent("/api/system/hostname", logger=logger)
+
+    def set_hostname(self, hostname, logger=None):
+        """Set new hostname"""
+        data = {
+            "hostname": hostname
+        }
+        return self._call_agent("/api/system/hostname/set", data=data, logger=logger)
+
+    def reboot(self, delay_seconds=0, logger=None):
+        """Reboot the system"""
+        data = {
+            "delay_seconds": delay_seconds
+        }
+        return self._call_agent("/api/system/reboot", data=data, logger=logger)
+
 
     ## === Wazuh Commands ===
     def wazuh_install(self, manager_ip, agent_key, agent_name, logger=None):

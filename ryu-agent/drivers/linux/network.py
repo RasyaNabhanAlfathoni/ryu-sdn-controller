@@ -2,6 +2,7 @@ import os
 import subprocess
 import re
 import psutil
+import ipaddress
 from utils import detect_os_family, execute_command, detect_network_manager, configure_network_interface
 
 class ServerNetworkDriver:
@@ -16,14 +17,29 @@ class ServerNetworkDriver:
     def get_ip_info(self, iface):
         """Get IP and MAC address information"""
         try:
-            # Method 1: Use psutil (primary)
+            # Use psutil (primary)
             addrs = psutil.net_if_addrs().get(iface, [])
             ip_addresses = []
             mac_address = "unknown"
             
             for addr in addrs:
                 if addr.family == 2:  # AF_INET - IPv4
-                    ip_addresses.append(f"{addr.address}/{addr.netmask}")
+                    ip_info = {
+                        "address": addr.address,
+                        "netmask": addr.netmask,
+                        "cidr": self._netmask_to_cidr(addr.netmask),
+                        "network": "",
+                        "broadcast": ""
+                    }
+                    try:
+                        if addr.address and addr.netmask:
+                            network_obj = ipaddress.IPv4Network(f"{addr.address}/{addr.netmask}", strict=False)
+                            ip_info["network"] = str(network_obj.network_address)
+                            ip_info["broadcast"] = str(network_obj.broadcast_address)
+                    except Exception as e:
+                        self.logger(f"Error calculating network/broadcast: {e}")
+                
+                    ip_addresses.append(ip_info)
                 elif addr.family == 10:  # AF_INET6 - IPv6
                     # Skip IPv6 for simplicity, or include if needed
                     pass
@@ -34,8 +50,7 @@ class ServerNetworkDriver:
             if not ip_addresses:
                 result = self._execute_command(f"ip addr show {iface}")
                 if result["success"]:
-                    ip_match = re.findall(r'inet (\d+\.\d+\.\d+\.\d+/\d+)', result["stdout"])
-                    ip_addresses = ip_match
+                    ip_addresses = self._parse_ip_addr_output(result["stdout"], iface)
                     
                     mac_match = re.search(r'link/ether ([\da-f:]+)', result["stdout"])
                     if mac_match and mac_address == "unknown":
@@ -52,6 +67,160 @@ class ServerNetworkDriver:
         except Exception as e:
             return {"interface": iface, "error": str(e)}
         
+    def _netmask_to_cidr(self, netmask):
+        """Convert netmask to CIDR notation"""
+        try:
+            if not netmask:
+                return ""
+            
+            # If already in CIDR format (e.g., "24")
+            if isinstance(netmask, str) and netmask.isdigit():
+                return int(netmask)
+            
+            # Convert dotted decimal to CIDR
+            return sum(bin(int(x)).count('1') for x in netmask.split('.'))
+        except Exception as e:
+            self.logger(f"Error converting netmask to CIDR: {e}")
+            return ""
+    
+    def _parse_ip_addr_output(self, output, iface):
+        """Parse ip addr command output"""
+        ip_addresses = []
+        
+        # Regex untuk IPv4 dengan netmask
+        ipv4_pattern = r'inet (\d+\.\d+\.\d+\.\d+)/(\d+)'
+        matches = re.findall(ipv4_pattern, output)
+        
+        for address, prefix in matches:
+            ip_info = {
+                "address": address,
+                "cidr": int(prefix),
+                "network": "",
+                "broadcast": "",
+                "netmask": ""
+            }
+            
+            # Calculate network and broadcast
+            try:
+                network_obj = ipaddress.IPv4Network(f"{address}/{prefix}", strict=False)
+                ip_info["network"] = str(network_obj.network_address)
+                ip_info["broadcast"] = str(network_obj.broadcast_address)
+                ip_info["netmask"] = str(network_obj.netmask)
+            except Exception as e:
+                self.logger(f"Error parsing network for {address}/{prefix}: {e}")
+            
+            ip_addresses.append(ip_info)
+        
+        return ip_addresses
+        
+    def list_interfaces(self):
+        """List all network interfaces"""
+        try:
+            interfaces = []
+            
+            # Method 1: Use psutil
+            net_if_addrs = psutil.net_if_addrs()
+            net_if_stats = psutil.net_if_stats()
+            
+            for iface in net_if_addrs.keys():
+                stats = net_if_stats.get(iface)
+                addrs = net_if_addrs.get(iface, [])
+                
+                # Find MAC address
+                mac_address = "unknown"
+                for addr in addrs:
+                    if addr.family == 17:  # AF_LINK - MAC
+                        mac_address = addr.address
+                        break
+                
+                # Find IPv4 addresses
+                ipv4_addresses = []
+                for addr in addrs:
+                    if addr.family == 2:  # AF_INET - IPv4
+                        ipv4_addresses.append(f"{addr.address}/{self._netmask_to_cidr(addr.netmask)}")
+                
+                # Get interface status
+                status = "down"
+                if stats and stats.isup:
+                    status = "up"
+                
+                interfaces.append({
+                    "name": iface,
+                    "mac_address": mac_address,
+                    "status": status,
+                    "mtu": stats.mtu if stats else 1500,
+                    "ipv4_addresses": ipv4_addresses,
+                    "ipv4_count": len(ipv4_addresses)
+                })
+            
+            # Method 2: Fallback to ip command
+            if not interfaces:
+                result = self._execute_command("ip link show")
+                if result["success"]:
+                    interfaces = self._parse_ip_link_output(result["stdout"])
+            
+            return {
+                "success": True,
+                "interfaces": interfaces,
+                "total_interfaces": len(interfaces)
+            }
+            
+        except Exception as e:
+            self.logger(f"Error listing interfaces: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _parse_ip_link_output(self, output):
+        """Parse ip link command output"""
+        interfaces = []
+        current_iface = None
+        
+        for line in output.splitlines():
+            if_match = re.match(r'^\d+: (\w+):\s+<(.+?)>', line)
+            if if_match:
+                current_iface = if_match.group(1)
+                flags = if_match.group(2).split(',')
+                
+                # Get MTU
+                mtu_match = re.search(r'mtu (\d+)', line)
+                mtu = int(mtu_match.group(1)) if mtu_match else 1500
+                
+                # Get status
+                status = "down"
+                if "UP" in flags:
+                    status = "up"
+                
+                # Get MAC address from next line
+                mac_address = "unknown"
+                
+                interfaces.append({
+                    "name": current_iface,
+                    "mac_address": mac_address,  # Will be updated below
+                    "status": status,
+                    "mtu": mtu,
+                    "ipv4_addresses": [],
+                    "ipv4_count": 0
+                })
+            
+            # MAC address line: link/ether 00:0c:29:xx:xx:xx brd ff:ff:ff:ff:ff:ff
+            elif current_iface and 'link/ether' in line:
+                mac_match = re.search(r'link/ether ([\da-f:]+)', line)
+                if mac_match:
+                    # Update MAC address for current interface
+                    for iface in interfaces:
+                        if iface["name"] == current_iface:
+                            iface["mac_address"] = mac_match.group(1)
+                            break
+        
+        # Now get IP addresses for each interface
+        for iface in interfaces:
+            ip_result = self._execute_command(f"ip -4 addr show {iface['name']}")
+            if ip_result["success"]:
+                ip_matches = re.findall(r'inet (\d+\.\d+\.\d+\.\d+)/(\d+)', ip_result["stdout"])
+                iface["ipv4_addresses"] = [f"{ip}/{prefix}" for ip, prefix in ip_matches]
+                iface["ipv4_count"] = len(ip_matches)
+        
+        return interfaces
+
     def get_interface_status(self, iface):
         """Helper untuk mendapatkan status interface (up/down)"""
         try:

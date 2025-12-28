@@ -44,6 +44,7 @@ class ServerActions:
             ),
             
             # Network info actions (tanpa auto-update)
+            "server.network.interface.list": lambda p, logger: d.list_interfaces(logger=logger),
             "server.network.interface.info": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
             "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
             "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
@@ -85,26 +86,6 @@ class ServerActions:
                 lambda: d.ufw_delete(p.get("rule"), logger=logger),
                 "firewall"
             ),
-            "server.firewall.ufw.allow_in": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_allow_in", p, logger,
-                lambda: d.ufw("allow", "in", p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.allow_out": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_allow_out", p, logger,
-                lambda: d.ufw("allow", "out", p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.deny_in": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_deny_in", p, logger,
-                lambda: d.ufw("deny", "in", p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.deny_out": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_deny_out", p, logger,
-                lambda: d.ufw("deny", "out", p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
             
             # Firewalld actions dengan auto-update
             "server.firewall.firewalld.reload": lambda p, logger: ServerActions._simple_auto_update(
@@ -139,6 +120,11 @@ class ServerActions:
             ),
             
             # NAT actions dengan auto-update
+            "server.firewall.nat.list": lambda p, logger: ServerActions._simple_auto_update(
+                d, "get_nat_rules", p, logger,
+                lambda: d.get_nat_rules(logger=logger),
+                "firewall"
+            ),
             "server.firewall.nat.add": lambda p, logger: ServerActions._simple_auto_update(
                 d, "setup_nat", p, logger,
                 lambda: d.setup_nat(p.get("interface"), logger=logger),
@@ -157,6 +143,15 @@ class ServerActions:
             "server.firewall.firewalld.list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
             "server.firewall.status": lambda p, logger: d.status_all(logger=logger),
             "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
+            "server.system.hostname.get": lambda p, logger: d.get_hostname(logger=logger),
+            "server.system.hostname.set": lambda p, logger: d.set_hostname(
+                hostname=p.get("hostname"),
+                logger=logger
+            ),
+            "server.system.reboot": lambda p, logger: d.reboot(
+                delay_seconds=p.get("delay_seconds", 0),
+                logger=logger
+            ),
             
             # ================= SYSTEM MANAGEMENT =================
             # System info actions (tanpa auto-update)
@@ -164,6 +159,52 @@ class ServerActions:
             "server.system.services.list": lambda p, logger: d.list_services(logger=logger),
             "server.system.services.control": lambda p, logger: d.service_control(p.get("service"), p.get("action"), logger=logger),
             "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
+
+            # ================= USERS MANAGEMENT =================
+            "server.system.users.list": lambda p, logger: d.get_users(logger=logger),
+            "server.system.users.get": lambda p, logger: d.get_user_info(p.get("username"), logger=logger),
+            "server.system.users.create": lambda p, logger: d.create_user(
+                username=p.get("username"),
+                password=p.get("password"),
+                shell=p.get("shell", "/bin/bash"),
+                home_dir=p.get("home_dir"),
+                logger=logger
+            ),
+            "server.system.users.delete": lambda p, logger: d.delete_user(
+                username=p.get("username"),
+                remove_home=p.get("remove_home", False),
+                logger=logger
+            ),
+            "server.system.users.modify": lambda p, logger: d.modify_user(
+                username=p.get("username"),
+                shell=p.get("shell"),
+                home_dir=p.get("home_dir"),
+                logger=logger
+            ),
+            "server.system.users.change_password": lambda p, logger: d.change_user_password(
+                username=p.get("username"),
+                password=p.get("password"),
+                logger=logger
+            ),
+            "server.system.users.add_to_group": lambda p, logger: d.add_user_to_group(
+                username=p.get("username"),
+                group=p.get("group"),
+                logger=logger
+            ),
+            "server.system.users.remove_from_group": lambda p, logger: d.remove_user_from_group(
+                username=p.get("username"),
+                group=p.get("group"),
+                logger=logger
+            ),
+            "server.system.groups.list": lambda p, logger: d.get_groups(logger=logger),
+            "server.system.groups.create": lambda p, logger: d.create_group(
+                group_name=p.get("group_name"),
+                logger=logger
+            ),
+            "server.system.groups.delete": lambda p, logger: d.delete_group(
+                group_name=p.get("group_name"),
+                logger=logger
+            ),
             
             # ================= LLDP DISCOVERY =================
             # LLDP actions (tanpa auto-update)

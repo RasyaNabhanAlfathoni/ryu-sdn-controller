@@ -2,74 +2,88 @@ import subprocess
 import json
 import re
 import os
-from utils import detect_os_family, execute_command
+from utils import detect_os_family, execute_command, execute_on_host, execute_on_ssh
 
 class ServerFirewallDriver:
     def __init__(self, logger=print):
         self.logger = logger
-        self.os_family = detect_os_family()
-        self._execute_command = execute_command
+        # Gunakan execute_on_host untuk deteksi OS (untuk host)
+        os_info = detect_os_family()
+        self.os_family = os_info.get('family', 'unknown')
+        self._execute_on_host = execute_on_host  # Untuk perintah
+        self._execute_on_ssh = execute_on_ssh    # Untuk apply commands
+        self._execute_command = execute_command  # Untuk perintah di container
         self.firewall_type = self.detect_firewall()
         self.logger(f"Detected OS: {self.os_family}, Firewall: {self.firewall_type}")
 
+    def _execute(self, cmd, use_ssh=False):
+        """Wrapper untuk execute command dengan fallback"""
+        try:
+            if use_ssh:
+                return self._execute_on_ssh(cmd)
+            else:
+                return self._execute_on_host(cmd)
+        except Exception as e:
+            self.logger(f"Error executing command: {e}")
+            return {"success": False, "error": str(e)}
+
     def detect_firewall(self):
-        """Detect active firewall system dengan priority berdasarkan OS"""
+        """Detect active firewall system"""
         # Priority berdasarkan OS family
         if self.os_family in ['debian', 'ubuntu']:
             # Debian/Ubuntu: cek UFW dulu
             try:
-                result = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
+                result = self._execute_on_host("ufw status")
+                if result["success"] and "Status:" in result["stdout"]:
                     self.logger("Detected UFW firewall")
                     return "ufw"
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            except Exception:
                 pass
 
         if self.os_family in ['rhel', 'centos', 'fedora']:
             # RHEL/CentOS/Fedora: cek firewalld dulu
             try:
-                result = subprocess.run(["firewall-cmd", "--state"], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0 and "running" in result.stdout:
+                result = self._execute_on_host("firewall-cmd --state")
+                if result["success"] and "running" in result["stdout"]:
                     self.logger("Detected Firewalld")
                     return "firewalld"
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            except Exception:
                 pass
 
         if self.os_family == 'suse':
             # openSUSE: cek SuSEfirewall2
             try:
-                result = subprocess.run(["systemctl", "is-active", "SuSEfirewall2"], 
-                                      capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
+                result = self._execute_on_host("systemctl is-active SuSEfirewall2")
+                if result["success"] and result["stdout"].strip() == "active":
                     self.logger("Detected SuSEfirewall2")
                     return "suse"
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            except Exception:
                 pass
 
         # Fallback: cek semua yang mungkin
         firewall_checks = [
-            ("ufw", ["ufw", "status"]),
-            ("firewalld", ["firewall-cmd", "--state"]),
-            ("iptables", ["iptables", "-L"]),
+            ("ufw", "ufw status"),
+            ("firewalld", "firewall-cmd --state"),
+            ("iptables", "iptables -L"),
         ]
 
         for fw_name, cmd in firewall_checks:
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
+                result = self._execute_on_host(cmd)
+                if result["success"]:
                     self.logger(f"Detected {fw_name} firewall")
                     return fw_name
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+            except Exception:
                 continue
 
         self.logger("No firewall detected, using iptables fallback")
         return "iptables"
 
-    # === UFW Section ===
+    # === UFW Section (MENGGUNAKAN HOST) ===
     def ufw(self, *args):
         """Execute UFW command"""
-        cmd = ["ufw"] + list(args)
-        result = self._execute_command(cmd)
+        cmd = "ufw " + " ".join(args)
+        result = self._execute_on_host(cmd)
         return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
 
     def ufw_enable(self):
@@ -101,61 +115,63 @@ class ServerFirewallDriver:
         return self.ufw("delete", rule)
 
     def ufw_status(self):
-        """Get UFW status"""
+        """Get UFW status from HOST"""
         return self.ufw("status", "verbose")
 
-    # === Firewalld Section ===
+    # === Firewalld Section (MENGGUNAKAN HOST) ===
     def firewall_cmd(self, *args):
         """Execute firewall-cmd command"""
-        cmd = ["firewall-cmd"] + list(args)
-        result = self._execute_command(cmd)
+        cmd = "firewall-cmd " + " ".join(args)
+        result = self._execute_on_host(cmd)
         return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
 
     def firewall_reload(self):
         """Reload firewalld"""
-        return self.firewall_cmd("--reload")
+        result = self._execute_on_ssh("firewall-cmd --reload")
+        return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
 
     def firewall_add_port(self, port_proto):
         """Add port to firewalld"""
-        result1 = self.firewall_cmd(f"--add-port={port_proto}", "--permanent")
-        result2 = self.firewall_cmd("--reload")
+        # Gunakan SSH untuk apply commands
+        result1 = self._execute_on_host(f"firewall-cmd --add-port={port_proto} --permanent")
+        result2 = self._execute_on_ssh("firewall-cmd --reload")
         return f"Add port: {result1}\nReload: {result2}"
 
     def firewall_remove_port(self, port_proto):
         """Remove port from firewalld"""
-        result1 = self.firewall_cmd(f"--remove-port={port_proto}", "--permanent")
-        result2 = self.firewall_cmd("--reload")
+        result1 = self._execute_on_host(f"firewall-cmd --remove-port={port_proto} --permanent")
+        result2 = self._execute_on_ssh("firewall-cmd --reload")
         return f"Remove port: {result1}\nReload: {result2}"
 
     def firewall_enable_masquerade(self):
         """Enable masquerade in firewalld"""
-        result1 = self.firewall_cmd("--add-masquerade", "--permanent")
-        result2 = self.firewall_cmd("--reload")
+        result1 = self._execute_on_host("firewall-cmd --add-masquerade --permanent")
+        result2 = self._execute_on_ssh("firewall-cmd --reload")
         return f"Enable masquerade: {result1}\nReload: {result2}"
 
     def firewall_disable_masquerade(self):
         """Disable masquerade in firewalld"""
-        result1 = self.firewall_cmd("--remove-masquerade", "--permanent")
-        result2 = self.firewall_cmd("--reload")
+        result1 = self._execute_on_host("firewall-cmd --remove-masquerade --permanent")
+        result2 = self._execute_on_ssh("firewall-cmd --reload")
         return f"Disable masquerade: {result1}\nReload: {result2}"
 
     def firewall_status(self):
-        """Get firewalld status"""
+        """Get firewalld status from HOST"""
         return self.firewall_cmd("--list-all")
 
     def firewalld_list_services(self):
-        """List firewalld services"""
+        """List firewalld services from HOST"""
         return self.firewall_cmd("--list-services")
 
     def firewalld_list_ports(self):
-        """List firewalld ports"""
+        """List firewalld ports from HOST"""
         return self.firewall_cmd("--list-ports")
 
-    # === SuSEfirewall2 Section ===
+    # === SuSEfirewall2 Section (MENGGUNAKAN HOST) ===
     def suse_firewall(self, *args):
         """Execute SuSEfirewall2 commands"""
-        cmd = ["SuSEfirewall2"] + list(args)
-        result = self._execute_command(cmd)
+        cmd = "SuSEfirewall2 " + " ".join(args)
+        result = self._execute_on_host(cmd)
         return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
 
     def suse_start(self):
@@ -170,81 +186,295 @@ class ServerFirewallDriver:
         """Restart SuSEfirewall2"""
         return self.suse_firewall("restart")
 
-    # === NAT Section (Cross-distro) ===
-    def setup_nat(self, out_interface):
-        """Setup NAT menggunakan iptables (works on all distros)"""
+    def get_nat_rules(self):
+        """Get current NAT rules from iptables dengan parsing yang benar"""
         try:
-            self.logger(f"Setting up NAT on {out_interface}")
+            # Get NAT rules
+            result = self._execute_on_host("iptables -t nat -L -n -v --line-numbers")
             
-            # Enable IP forwarding (persistent based on OS)
-            if self.os_family in ['debian', 'ubuntu']:
-                subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
+            if not result["success"]:
+                return {"status": "error", "message": f"Failed to get NAT rules: {result.get('error')}"}
+            
+            rules_output = result["stdout"]
+            
+            # Parse dengan state machine yang lebih simple
+            chains = {}
+            current_chain = None
+            
+            for line in rules_output.split('\n'):
+                line = line.strip()
+                
+                if not line:
+                    continue
+                
+                # Start of a new chain
+                if line.startswith('Chain'):
+                    # Parse chain info: Chain POSTROUTING (policy ACCEPT 0 packets, 0 bytes)
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        chain_name = parts[1]
+                        
+                        # Extract policy
+                        policy = "ACCEPT"
+                        if '(' in line and ')' in line:
+                            policy_part = line[line.find('(')+1:line.find(')')]
+                            if 'policy' in policy_part:
+                                policy = policy_part.split('policy')[1].strip().split()[0]
+                        
+                        current_chain = chain_name
+                        chains[current_chain] = {
+                            "policy": policy,
+                            "rules": [],
+                            "total_rules": 0
+                        }
+                    continue
+                
+                # Skip header lines (num, pkts, bytes, target...)
+                if line.startswith('num ') or line.startswith('pkts ') or line.startswith('target '):
+                    continue
+                
+                # If we have a current chain and line contains data
+                if current_chain and line:
+                    parts = re.split(r'\s+', line)
+                    
+                    if len(parts) < 10:
+                        continue
+
+                    rule_data = {
+                        "rule_number": parts[0],
+                        "packets": parts[1],
+                        "bytes": parts[2],
+                        "target": parts[3],
+                        "protocol": parts[4],
+                        "opt": parts[5],
+                        "in": parts[6],
+                        "out": parts[7],
+                        "source": parts[8],
+                        "destination": parts[9],
+                        "raw_line": line
+                    }
+
+                    if len(parts) > 10:
+                        rule_data["additional"] = " ".join(parts[10:])
+
+                    chains[current_chain]["rules"].append(rule_data)
+            
+            # Update total rules untuk setiap chain
+            for chain_name, chain_data in chains.items():
+                chain_data["total_rules"] = len(chain_data["rules"])
+            
+            # Extract MASQUERADE rules dari POSTROUTING
+            masquerade_rules = []
+            if "POSTROUTING" in chains:
+                for rule in chains["POSTROUTING"]["rules"]:
+                    if "MASQUERADE" in rule.get("target", ""):
+                        masquerade_rules.append({
+                            "rule_number": rule.get("rule_number"),
+                            "interface": rule.get("out", ""),
+                            "protocol": rule.get("protocol", ""),
+                            "target": rule.get("target", ""),
+                            "source": rule.get("source", ""),
+                            "destination": rule.get("destination", ""),
+                            "packets": rule.get("packets", "0"),
+                            "bytes": rule.get("bytes", "0"),
+                            "raw_line": rule.get("raw_line", "")
+                        })
+            
+            # Extract DNAT rules dari PREROUTING
+            dnat_rules = []
+            if "PREROUTING" in chains:
+                for rule in chains["PREROUTING"]["rules"]:
+                    target = rule.get("target", "")
+                    if "DNAT" in target or "REDIRECT" in target:
+                        dnat_info = {
+                            "rule_number": rule.get("rule_number"),
+                            "interface": rule.get("in", ""),
+                            "protocol": rule.get("protocol", ""),
+                            "target": target,
+                            "source": rule.get("source", ""),
+                            "destination": rule.get("destination", ""),
+                            "additional": rule.get("additional", ""),
+                            "raw_line": rule.get("raw_line", "")
+                        }
+                        
+                        # Parse port info dari additional field
+                        additional = rule.get("additional", "")
+                        if "dpt:" in additional:
+                            dnat_info["destination_port"] = additional.split("dpt:")[1].split()[0]
+                        if "to:" in additional:
+                            dnat_info["redirect_to"] = additional.split("to:")[1].split()[0]
+                        
+                        dnat_rules.append(dnat_info)
+            
+            # Check IP forwarding
+            ip_forward_result = self._execute_on_host("sysctl net.ipv4.ip_forward")
+            ip_forward_enabled = False
+            ip_forward_value = "0"
+            
+            if ip_forward_result["success"]:
+                for line in ip_forward_result["stdout"].split('\n'):
+                    if "net.ipv4.ip_forward" in line and "=" in line:
+                        ip_forward_value = line.split('=')[1].strip()
+                        ip_forward_enabled = (ip_forward_value == "1")
+                        break
+            
+            # Calculate totals
+            total_chains = len(chains)
+            total_masquerade = len(masquerade_rules)
+            total_dnat = len(dnat_rules)
+            total_rules = sum(len(chain["rules"]) for chain in chains.values())
+            
+            # Summary info
+            interfaces_with_nat = sorted(
+                set(rule["interface"] for rule in masquerade_rules if rule["interface"])
+            )
+            
+            return {
+                "status": "success",
+                "chains": chains,
+                "masquerade_rules": masquerade_rules,
+                "dnat_rules": dnat_rules,
+                "ip_forwarding": {
+                    "enabled": ip_forward_enabled,
+                    "value": ip_forward_value
+                },
+                "summary": {
+                    "total_chains": total_chains,
+                    "total_rules": total_rules,
+                    "total_masquerade_rules": total_masquerade,
+                    "total_dnat_rules": total_dnat,
+                    "ip_forwarding": "enabled" if ip_forward_enabled else "disabled",
+                    "interfaces_with_nat": interfaces_with_nat,
+                    "nat_enabled_interfaces": len(interfaces_with_nat)
+                },
+                "raw_output": rules_output  # Keep for debugging
+            }
+            
+        except Exception as e:
+            import traceback
+            return {
+                "status": "error", 
+                "message": f"Error parsing NAT rules: {str(e)}",
+                "traceback": traceback.format_exc(),
+                "raw_output": rules_output  # Include raw output for debugging
+            }
+        
+    def setup_nat(self, out_interface, clear_existing=False):
+        """Setup NAT pada interface tertentu tanpa menghapus rules lain"""
+        try:
+            self.logger(f"Setting up NAT on {out_interface} (clear_existing={clear_existing})")
+            
+            # Enable IP forwarding jika belum
+            ip_forward_result = self._execute_on_host("sysctl net.ipv4.ip_forward")
+            if ip_forward_result["success"] and "= 1" not in ip_forward_result["stdout"]:
+                self.logger("Enabling IP forwarding...")
+                self._execute_on_host("sysctl -w net.ipv4.ip_forward=1")
+                
                 # Make persistent
-                with open("/etc/sysctl.d/99-ipforward.conf", "w") as f:
-                    f.write("net.ipv4.ip_forward=1\n")
-            elif self.os_family in ['rhel', 'centos', 'fedora']:
-                subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=True)
-                # For RHEL/CentOS, also update sysctl.conf
-                subprocess.run(["echo", "net.ipv4.ip_forward=1", ">>", "/etc/sysctl.conf"], shell=True, check=True)
+                if self.os_family in ['debian', 'ubuntu']:
+                    self._execute_on_host("echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-ipforward.conf")
+                elif self.os_family in ['rhel', 'centos', 'fedora']:
+                    self._execute_on_host("echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf")
             
-            # Clear existing NAT rules
-            subprocess.run(["iptables", "-t", "nat", "-F"], check=True)
+            # Cek apakah rule untuk interface ini sudah ada
+            check_cmd = f"iptables -t nat -L POSTROUTING -n -v | grep -i masquerade | grep {out_interface}"
+            check_result = self._execute_on_host(check_cmd)
             
-            # Add NAT rule
-            subprocess.run([
-                "iptables", "-t", "nat", "-A", "POSTROUTING", 
-                "-o", out_interface, "-j", "MASQUERADE"
-            ], check=True)
+            if check_result["success"] and check_result["stdout"]:
+                self.logger(f"NAT rule for {out_interface} already exists")
+                return {
+                    "status": "success",
+                    "message": f"NAT rule for {out_interface} already exists",
+                    "interface": out_interface,
+                    "already_exists": True
+                }
             
-            # Save rules based on OS
+            # Hanya clear jika diminta
+            clear_results = []
+            if clear_existing:
+                clear_result = self._execute_on_host("iptables -t nat -F")
+                clear_results.append({
+                    "action": "flush_nat_table",
+                    "success": clear_result["success"]
+                })
+            
+            # Add NAT rule (hanya tambah, tidak replace)
+            nat_rule = f"iptables -t nat -A POSTROUTING -o {out_interface} -j MASQUERADE"
+            nat_result = self._execute_on_host(nat_rule)
+            
+            # Verify
+            verify_cmd = f"iptables -t nat -L POSTROUTING -n -v --line-numbers | grep -i masquerade"
+            verify_result = self._execute_on_host(verify_cmd)
+            
+            rules = []
+            if verify_result["success"]:
+                for line in verify_result["stdout"].split('\n'):
+                    if line.strip():
+                        rules.append(line.strip())
+            
+            # Save rules
+            save_result = None
             if self.os_family in ['debian', 'ubuntu']:
-                subprocess.run(["iptables-save", ">", "/etc/iptables/rules.v4"], shell=True, check=True)
+                save_result = self._execute_on_host("iptables-save > /etc/iptables/rules.v4")
             elif self.os_family in ['rhel', 'centos', 'fedora']:
-                subprocess.run(["service", "iptables", "save"], check=True)
+                save_result = self._execute_on_host("service iptables save")
             
-            return {"status": "success", "message": f"NAT enabled on {out_interface}"}
-        except subprocess.CalledProcessError as e:
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "success",
+                "message": f"NAT added for {out_interface}",
+                "interface": out_interface,
+                "command": nat_rule,
+                "rule_added": nat_result["success"],
+                "clear_performed": clear_existing,
+                "existing_rules": rules,
+                "rules_saved": save_result["success"] if save_result else False,
+                "summary": f"Added NAT for {out_interface}. Total MASQUERADE rules: {len(rules)}"
+            }
+            
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
     def clear_nat(self):
         """Clear all NAT rules"""
         try:
-            subprocess.run(["iptables", "-t", "nat", "-F"], check=True)
+            self._execute_on_host("iptables -t nat -F")
             
             # Save cleared rules
             if self.os_family in ['debian', 'ubuntu']:
-                subprocess.run(["iptables-save", ">", "/etc/iptables/rules.v4"], shell=True, check=True)
+                self._execute_on_host("iptables-save > /etc/iptables/rules.v4")
             elif self.os_family in ['rhel', 'centos', 'fedora']:
-                subprocess.run(["service", "iptables", "save"], check=True)
+                self._execute_on_host("service iptables save")
                 
             return {"status": "success", "message": "All NAT rules cleared"}
-        except subprocess.CalledProcessError as e:
-            return {"status": "error", "message": str(e)}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    # === Status Methods ===
+    # === Status Methods - MENGGUNAKAN HOST ===
     def status_all(self):
-        """Get complete firewall status"""
+        """Get complete firewall status dari HOST"""
         result = {
             "os_family": self.os_family,
             "detected_firewall": self.firewall_type
         }
         
-        # Get status based on detected firewall
+        # Get status based on detected firewall dari HOST
         if self.firewall_type == "ufw":
-            result["ufw_status"] = self.ufw_status()
+            ufw_result = self.ufw_status()
+            result["ufw_status"] = ufw_result if "Error:" not in ufw_result else f"Error getting UFW status"
         elif self.firewall_type == "firewalld":
-            result["firewalld_status"] = self.firewall_status()
+            fw_result = self.firewall_status()
+            result["firewalld_status"] = fw_result if "Error:" not in fw_result else f"Error getting firewalld status"
         elif self.firewall_type == "suse":
-            result["suse_status"] = self.suse_firewall("status")
+            suse_result = self.suse_firewall("status")
+            result["suse_status"] = suse_result if "Error:" not in suse_result else f"Error getting SuSEfirewall2 status"
         
-        # Get iptables status (available on all)
+        # Get iptables status dari HOST
         try:
-            result["iptables_nat"] = subprocess.getoutput("iptables -t nat -L -n -v")
-            result["iptables_filter"] = subprocess.getoutput("iptables -L -n -v")
+            iptables_nat = self._execute_on_host("iptables -t nat -L -n -v")
+            iptables_filter = self._execute_on_host("iptables -L -n -v")
+            
+            result["iptables_nat"] = iptables_nat["stdout"] if iptables_nat["success"] else f"Error: {iptables_nat.get('error')}"
+            result["iptables_filter"] = iptables_filter["stdout"] if iptables_filter["success"] else f"Error: {iptables_filter.get('error')}"
         except Exception as e:
             result["iptables_error"] = f"Error: {str(e)}"
             
@@ -255,7 +485,7 @@ class ServerFirewallDriver:
         return self.firewall_type
 
     def get_status(self):
-        """Get firewall status (active/inactive)"""
+        """Get firewall status (active/inactive) dari HOST"""
         try:
             if self.firewall_type == "ufw":
                 result = self.ufw_status()
@@ -264,44 +494,40 @@ class ServerFirewallDriver:
                 else:
                     return "inactive"
             elif self.firewall_type == "firewalld":
-                result = subprocess.run(["firewall-cmd", "--state"], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0 and "running" in result.stdout.lower():
+                result = self._execute_on_host("firewall-cmd --state")
+                if result["success"] and "running" in result["stdout"].lower():
                     return "active"
                 else:
                     return "inactive"
             elif self.firewall_type == "iptables":
                 # Check if iptables has any rules
-                result = subprocess.run(["iptables", "-L", "-n"], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0 and "Chain INPUT" in result.stdout:
+                result = self._execute_on_host("iptables -L -n")
+                if result["success"] and "Chain INPUT" in result["stdout"]:
                     return "active"
                 return "inactive"
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger(f"Error getting status: {e}")
         return "unknown"
     
     def get_default_zone(self):
-        """Get default zone (for firewalld)"""
+        """Get default zone (for firewalld) dari HOST"""
         if self.firewall_type == "firewalld":
             try:
-                result = subprocess.run(["firewall-cmd", "--get-default-zone"], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0:
-                    return result.stdout.strip()
+                result = self._execute_on_host("firewall-cmd --get-default-zone")
+                if result["success"]:
+                    return result["stdout"].strip()
             except Exception:
                 pass
         return "N/A"
     
     def get_active_zones(self):
-        """Get active zones (for firewalld)"""
+        """Get active zones (for firewalld) dari HOST"""
         zones = []
         if self.firewall_type == "firewalld":
             try:
-                result = subprocess.run(["firewall-cmd", "--get-active-zones"], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0:
-                    for line in result.stdout.strip().split('\n'):
+                result = self._execute_on_host("firewall-cmd --get-active-zones")
+                if result["success"]:
+                    for line in result["stdout"].strip().split('\n'):
                         if ':' in line:
                             zone = line.split(':')[0].strip()
                             if zone:
@@ -315,19 +541,16 @@ class ServerFirewallDriver:
         count = 0
         try:
             if self.firewall_type == "ufw":
-                result = subprocess.run(["ufw", "status", "numbered"], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0:
+                result = self._execute_on_host("ufw status numbered")
+                if result["success"]:
                     # Count numbered rules like [1], [2], etc.
-                    import re
-                    count = len(re.findall(r'\[\s*\d+\s*\]', result.stdout))
+                    count = len(re.findall(r'\[\s*\d+\s*\]', result["stdout"]))
             
             elif self.firewall_type == "iptables":
                 # Count rules in filter table
-                result = subprocess.run(["iptables", "-L", "-n", "--line-numbers"], 
-                                      capture_output=True, text=True, timeout=3)
-                if result.returncode == 0:
-                    lines = result.stdout.split('\n')
+                result = self._execute_on_host("iptables -L -n --line-numbers")
+                if result["success"]:
+                    lines = result["stdout"].split('\n')
                     for line in lines:
                         # Count lines that look like rule entries
                         if line and re.match(r'^\s*\d+', line) and not line.startswith('Chain'):
@@ -335,19 +558,40 @@ class ServerFirewallDriver:
             
             elif self.firewall_type == "firewalld":
                 # Count ports and services
-                ports_result = subprocess.run(["firewall-cmd", "--list-ports"], 
-                                           capture_output=True, text=True, timeout=3)
-                services_result = subprocess.run(["firewall-cmd", "--list-services"], 
-                                              capture_output=True, text=True, timeout=3)
+                ports_result = self._execute_on_host("firewall-cmd --list-ports")
+                services_result = self._execute_on_host("firewall-cmd --list-services")
                 
-                if ports_result.returncode == 0:
-                    ports = ports_result.stdout.strip().split()
+                if ports_result["success"]:
+                    ports = ports_result["stdout"].strip().split()
                     count += len(ports)
-                if services_result.returncode == 0:
-                    services = services_result.stdout.strip().split()
+                if services_result["success"]:
+                    services = services_result["stdout"].strip().split()
                     count += len(services)
                     
         except Exception as e:
             self.logger(f"Error counting rules: {e}")
         
         return count
+
+    # === Helper untuk debugging ===
+    def debug_host_connection(self):
+        """Debug connection to host"""
+        tests = [
+            ("Basic host command", "echo 'host test'"),
+            ("Check UFW", "which ufw"),
+            ("Check firewalld", "which firewall-cmd"),
+            ("Check iptables", "which iptables"),
+        ]
+        
+        results = []
+        for test_name, cmd in tests:
+            result = self._execute_on_host(cmd)
+            results.append({
+                "test": test_name,
+                "command": cmd,
+                "success": result["success"],
+                "output": result.get("stdout", ""),
+                "error": result.get("error", "")
+            })
+        
+        return results
