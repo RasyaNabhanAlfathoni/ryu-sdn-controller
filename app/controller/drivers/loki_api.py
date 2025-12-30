@@ -8,12 +8,7 @@ from typing import Dict, List, Optional, Any
 class LokiAPI:
     def __init__(self, base_url: str = None, device_repository=None, logger=None):
         """
-        Initialize Loki API client dengan DeviceRepository untuk validasi
-        
-        Args:
-            base_url: Loki server URL (default: http://localhost:3100)
-            device_repository: Instance DeviceRepository untuk validasi device
-            logger: Logger function
+        Initialize Loki API client dengan DeviceRepository untuk validai
         """
         self.base_url = base_url or "http://localhost:3100"
         self.base_url = self.base_url.rstrip('/')

@@ -231,9 +231,12 @@ class ServerAPI:
         try:
             # List port yang harus di-allow sebelum enable UFW
             essential_ports = [
-                f"{self.agent_port}/tcp",      # Agent API port
-                f"{self.controller_port}/tcp",  # Controller port
-                "22/tcp"                        # SSH port
+                "22/tcp",                        # SSH
+                "514/tcp", "1514/tcp", "1515/tcp", "1516/tcp", # Logging
+                "55000", "9200",                 # Wazuh
+                "9100", "3000",                  # Logging Tools
+                f"{self.agent_port}/tcp",        # Agent API
+                f"{self.controller_port}/tcp",   # Controller
             ]
             
             allow_results = {}
@@ -282,9 +285,12 @@ class ServerAPI:
             
             # List port yang harus di-allow setelah reset
             essential_ports = [
-                f"{self.agent_port}/tcp",      # Agent API port
-                f"{self.controller_port}/tcp",  # Controller port
-                "22/tcp"                        # SSH port
+                "22/tcp",                        # SSH
+                "514/tcp", "1514/tcp", "1515/tcp", "1516/tcp", # Logging
+                "55000", "9200",                 # Wazuh
+                "9100", "3000",                  # Logging Tools
+                f"{self.agent_port}/tcp",        # Agent API
+                f"{self.controller_port}/tcp",   # Controller
             ]
             
             allow_results = {}
@@ -344,6 +350,9 @@ class ServerAPI:
         try:
             essential_ports = [
                 "22/tcp",                        # SSH
+                "514/tcp", "1514/tcp", "1515/tcp", "1516/tcp", # Logging
+                "55000", "9200",                 # Wazuh
+                "9100", "3000",                  # Logging Tools
                 f"{self.agent_port}/tcp",        # Agent API
                 f"{self.controller_port}/tcp",   # Controller
             ]
@@ -418,9 +427,12 @@ class ServerAPI:
         try:
             # List port yang harus di-allow sebelum reload
             essential_ports = [
-                f"{self.agent_port}/tcp",      # Agent API port
-                f"{self.controller_port}/tcp",  # Controller port
-                "22/tcp"                        # SSH port
+                "22/tcp",                        # SSH
+                "514/tcp", "1514/tcp", "1515/tcp", "1516/tcp", # Logging
+                "55000", "9200",                 # Wazuh
+                "9100", "3000",                  # Logging Tools
+                f"{self.agent_port}/tcp",        # Agent API
+                f"{self.controller_port}/tcp",   # Controller
             ]
             
             ensure_results = {}
@@ -488,9 +500,12 @@ class ServerAPI:
         try:
             # Ensure port penting sebelum enable masquerade
             essential_ports = [
-                f"{self.agent_port}/tcp",
-                f"{self.controller_port}/tcp",
-                "22/tcp"
+                "22/tcp",                        # SSH
+                "514/tcp", "1514/tcp", "1515/tcp", "1516/tcp", # Logging
+                "55000", "9200",                 # Wazuh
+                "9100", "3000",                  # Logging Tools
+                f"{self.agent_port}/tcp",        # Agent API
+                f"{self.controller_port}/tcp",   # Controller
             ]
             
             ensure_results = {}
@@ -520,9 +535,12 @@ class ServerAPI:
         try:
             # Ensure port penting sebelum disable masquerade
             essential_ports = [
-                f"{self.agent_port}/tcp",
-                f"{self.controller_port}/tcp",
-                "22/tcp"
+                "22/tcp",                        # SSH
+                "514/tcp", "1514/tcp", "1515/tcp", "1516/tcp", # Logging
+                "55000", "9200",                 # Wazuh
+                "9100", "3000",                  # Logging Tools
+                f"{self.agent_port}/tcp",        # Agent API
+                f"{self.controller_port}/tcp",   # Controller
             ]
             
             ensure_results = {}

@@ -14,6 +14,7 @@ services:
       - /etc/machine-id:/etc/machine-id:ro
       - /etc/os-release:/etc/host-os-release:ro
       - /etc/lsb-release:/etc/host-lsb-release:ro
+      - /:/host-rootfs:rw
     privileged: true # Untuk Akses command system pada Server
     network_mode: host # Untuk Scanning real network pada Server
     restart: unless-stopped

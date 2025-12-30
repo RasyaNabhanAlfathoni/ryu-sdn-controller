@@ -820,7 +820,17 @@ class NorthboundApi(ControllerBase):
                 elif registration_mode == "paramiko_discovery":  # paramiko_discovery
                     ip = device_data.get('main_ip_address', 'unknown')
                     serial = device_data.get('serial_number', device_data.get('serial-number', 'unknown'))
-                    device_type = ["switch", "access_point"]
+                    
+                    # Tentukan device_type berdasarkan vendor atau data
+                    vendor = (device_data.get('vendor') or '').lower()
+                    if 'cisco' in vendor:
+                        device_type = "switch"
+                    elif 'unifi' in vendor or 'ubiquiti' in vendor:
+                        device_type = "access_point"
+                    else:
+                        # Default ke switch jika tidak bisa dideteksi
+                        device_type = "switch"
+                    
                     unique_components = [device_type, ip, serial]
                 else:
                     ip = device_data.get('main_ip_address', 'unknown')
