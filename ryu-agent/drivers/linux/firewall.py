@@ -118,10 +118,104 @@ class ServerFirewallDriver:
         """Get UFW status from HOST"""
         return self.ufw("status", "verbose")
 
-    # === Firewalld Section (MENGGUNAKAN HOST) ===
-    def firewall_cmd(self, *args):
-        """Execute firewall-cmd command"""
-        cmd = "firewall-cmd " + " ".join(args)
+    # === Firewalld Section ===
+    def firewalld_enable(self):
+        """Enable firewalld service (start on boot)"""
+        try:
+            # Enable service
+            enable_cmd = "systemctl enable firewalld"
+            enable_result = self._execute_on_ssh(enable_cmd)
+            
+            # Start service
+            start_cmd = "systemctl start firewalld"
+            start_result = self._execute_on_ssh(start_cmd)
+            
+            # Wait a bit for service to start
+            import time
+            time.sleep(2)
+            
+            # Get status
+            status_cmd = "systemctl is-active firewalld"
+            status_result = self._execute_on_ssh(status_cmd)
+            
+            # Get firewalld state
+            state_cmd = "firewall-cmd --state"
+            state_result = self._execute_on_host(state_cmd)
+            
+            return {
+                "success": True,
+                "enabled": enable_result["success"],
+                "started": start_result["success"],
+                "service_status": status_result["stdout"].strip() if status_result["success"] else "unknown",
+                "firewalld_state": state_result["stdout"].strip() if state_result["success"] else "unknown",
+                "actions": [
+                    {"action": "enable", "result": enable_result},
+                    {"action": "start", "result": start_result},
+                    {"action": "check_status", "result": status_result}
+                ]
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def firewalld_disable(self):
+        """Disable firewalld service (stop and disable on boot)"""
+        try:
+            # Stop service
+            stop_cmd = "systemctl stop firewalld"
+            stop_result = self._execute_on_ssh(stop_cmd)
+            
+            # Disable service
+            disable_cmd = "systemctl disable firewalld"
+            disable_result = self._execute_on_ssh(disable_cmd)
+            
+            # Get status
+            status_cmd = "systemctl is-active firewalld"
+            status_result = self._execute_on_ssh(status_cmd)
+            
+            return {
+                "success": True,
+                "stopped": stop_result["success"],
+                "disabled": disable_result["success"],
+                "service_status": status_result["stdout"].strip() if status_result["success"] else "unknown",
+                "actions": [
+                    {"action": "stop", "result": stop_result},
+                    {"action": "disable", "result": disable_result}
+                ]
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def firewall_cmd(self, *args, zone=None):
+        """Execute firewall-cmd command dengan optional zone"""
+        cmd_parts = ["firewall-cmd"]
+        
+        # Tambah zone jika ada
+        if zone:
+            cmd_parts.append(f"--zone={zone}")
+        
+        cmd_parts.extend(args)
+        cmd = " ".join(cmd_parts)
+        
+        result = self._execute_on_host(cmd)
+        return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
+
+    def firewall_offline_cmd(self, *args, zone=None):
+        """Execute firewall-offline-cmd command dengan optional zone"""
+        cmd_parts = ["firewall-offline-cmd"]
+        
+        # Tambah zone jika ada
+        if zone:
+            cmd_parts.append(f"--zone={zone}")
+
+        filtered_args = []
+        for arg in args:
+            # Skip --permanent flag
+            if arg.strip() != "--permanent" and not arg.startswith("--permanent "):
+                filtered_args.append(arg)
+        
+        cmd_parts.extend(args)
+        cmd = " ".join(cmd_parts)
+        
         result = self._execute_on_host(cmd)
         return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
 
@@ -130,42 +224,77 @@ class ServerFirewallDriver:
         result = self._execute_on_ssh("firewall-cmd --reload")
         return result["stdout"] if result["success"] else f"Error: {result.get('error', result['stderr'])}"
 
-    def firewall_add_port(self, port_proto):
-        """Add port to firewalld"""
+    def firewall_add_port(self, port_proto, zone="public"):
+        """Add port to firewalld dengan zone support"""
         # Gunakan SSH untuk apply commands
-        result1 = self._execute_on_host(f"firewall-cmd --add-port={port_proto} --permanent")
+        result1 = self._execute_on_host(f"firewall-cmd --add-port={port_proto} --permanent --zone={zone}")
         result2 = self._execute_on_ssh("firewall-cmd --reload")
-        return f"Add port: {result1}\nReload: {result2}"
+        
+        return {
+            "zone": zone,
+            "add_port": result1["stdout"] if result1["success"] else f"Error: {result1.get('error', result1['stderr'])}",
+            "reload": result2["stdout"] if result2["success"] else f"Error: {result2.get('error', result2['stderr'])}",
+            "port_proto": port_proto,
+            "success": result1["success"] and result2["success"]
+        }
 
-    def firewall_remove_port(self, port_proto):
-        """Remove port from firewalld"""
-        result1 = self._execute_on_host(f"firewall-cmd --remove-port={port_proto} --permanent")
+    def firewall_remove_port(self, port_proto, zone="public"):
+        """Remove port from firewalld dengan zone support"""
+        result1 = self._execute_on_host(f"firewall-cmd --remove-port={port_proto} --permanent --zone={zone}")
         result2 = self._execute_on_ssh("firewall-cmd --reload")
-        return f"Remove port: {result1}\nReload: {result2}"
+        
+        return {
+            "zone": zone,
+            "remove_port": result1["stdout"] if result1["success"] else f"Error: {result1.get('error', result1['stderr'])}",
+            "reload": result2["stdout"] if result2["success"] else f"Error: {result2.get('error', result2['stderr'])}",
+            "port_proto": port_proto,
+            "success": result1["success"] and result2["success"]
+        }
 
-    def firewall_enable_masquerade(self):
-        """Enable masquerade in firewalld"""
-        result1 = self._execute_on_host("firewall-cmd --add-masquerade --permanent")
+    def firewall_enable_masquerade(self, zone="public"):
+        """Enable masquerade in firewalld dengan zone support"""
+        result1 = self._execute_on_host(f"firewall-cmd --add-masquerade --permanent --zone={zone}")
         result2 = self._execute_on_ssh("firewall-cmd --reload")
-        return f"Enable masquerade: {result1}\nReload: {result2}"
+        
+        return {
+            "zone": zone,
+            "enable_masquerade": result1["stdout"] if result1["success"] else f"Error: {result1.get('error', result1['stderr'])}",
+            "reload": result2["stdout"] if result2["success"] else f"Error: {result2.get('error', result2['stderr'])}",
+            "success": result1["success"] and result2["success"]
+        }
 
-    def firewall_disable_masquerade(self):
-        """Disable masquerade in firewalld"""
-        result1 = self._execute_on_host("firewall-cmd --remove-masquerade --permanent")
+    def firewall_disable_masquerade(self, zone="public"):
+        """Disable masquerade in firewalld dengan zone support"""
+        result1 = self._execute_on_host(f"firewall-cmd --remove-masquerade --permanent --zone={zone}")
         result2 = self._execute_on_ssh("firewall-cmd --reload")
-        return f"Disable masquerade: {result1}\nReload: {result2}"
+        
+        return {
+            "zone": zone,
+            "disable_masquerade": result1["stdout"] if result1["success"] else f"Error: {result1.get('error', result1['stderr'])}",
+            "reload": result2["stdout"] if result2["success"] else f"Error: {result2.get('error', result2['stderr'])}",
+            "success": result1["success"] and result2["success"]
+        }
 
-    def firewall_status(self):
-        """Get firewalld status from HOST"""
-        return self.firewall_cmd("--list-all")
+    def firewall_status(self, zone=None):
+        """Get firewalld status dari HOST dengan optional zone"""
+        if zone:
+            return self.firewall_cmd(f"--zone={zone}", "--list-all")
+        else:
+            return self.firewall_cmd("--list-all")
 
-    def firewalld_list_services(self):
-        """List firewalld services from HOST"""
-        return self.firewall_cmd("--list-services")
+    def firewalld_list_services(self, zone=None):
+        """List firewalld services dari HOST dengan optional zone"""
+        if zone:
+            return self.firewall_cmd(f"--zone={zone}", "--list-services")
+        else:
+            return self.firewall_cmd("--list-services")
 
-    def firewalld_list_ports(self):
-        """List firewalld ports from HOST"""
-        return self.firewall_cmd("--list-ports")
+    def firewalld_list_ports(self, zone=None):
+        """List firewalld ports dari HOST dengan optional zone"""
+        if zone:
+            return self.firewall_cmd(f"--zone={zone}", "--list-ports")
+        else:
+            return self.firewall_cmd("--list-ports")
 
     # === SuSEfirewall2 Section (MENGGUNAKAN HOST) ===
     def suse_firewall(self, *args):

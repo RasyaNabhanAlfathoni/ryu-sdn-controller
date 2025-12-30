@@ -809,14 +809,23 @@ class NorthboundApi(ControllerBase):
                 
                 if registration_mode == "server_agent":
                     ip = device_data.get('main_ip_address', device_data.get('ip', 'unknown'))
-                    hostname = device_data.get('hostname', 'unknown')
+                    mac = device_data.get('main_mac_address', device_data.get('mac_address', 'unknown'))
                     device_type = "server"
-                else:  # active_discovery
-                    ip = device_data.get('ip', 'unknown')
-                    hostname = device_data.get('hostname', 'unknown')
+                    unique_components = [device_type, ip, mac]
+                elif registration_mode == "active_discovery":  # active_discovery
+                    ip = device_data.get('main_ip_address', 'unknown')
+                    serial = device_data.get('serial_number', device_data.get('serial-number', 'unknown'))
                     device_type = "router"
+                    unique_components = [device_type, ip, serial]
+                elif registration_mode == "paramiko_discovery":  # paramiko_discovery
+                    ip = device_data.get('main_ip_address', 'unknown')
+                    serial = device_data.get('serial_number', device_data.get('serial-number', 'unknown'))
+                    device_type = ["switch", "access_point"]
+                    unique_components = [device_type, ip, serial]
+                else:
+                    ip = device_data.get('main_ip_address', 'unknown')
+                    unique_components = ["network", ip]
                 
-                unique_components = [device_type, ip, hostname, registration_mode]
                 unique_str = "_".join(str(c) for c in unique_components)
                 hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
                 
@@ -865,8 +874,20 @@ class NorthboundApi(ControllerBase):
                 data["ip"] = str(final_ip)
                 data["main_ip_address"] = str(final_ip)
                 
-                # Generate device ID
+                # Generate device ID yang KONSISTEN berdasarkan IP + MAC
                 device_id = generate_device_id(data, registration_mode)
+                print(f"[CONTROLLER] Generated device_id: {device_id} for IP: {final_ip}")
+                
+                # Cek apakah device_id ini sudah ada di database
+                existing_device = DeviceRepository.find_by_device_id(device_id)
+                
+                if existing_device:
+                    print(f"[CONTROLLER] Found existing device {device_id}, updating...")
+                    # Device sudah ada, lalu UPDATE
+                else:
+                    print(f"[CONTROLLER] Creating new device {device_id}")
+                    # Device belum ada, lalu INSERT baru
+                
                 data["id"] = device_id
                 data["device_id"] = device_id
                 

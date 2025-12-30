@@ -339,18 +339,79 @@ class ServerAPI:
 
     
     # === Firewalld Management Methods ===
+    def firewalld_enable(self, logger=None):
+        """Enable firewalld"""
+        try:
+            essential_ports = [
+                "22/tcp",                        # SSH
+                f"{self.agent_port}/tcp",        # Agent API
+                f"{self.controller_port}/tcp",   # Controller
+            ]
+            
+            if logger:
+                logger(f"Essential ports: {essential_ports}")
+            
+            # 1. Pre-configure firewalld rules SEBELUM start
+            pre_config_results = {}
+            
+            for port_proto in essential_ports:
+                if logger:
+                    logger(f"Pre-configuring port {port_proto}...")
+                
+                # Gunakan direct command ke agent untuk tambah port
+                result = self.firewall_offline_cmd(
+                    f"--add-port={port_proto} --zone=public",
+                    logger=logger
+                )
+                pre_config_results[f"pre_config_{port_proto.replace('/', '_')}"] = result
+            
+            # Juga pre-configure ssh service
+            ssh_result = self.firewall_offline_cmd(
+                "--add-service=ssh --zone=public",
+                logger=logger
+            )
+            pre_config_results["pre_config_ssh_service"] = ssh_result
+            
+            # 2. SEKARANG enable firewalld
+            if logger:
+                logger("Enabling firewalld service...")
+            
+            enable_result = self._call_agent("/api/firewall/firewalld/enable", logger=logger, method='POST')
+            
+            # 3. Reload untuk apply pre-configured rules
+            reload_result = self._call_agent("/api/firewall/firewalld/reload", logger=logger, method='POST')
+            
+            return {
+                "pre_configuration": pre_config_results,
+                "enable_firewalld": enable_result,
+                "reload_firewalld": reload_result,
+                "essential_ports": essential_ports,
+                "message": "Firewalld enabled with pre-configured essential ports"
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def firewalld_disable(self, logger=None):
+        """Disable and stop firewalld service"""
+        return self._call_agent("/api/firewall/firewalld/disable", logger=logger, method='POST')
     
-    def firewall_status(self, logger=None):
-        """Get firewalld status from agent"""
-        return self._call_agent("/api/firewall/firewalld/status", logger=logger)
+    def firewalld_list_services(self, zone=None, logger=None):
+        """List firewalld services dari agent dengan optional zone"""
+        if zone:
+            return self.firewall_cmd(f"--list-services --zone={zone}", logger=logger)
+        else:
+            return self._call_agent("/api/firewall/firewalld/list-services", logger=logger)
 
-    def firewalld_list_services(self, logger=None):
-        """List firewalld services from agent"""
-        return self._call_agent("/api/firewall/firewalld/list-services", logger=logger)
+    def firewalld_list_ports(self, zone=None, logger=None):
+        """List firewalld ports dari agent dengan optional zone"""
+        if zone:
+            return self.firewall_cmd(f"--list-ports --zone={zone}", logger=logger)
+        else:
+            return self._call_agent("/api/firewall/firewalld/list-ports", logger=logger)
 
-    def firewalld_list_ports(self, logger=None):
-        """List firewalld ports from agent"""
-        return self._call_agent("/api/firewall/firewalld/list-ports", logger=logger)
+    def firewall_status(self, zone=None, logger=None):
+        """Get firewalld status dari agent dengan optional zone"""    
+        return self.firewall_cmd(f"--list-all --zone=zone", logger=logger)
     
     def firewall_reload(self, logger=None):
         """Reload firewalld on agent with essential ports"""
@@ -379,7 +440,7 @@ class ServerAPI:
                     logger(f"Ensure port {port_proto} result: {ensure_result}")
             
             # Reload firewalld
-            reload_result = self._call_agent("/api/firewall/firewalld/reload", logger=logger)
+            reload_result = self._call_agent("/api/firewall/firewalld/reload", logger=logger, method='POST')
             
             return {
                 **ensure_results,  # Include semua ensure results
@@ -389,8 +450,8 @@ class ServerAPI:
         except Exception as e:
             return {"error": str(e)}
     
-    def firewall_add_port(self, port_proto, logger=None):
-        """Add port to firewalld on agent"""
+    def firewall_add_port(self, port_proto, zone="public", logger=None):
+        """Add port to firewalld on agent dengan zone support"""
         # Jika port_proto adalah string kosong atau None, gunakan agent port
         if not port_proto:
             port_proto = f"{self.agent_port}/tcp"
@@ -398,11 +459,12 @@ class ServerAPI:
                 logger(f"No port specified, using agent port: {port_proto}")
         
         return self._call_agent("/api/firewall/firewalld/add-port", {
-            "port_proto": port_proto
+            "port_proto": port_proto,
+            "zone": zone
         }, logger=logger)
-    
-    def firewall_remove_port(self, port_proto, logger=None):
-        """Remove port from firewalld on agent"""
+
+    def firewall_remove_port(self, port_proto, zone="public", logger=None):
+        """Remove port from firewalld on agent dengan zone support"""
         # Jangan izinkan remove port penting (agent, controller, ssh)
         essential_ports = [
             f"{self.agent_port}/tcp",
@@ -410,18 +472,19 @@ class ServerAPI:
             "22/tcp"
         ]
         
-        if port_proto in essential_ports:
-            warning_msg = f"Cannot remove essential port: {port_proto}"
+        if port_proto in essential_ports and zone == "public":
+            warning_msg = f"Cannot remove essential port from public zone: {port_proto}"
             if logger:
                 logger(f"WARNING: {warning_msg}")
-            return {"warning": warning_msg, "port_proto": port_proto}
+            return {"warning": warning_msg, "port_proto": port_proto, "zone": zone, "essential": True}
         
         return self._call_agent("/api/firewall/firewalld/remove-port", {
-            "port_proto": port_proto
+            "port_proto": port_proto,
+            "zone": zone
         }, logger=logger)
     
-    def firewall_enable_masquerade(self, logger=None):
-        """Enable masquerade in firewalld on agent"""
+    def firewall_enable_masquerade(self, zone="public", logger=None):
+        """Enable masquerade in firewalld dengan zone support"""
         try:
             # Ensure port penting sebelum enable masquerade
             essential_ports = [
@@ -433,23 +496,27 @@ class ServerAPI:
             ensure_results = {}
             for port_proto in essential_ports:
                 ensure_result = self._call_agent("/api/firewall/firewalld/add-port", {
-                    "port_proto": port_proto
+                    "port_proto": port_proto,
+                    "zone": zone
                 }, logger=logger)
                 ensure_results[f"ensure_{port_proto.replace('/', '_')}"] = ensure_result
             
-            # Enable masquerade
-            masquerade_result = self._call_agent("/api/firewall/firewalld/enable-masquerade", logger=logger)
+            # Enable masquerade dengan zone
+            masquerade_result = self._call_agent("/api/firewall/firewalld/enable-masquerade", {
+                "zone": zone
+            }, logger=logger)
             
             return {
                 **ensure_results,
                 "enable_masquerade": masquerade_result,
+                "zone": zone,
                 "essential_ports_ensured": essential_ports
             }
         except Exception as e:
             return {"error": str(e)}
-    
-    def firewall_disable_masquerade(self, logger=None):
-        """Disable masquerade in firewalld on agent"""
+
+    def firewall_disable_masquerade(self, zone="public", logger=None):
+        """Disable masquerade in firewalld dengan zone support"""
         try:
             # Ensure port penting sebelum disable masquerade
             essential_ports = [
@@ -461,27 +528,40 @@ class ServerAPI:
             ensure_results = {}
             for port_proto in essential_ports:
                 ensure_result = self._call_agent("/api/firewall/firewalld/add-port", {
-                    "port_proto": port_proto
+                    "port_proto": port_proto,
+                    "zone": zone
                 }, logger=logger)
                 ensure_results[f"ensure_{port_proto.replace('/', '_')}"] = ensure_result
             
-            # Disable masquerade
-            masquerade_result = self._call_agent("/api/firewall/firewalld/disable-masquerade", logger=logger)
+            # Disable masquerade dengan zone
+            masquerade_result = self._call_agent("/api/firewall/firewalld/disable-masquerade", {
+                "zone": zone
+            }, logger=logger)
             
             return {
                 **ensure_results,
                 "disable_masquerade": masquerade_result,
+                "zone": zone,
                 "essential_ports_ensured": essential_ports
             }
         except Exception as e:
             return {"error": str(e)}
-    
-    def firewall_cmd(self, args, logger=None):
-        """Run firewall-cmd on agent"""
-        return self._call_agent("/api/firewall/firewalld/command", {
-            "args": args
-        }, logger=logger)
 
+    def firewall_cmd(self, args, zone=None, logger=None):
+        """Run firewall-cmd on agent dengan optional zone"""
+        data = {"args": args}
+        if zone:
+            data["zone"] = zone
+        
+        return self._call_agent("/api/firewall/firewalld/command", data, logger=logger)
+
+    def firewall_offline_cmd(self, args, zone=None, logger=None):
+        """Run firewall-offline-cmd on agent dengan optional zone"""
+        data = {"args": args}
+        if zone:
+            data["zone"] = zone
+        
+        return self._call_agent("/api/firewall/firewalld/offline-command", data, logger=logger)
     
     # === NAT Firewall Management Methods ===
 

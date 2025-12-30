@@ -306,7 +306,28 @@ def ufw_command():
 
 
 # === FIREWALLD ENDPOINTS ===
+@app.route('/api/firewall/firewalld/enable', methods=['POST'])
+def firewalld_enable():
+    """Enable and start firewalld service"""
+    try:
+        log_message("POST /api/firewall/firewalld/enable")
+        result = firewall_driver.firewalld_enable()
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewalld_enable: {e}")
+        return jsonify({"error": str(e)}), 500
 
+@app.route('/api/firewall/firewalld/disable', methods=['POST'])
+def firewalld_disable():
+    """Disable and stop firewalld service"""
+    try:
+        log_message("POST /api/firewall/firewalld/disable")
+        result = firewall_driver.firewalld_disable()
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewalld_disable: {e}")
+        return jsonify({"error": str(e)}), 500
+    
 @app.route('/api/firewall/firewalld/status', methods=['GET'])
 def firewall_status():
     # Get firewalld status
@@ -353,11 +374,14 @@ def firewall_reload():
 
 @app.route('/api/firewall/firewalld/add-port', methods=['POST'])
 def firewall_add_port():
-    # Add port to firewalld
+    # Add port to firewalld dengan zone support
     try:
         data = request.json
-        log_message(f"POST /api/firewall/firewalld/add-port - {data}")
-        result = firewall_driver.firewall_add_port(data['port_proto'])
+        port_proto = data.get('port_proto')
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/add-port - port: {port_proto}, zone: {zone}")
+        result = firewall_driver.firewall_add_port(port_proto, zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_add_port: {e}")
@@ -365,11 +389,14 @@ def firewall_add_port():
 
 @app.route('/api/firewall/firewalld/remove-port', methods=['POST'])
 def firewall_remove_port():
-    # Remove port from firewalld
+    # Remove port from firewalld dengan zone support
     try:
         data = request.json
-        log_message(f"POST /api/firewall/firewalld/remove-port - {data}")
-        result = firewall_driver.firewall_remove_port(data['port_proto'])
+        port_proto = data.get('port_proto')
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/remove-port - port: {port_proto}, zone: {zone}")
+        result = firewall_driver.firewall_remove_port(port_proto, zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_remove_port: {e}")
@@ -377,10 +404,13 @@ def firewall_remove_port():
 
 @app.route('/api/firewall/firewalld/enable-masquerade', methods=['POST'])
 def firewall_enable_masquerade():
-    # Enable masquerade in firewalld
+    # Enable masquerade in firewalld dengan zone support
     try:
-        log_message("POST /api/firewall/firewalld/enable-masquerade")
-        result = firewall_driver.firewall_enable_masquerade()
+        data = request.json or {}
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/enable-masquerade - zone: {zone}")
+        result = firewall_driver.firewall_enable_masquerade(zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_enable_masquerade: {e}")
@@ -388,10 +418,13 @@ def firewall_enable_masquerade():
 
 @app.route('/api/firewall/firewalld/disable-masquerade', methods=['POST'])
 def firewall_disable_masquerade():
-    # Disable masquerade in firewalld
+    # Disable masquerade in firewalld dengan zone support
     try:
-        log_message("POST /api/firewall/firewalld/disable-masquerade")
-        result = firewall_driver.firewall_disable_masquerade()
+        data = request.json or {}
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/disable-masquerade - zone: {zone}")
+        result = firewall_driver.firewall_disable_masquerade(zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_disable_masquerade: {e}")
@@ -399,14 +432,40 @@ def firewall_disable_masquerade():
 
 @app.route('/api/firewall/firewalld/command', methods=['POST'])
 def firewall_command():
-    # Execute firewall-cmd command
+    # Execute firewall-cmd command dengan zone support
     try:
         data = request.json
-        log_message(f"POST /api/firewall/firewalld/command - {data}")
-        result = firewall_driver.firewall_cmd(data['args'])
+        args = data.get('args', '')
+        zone = data.get('zone')
+        
+        log_message(f"POST /api/firewall/firewalld/command - args: {args}, zone: {zone}")
+        
+        # Jika ada zone, tambah ke args
+        if zone:
+            args = f"--zone={zone} {args}"
+        
+        result = firewall_driver.firewall_cmd(args, zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_command: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# agent_api.py - tambah endpoint baru
+@app.route('/api/firewall/firewalld/offline-command', methods=['POST'])
+def firewall_offline_command():
+    """Execute firewall-offline-cmd command"""
+    try:
+        data = request.json
+        args = data.get('args', '')
+        zone = data.get('zone')
+        
+        log_message(f"POST /api/firewall/firewalld/offline-command - args: {args}, zone: {zone}")
+        
+        # Panggil driver method
+        result = firewall_driver.firewall_offline_cmd(args, zone=zone)
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewall_offline_command: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -522,7 +581,7 @@ def get_lldp_neighbors():
             
         return jsonify({
             "status": "success",
-            "data": result,
+            "result": result,
             "timestamp": datetime.datetime.now().isoformat()
         })
     except Exception as e:
@@ -541,7 +600,7 @@ def get_lldp_statistics():
         result = lldp_driver.get_lldp_statistics()
         return jsonify({
             "status": "success",
-            "data": result,
+            "result": result,
             "timestamp": datetime.datetime.now().isoformat()
         })
     except Exception as e:
@@ -558,11 +617,7 @@ def get_lldp_status():
     try:
         log_message("GET /api/network/lldp/status")
         result = lldp_driver.get_lldp_status()
-        return jsonify({
-            "status": "success",
-            "data": result,
-            "timestamp": datetime.datetime.now().isoformat()
-        })
+        return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_lldp_status: {e}")
         return jsonify({

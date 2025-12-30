@@ -613,11 +613,25 @@ def heartbeat_loop(device_id):
     headers = {"X-API-KEY": API_KEY}
     while True:
         try:
-            r = requests.post(url, headers=headers, timeout=6)
-            if r.status_code != 200:
+            # Bangun payload dengan data terkini
+            payload = {
+                "hostname": socket.gethostname(),
+                "main_ip_address": get_main_interface_info(CONTROLLER_URL)[0],
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+            r = requests.post(url, headers=headers, json=payload, timeout=6)
+            
+            if r.status_code == 404:
+                # Device tidak ditemukan, coba register ulang
+                print(f"[AGENT] Device {device_id} not found, re-registering...")
+                register_once()
+            elif r.status_code != 200:
                 print(f"[AGENT] Heartbeat HTTP {r.status_code}: {r.text}")
+                
         except Exception as e:
             print("[AGENT] Heartbeat error:", e)
+        
         time.sleep(HEARTBEAT_INTERVAL)
 
 def start_periodic_refresh(device_id):

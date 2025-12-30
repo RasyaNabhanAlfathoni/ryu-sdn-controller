@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     nmap \
     traceroute \
     dnsutils \
-    lldpd \
+    # lldpd \
     util-linux \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create directory untuk lldpd socket
-RUN mkdir -p /var/run/lldpd
+# RUN mkdir -p /var/run/lldpd
 
 # Expose port untuk agent API (informational saja)
 EXPOSE 8080

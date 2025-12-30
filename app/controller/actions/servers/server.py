@@ -88,6 +88,16 @@ class ServerActions:
             ),
             
             # Firewalld actions dengan auto-update
+            "server.firewall.firewalld.enable": lambda p, logger: ServerActions._simple_auto_update(
+                d, "firewalld_enable", p, logger,
+                lambda: d.firewalld_enable(logger=logger),
+                "firewall"
+            ),
+            "server.firewall.firewalld.disable": lambda p, logger: ServerActions._simple_auto_update(
+                d, "firewalld_disable", p, logger,
+                lambda: d.firewalld_disable(logger=logger),
+                "firewall"
+            ),
             "server.firewall.firewalld.reload": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_reload", p, logger,
                 lambda: d.firewall_reload(logger=logger),
@@ -95,27 +105,45 @@ class ServerActions:
             ),
             "server.firewall.firewalld.add_port": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_add_port", p, logger,
-                lambda: d.firewall_add_port(p.get("port_proto"), logger=logger),
+                lambda: d.firewall_add_port(
+                    p.get("port_proto"), 
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.remove_port": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_remove_port", p, logger,
-                lambda: d.firewall_remove_port(p.get("port_proto"), logger=logger),
+                lambda: d.firewall_remove_port(
+                    p.get("port_proto"),
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.enable_masquerade": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_enable_masquerade", p, logger,
-                lambda: d.firewall_enable_masquerade(logger=logger),
+                lambda: d.firewall_enable_masquerade(
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.disable_masquerade": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_disable_masquerade", p, logger,
-                lambda: d.firewall_disable_masquerade(logger=logger),
+                lambda: d.firewall_disable_masquerade(
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.command": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_cmd", p, logger,
-                lambda: d.firewall_cmd(p.get("args"), logger=logger),
+                lambda: d.firewall_cmd(
+                    p.get("args"),
+                    p.get("zone"),
+                    logger=logger
+                ),
                 "firewall"
             ),
             
