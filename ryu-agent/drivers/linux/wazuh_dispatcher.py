@@ -32,6 +32,12 @@ class WazuhDispatcher:
         elif action == "server.wazuh.status":
             return self.wazuh_driver.get_wazuh_agent_status()
         
+        elif action == "server.wazuh.start":
+            return self.wazuh_driver.get_wazuh_agent_start()
+        
+        elif action == "server.wazuh.stop":
+            return self.wazuh_driver.get_wazuh_agent_stop()
+        
         elif action == "server.wazuh.config.get":
             return self.wazuh_driver.get_ossec_config()
         

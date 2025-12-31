@@ -795,6 +795,14 @@ class ServerAPI:
         """Get Wazuh agent status via agent API"""
         return self._call_agent("/api/wazuh/status", logger=logger)
     
+    def wazuh_agent_start(self, logger=None):
+        """Get Wazuh agent status via agent API"""
+        return self._call_agent("/api/wazuh/start", logger=logger)
+    
+    def wazuh_agent_stop(self, logger=None):
+        """Get Wazuh agent status via agent API"""
+        return self._call_agent("/api/wazuh/stop", logger=logger)
+    
     def wazuh_get_config(self, logger=None) -> Dict:
         """Get Wazuh agent config remotely"""
         return self._call_agent("/api/wazuh/config", method='GET', logger=logger)

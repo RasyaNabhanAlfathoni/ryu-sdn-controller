@@ -444,8 +444,10 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.manager.info", "wazuh.manager.stats", "wazuh.manager.configuration",
             "wazuh.agent.list", "wazuh.agent.detail", "wazuh.agent.status", "wazuh.agent.config",
            "wazuh.sca.summary", "wazuh.sca.events", "wazuh.fim.summary", "wazuh.fim.events",
-            "wazuh.fim.timeline", "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
-            "wazuh.threat.success_login", "wazuh.discover.logs", "wazuh.system.processes", 
+            "wazuh.fim.timeline", "wazuh.fim.action_summary", "wazuh.fim.most_active_agents", 
+            "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
+            "wazuh.threat.success_login", "wazuh.threat.high_level", "wazuh.threat.top_mitre", 
+            "wazuh.threat.top_agents", "wazuh.discover.logs", "wazuh.system.processes", 
             "wazuh.system.hardware",
         ]
         
@@ -631,28 +633,52 @@ class Orchestrator(app_manager.RyuApp):
                 hours=p.get("hours", 24)
             ),
             "wazuh.fim.summary": lambda p, logger: self.wazuh_api.get_fim_data(
-                p["agent_id"], p.get("filters"), logger
+                p.get("agent_id"), p.get("filters"), logger
             ),
             "wazuh.fim.events": lambda p, logger: self.wazuh_indexer.fim_events(
-                agent_id=p["agent_id"],
+                agent_id=p.get("agent_id"),
                 hours=p.get("hours", 24)
             ),
             "wazuh.fim.timeline": lambda p, logger: self.wazuh_indexer.fim_timeline(
-                agent_id=p["agent_id"],
+                agent_id=p.get("agent_id"),
                 hours=p.get("hours", 24)
+            ),
+            "wazuh.fim.action_summary": lambda p, logger: self.wazuh_indexer.fim_action_summary(
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id")
+            ),
+            "wazuh.fim.most_active_agents": lambda p, logger: self.wazuh_indexer.fim_most_active_agents(
+                hours=p.get("hours", 24),
+                top=p.get("top", 5)
             ),
             "wazuh.threat.summary": lambda p, logger: self.wazuh_indexer.threat_summary(
                 hours=p.get("hours", 24)
             ),
             "wazuh.threat.events": lambda p, logger: self.wazuh_indexer.threat_events(
                 hours=p.get("hours", 24),
-                size=p.get("size", 100)
+                size=p.get("size", 100),
+                agent_id=p.get("agent_id"),
             ),
             "wazuh.threat.failed_login": lambda p, logger: self.wazuh_indexer.threat_failed_logins(
-                hours=p.get("hours", 24)
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
             ),
             "wazuh.threat.success_login": lambda p, logger: self.wazuh_indexer.threat_success_logins(
-                hours=p.get("hours", 24)
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
+            ),
+            "wazuh.threat.high_level": lambda p, logger: self.wazuh_indexer.threat_high_level(
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
+            ),
+            "wazuh.threat.top_mitre": lambda p, logger: self.wazuh_indexer.top_mitre_attacks(
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
+                top=p.get("top", 10)
+            ),
+            "wazuh.threat.top_agents": lambda p, logger: self.wazuh_indexer.top_threat_agents(
+                hours=p.get("hours", 24),
+                top=p.get("top", 5)
             ),
             "wazuh.discover.logs": lambda p, logger: self.wazuh_indexer.discover_logs(
                 index=p.get("index", "wazuh-alerts-*"),

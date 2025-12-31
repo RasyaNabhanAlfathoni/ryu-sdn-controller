@@ -255,6 +255,8 @@ class ServerActions:
                 logger=logger
             ),
             "server.wazuh.agent.status": lambda p, logger: d.wazuh_agent_status(logger=logger),
+            "server.wazuh.agent.start": lambda p, logger: d.wazuh_agent_start(logger=logger),
+            "server.wazuh.agent.stop": lambda p, logger: d.wazuh_agent_stop(logger=logger),
             "server.wazuh.agent.config.get": lambda p, logger=None: d.wazuh_get_config(
                 logger=logger
             ),
