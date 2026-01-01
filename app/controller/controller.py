@@ -24,12 +24,18 @@ from actions.routers.mikrotik import MikrotikRouterActions
 # === Switch Driver  ===
 from drivers.switch_drivers.cisco import CiscoSSHDriver
 from actions.switchs.cisco import CiscoSwitchActions
+from drivers.switch_drivers.ruijie.auto_discover import AutoDiscoverRuijie
+from actions.switchs.ruijie.global_actions import RuijieSwitchGlobalActions
+from actions.switchs.ruijie.device_actions import RuijieSwitchActions
+from drivers.switch_drivers.ruijie.ruijie_cloud import RuijieCloudDriver
+
 
 # === Access-Point Driver ===
 from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 from drivers.access_point_drivers.unifi.auto_discover import AutoDiscoverAPUnifi
 from actions.access_points.unifi.global_actions import UnifiAccessPointGlobalActions
 from actions.access_points.unifi.device_actions import UnifiAccessPointActions
+from actions.access_points.mikrotik import MikrotikAPActions
 
 # === Server Driver ===
 from drivers.server_drivers.server_api import ServerAPI
@@ -95,6 +101,11 @@ class Orchestrator(app_manager.RyuApp):
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
 
+        # ruijie auto discovery (BACKGROUND THREAD)
+        self.ruijie_discover_thread = hub.spawn(
+            AutoDiscoverRuijie.loop
+        )
+
         # unifi auto discovery (BACKGROUND THREAD)
         self.unifi_discover_thread = hub.spawn(
             AutoDiscoverAPUnifi.loop
@@ -159,7 +170,7 @@ class Orchestrator(app_manager.RyuApp):
                     if device_type == 'server' and southbound == 'server_api':
                         # Test koneksi ke agent API
                         is_active = self.check_server_agent_health(ip_address)
-                    elif device_type == 'router' and southbound == 'routeros_api':
+                    elif southbound == 'routeros_api':
                         # Test koneksi ke RouterOS API
                         is_active = self.check_routeros_health(device)
                     elif device_type == 'switch' and southbound == 'paramiko':
@@ -203,16 +214,83 @@ class Orchestrator(app_manager.RyuApp):
     def check_routeros_health(self, device):
         """Check jika RouterOS API accessible"""
         try:
-            driver = RouterOSApiDriver({
-                "ip": device.get('main_ip_address'),
-                "username": device.get('username'),
-                "password": device.get('password'),
-                "device_id": device.get('device_id')
-            })
-            # Coba get basic info
-            info = driver.get_device_info()
-            return info.get('connected', False)
-        except:
+            device_id = device.get('device_id')            
+            try:
+                db_device = DeviceRepository.find_by_device_id(device_id)
+                if not db_device:
+                    return False
+                    
+                ip_address = db_device.get('main_ip_address')
+                username = db_device.get('username')
+                password = db_device.get('password')
+                
+            except Exception as db_err:
+                ip_address = device.get('main_ip_address')
+                username = device.get('username')
+                password = device.get('password')
+            
+            # Validasi data
+            if not ip_address:
+                return False
+            if not username:
+                username = "admin"  # Default Mikrotik username
+            
+            if not password:
+                possible_passwords = ["", "admin", "password", "123456"]
+                
+                for pw in possible_passwords:
+                    try:
+                        driver_config = {
+                            "ip": ip_address,
+                            "username": username,
+                            "password": pw,
+                            "device_id": device_id,
+                            "use_ssl": False
+                        }
+                        
+                        driver = RouterOSApiDriver(driver_config)                
+                        info = driver.get_device_info()
+                        
+                        if info.get('connected', False):
+                            # Update database dengan password yang berhasil (jika ada)
+                            if pw:
+                                try:
+                                    DeviceRepository.update_router(device_id, pw)
+                                except:
+                                    pass
+                            
+                            return True
+                    except Exception as e:
+                        continue
+                
+                return False
+            
+            # Jika password ada, coba koneksi normal
+            try:
+                driver_config = {
+                    "ip": ip_address,
+                    "username": username,
+                    "password": password,
+                    "device_id": device_id,
+                    "use_ssl": False
+                }
+                
+                
+                driver = RouterOSApiDriver(driver_config)                
+                info = driver.get_device_info()
+                
+                connected = info.get('connected', False)
+                if connected:
+                    return True
+                else:
+                    return False
+                    
+            except ValueError as e:
+                return False
+            except Exception as e:
+                return False
+                
+        except Exception as e:
             return False
         
     def check_switch_health(self, device):
@@ -312,16 +390,84 @@ class Orchestrator(app_manager.RyuApp):
     def check_access_point_health(self, device):
         """Check jika Access Point via Paramiko accessible"""
         try:
-            driver = UnifiParamikoDriver({
-                "ip": device.get('main_ip_address'),
-                "username": device.get('username'),
-                "password": device.get('password'),
-                "device_id": device.get('device_id')
-            })
-            # Coba get basic info
-            info = driver.get_device_info()
-            return info.get('connected', False)
-        except:
+            device_id = device.get('device_id')
+            
+            # Gunakan DeviceRepository untuk ambil data FRESH
+            try:
+                db_device = DeviceRepository.find_by_device_id(device_id)
+                if not db_device:
+                    return False
+                    
+                ip_address = db_device.get('main_ip_address')
+                username = db_device.get('username')
+                password = db_device.get('password')
+                
+            except Exception as db_err:
+                ip_address = device.get('main_ip_address')
+                username = device.get('username')
+                password = device.get('password')
+            
+            if not ip_address:
+                self.logger.error(f"No IP address for AP {device_id}")
+                return False
+            
+            # Fallback credentials untuk Unifi
+            if not username:
+                username = "ubnt"
+            
+            if not password:
+                possible_passwords = ["", "admin", "password", "123456"]
+                
+                for pw in possible_passwords:
+                    try:
+                        driver_config = {
+                            "ip": ip_address,
+                            "username": username,
+                            "password": pw,
+                            "device_id": device_id,
+                            "use_ssl": False
+                        }
+                        
+                        driver = RouterOSApiDriver(driver_config)                
+                        info = driver.get_device_info()
+                        
+                        if info.get('connected', False):
+                            if pw:
+                                try:
+                                    DeviceRepository.update_access_point(device_id, pw)
+                                except:
+                                    pass
+                            
+                            return True
+                    except Exception as e:
+                        continue
+            try:
+                driver_config = {
+                    "ip": ip_address,
+                    "username": username,
+                    "password": password,
+                    "device_id": device_id
+                }
+                                
+                driver = UnifiParamikoDriver(driver_config)
+                info = driver.get_device_info()
+                
+                connected = info.get('connected', False)
+                if connected:
+                    return True
+                else:
+                    return False
+                    
+            except ValueError as e:
+                return False
+            except Exception as e:
+                import traceback
+                self.logger.error(traceback.format_exc())
+                return False
+                
+        except Exception as e:
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
 
     def detect_vendor(self, dev):
@@ -331,11 +477,17 @@ class Orchestrator(app_manager.RyuApp):
         try:
             driver = RouterOSApiDriver(dev)
             info = driver.get_device_info()
-            info["southbound"] = "routeros_api"
-            info["vendor"] = "MikroTik"
-            info["connected"] = True
+            device_type = info.get("device_type", "router")
+            
+            info.update({
+                "southbound": "routeros_api",
+                "vendor": "MikroTik",
+                "device_type": device_type,
+                "connected": True
+            })
             return info
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"Mikrotik detection failed: {e}")
             pass  # Kalau gagal connect Mikrotik, lanjut test lain
 
         # (Server Linux)
@@ -414,7 +566,8 @@ class Orchestrator(app_manager.RyuApp):
         global_actions = (
             wazuh_global_actions +
             snmp_global_actions +
-            list(UnifiAccessPointGlobalActions.get_actions(None).keys())
+            list(UnifiAccessPointGlobalActions.get_actions(None).keys()) +
+            list(RuijieSwitchGlobalActions.get_actions(None).keys())
         )
         
         # GLOBAL ACTIONS langsung dispatch tanpa device_id
@@ -528,7 +681,9 @@ class Orchestrator(app_manager.RyuApp):
         sb = (dev.get("southbound") or "").lower()
         vendor = (dev.get("vendor") or "").lower()
         device_type = (dev.get("device_type") or "").lower()
+        
         if sb == "routeros_api" and vendor == "mikrotik":
+            # Untuk Mikrotik, kembalikan driver yang sama
             return RouterOSApiDriver(dev)
         elif sb == "paramiko" and vendor == "unifi":
             return UnifiParamikoDriver(dev)
@@ -536,10 +691,12 @@ class Orchestrator(app_manager.RyuApp):
             return ServerAPI(dev)
         elif sb == "paramiko" and (vendor == "cisco" or device_type == "switch"):
             return CiscoSSHDriver(dev)
+        elif sb == "ruijie_cloud" and vendor == "ruijie":
+            return RuijieCloudDriver(dev)
         else:
             raise ValueError(f"Unknown southbound driver: {sb}")
 
-    def dispatch(self, d, action, params, jid):
+    def dispatch(self, d, action, params, jid, dev_config=None):
         # Global actions (tidak memerlukan device driver)
         global_actions = {
             # === SNMP Actions ===
@@ -617,17 +774,23 @@ class Orchestrator(app_manager.RyuApp):
 
         # Tambahkan Unifi global actions
         global_actions.update(UnifiAccessPointGlobalActions.get_actions(None))
+        global_actions.update(RuijieSwitchGlobalActions.get_actions(None))
 
         # Device-based actions
         device_actions = {}
         
+        # Di dalam dispatch method, update bagian driver_type detection:
         if d is not None:
             # Deteksi tipe driver
             driver_type = "unknown"
             if hasattr(d, '__class__'):
                 if 'RouterOS' in d.__class__.__name__:
                     driver_type = "mikrotik"
-                    device_actions = MikrotikRouterActions.get_actions(d)
+                    device_type = (d.dev.get("device_type") or "").lower()
+                    if device_type == "access_point":
+                        device_actions = MikrotikAPActions.get_actions(d)
+                    else:
+                        device_actions = MikrotikRouterActions.get_actions(d)
                 elif 'Paramiko' in d.__class__.__name__:
                     driver_type = "unifi"
                     device_actions = UnifiAccessPointActions.get_actions(d)
@@ -638,6 +801,9 @@ class Orchestrator(app_manager.RyuApp):
                 elif 'CiscoSSH' in d.__class__.__name__:
                     driver_type = "cisco_switch"
                     device_actions = CiscoSwitchActions.get_actions(d)
+                elif 'RuijieCloud' in d.__class__.__name__:
+                    driver_type = "ruijie_cloud"
+                    device_actions = RuijieSwitchActions.get_actions(d)
 
         # Gabungkan semua actions
         all_actions = {**global_actions, **device_actions}
@@ -785,7 +951,8 @@ class NorthboundApi(ControllerBase):
                 device_type = "server"
                 registration_mode = "server_agent"
             elif is_mikrotik:
-                device_type = "router"
+                info = self.core.detect_vendor(data)
+                device_type = info.get("device_type", "router")
                 registration_mode = "active_discovery"
             elif is_cisco:
                 device_type = "switch" 
@@ -865,7 +1032,6 @@ class NorthboundApi(ControllerBase):
 
             # === HANDLE MIKROTIK/ACTIVE DISCOVERY REGISTRATION ===
             elif is_mikrotik:
-                # Test connection first
                 info = self.core.detect_vendor(data)
                 
                 if not info.get("connected", False):
@@ -879,6 +1045,7 @@ class NorthboundApi(ControllerBase):
                 data["id"] = device_id
                 data["device_id"] = device_id
                 data.update(info)
+                detected_device_type = info.get("device_type", "router")
                 
                 # Map MikroTik specific fields
                 data.update({
@@ -888,25 +1055,32 @@ class NorthboundApi(ControllerBase):
                     "identity": info.get("identity"),
                     "username": data.get("username", "admin"),
                     "os_version": info.get("version"),
-                    "model": info.get("model-name"),
+                    "model": info.get("model"),
+                    "board_name": info.get("board-name", ""),
                     "serial_number": info.get("serial-number"),
                     "main_ip_address": data.get("ip"),
                     "main_mac_address": info.get("mac-address"),
                     "main_interface": info.get("main_interface"),
+                    "device_type": detected_device_type,
                 })
 
-                # AUTO ADD TO SNMP TARGETS
-                try:
-                    snmp = SNMPFileManager()
-                    snmp.add_device({
-                        "device_id": device_id,
-                        "ip": data["ip"],
-                        "module": info.get("vendor", "Unknown").lower(),
-                        "device_name": info.get("identity") or data.get("hostname", device_id),
-                        "location": data.get("location", "Unknown")
-                    })
-                except Exception as e:
-                    data["snmp_target_status"] = f"failed: {str(e)}"
+                # AUTO ADD TO SNMP TARGETS (jika bukan access point)
+                if detected_device_type != "access_point":
+                    try:
+                        snmp = SNMPFileManager()
+                        snmp.add_device({
+                            "device_id": device_id,
+                            "ip": data["ip"],
+                            "module": "mikrotik",  # Module khusus Mikrotik
+                            "device_name": info.get("identity") or data.get("hostname", device_id),
+                            "location": data.get("location", "Unknown"),
+                            "community": data.get("snmp_community", "public")
+                        })
+                        data["snmp_target_status"] = "success"
+                    except Exception as e:
+                        data["snmp_target_status"] = f"failed: {str(e)}"
+                else:
+                    data["snmp_target_status"] = "skipped (access_point)"
 
             elif is_cisco:
                 # Pakai CiscoSSHDriver untuk mendapatkan data REAL dari device
@@ -1421,6 +1595,35 @@ class NorthboundApi(ControllerBase):
             body = body.encode('utf-8')
         return Response(content_type='application/json', body=body, status=status)
 
+    @route('health', '/health', methods=['GET'])
+    def health_controller_db(self, req, **kwargs):
+        status = {
+            "controller": "ok",
+            "database": "unknown"
+        }
+
+        # cek koneksi database
+        try:
+            from database.db_connection import DBConnection
+
+            with DBConnection.get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT 1;")
+                cur.fetchone()
+                cur.close()
+
+            status["database"] = "ok"
+
+        except Exception as e:
+            status["database"] = "error"
+            status["db_error"] = str(e)
+
+        # status
+        if status["database"] == "ok":
+            return self._resp(req, json.dumps(status), status=200)
+        else:
+            return self._resp(req, json.dumps(status), status=500)
+
     @route('devices', '/devices', methods=['GET'])
     def list_devices(self, req, **kwargs):
         try:
@@ -1495,7 +1698,6 @@ class NorthboundApi(ControllerBase):
                                 "main_mac_address": dev.get("main_mac_address"),
                                 "main_interface": dev.get("main_interface")
                             })
-                        
                         elif dev.get("device_type") == "access_point":
                             clean_dev.update({
                                 "username": dev.get("username", "unknown"),
@@ -1692,13 +1894,14 @@ class NorthboundApi(ControllerBase):
                             "username": db_device.get("username", "unknown"),
                             "identity": db_device.get("identity", "unknown"),
                             "os_version": db_device.get("os_version", "unknown"),
-                            "board": db_device.get("board"),
+                            "model": db_device.get("model"),
                             "serial_number": db_device.get("serial_number"),
                             "vendor": db_device.get("vendor", "unknown"),
                             "main_ip_address": db_device.get("main_ip_address"),
                             "main_mac_address": db_device.get("main_mac_address"),
                             "main_interface": db_device.get("main_interface")
                         })
+                    
                     elif device_type == "switch":
                         clean_dev.update({
                             "username": db_device.get("username", "unknown"),
@@ -1711,7 +1914,19 @@ class NorthboundApi(ControllerBase):
                             "main_mac_address": db_device.get("main_mac_address"),
                             "main_interface": db_device.get("main_interface")
                         })
-                    
+
+                    elif device_type == "access_point":
+                        clean_dev.update({
+                            "username": db_device.get("username", "unknown"),
+                            "identity": db_device.get("identity", "unknown"),
+                            "os_version": db_device.get("os_version", "unknown"),
+                            "model": db_device.get("model", "unknown"),
+                            "serial_number": db_device.get("serial_number"),
+                            "vendor": db_device.get("vendor", "unknown"),
+                            "main_ip_address": db_device.get("main_ip_address"),
+                            "main_mac_address": db_device.get("main_mac_address"),
+                            "main_interface": db_device.get("main_interface")
+                        })
                     return self._resp(req, json.dumps(clean_dev))
                     
             except Exception as db_error:
@@ -1726,7 +1941,7 @@ class NorthboundApi(ControllerBase):
                     if southbound == "server_api":
                         device_type = "server"
                     elif southbound == "routeros_api":
-                        device_type = "router"
+                        device_type = "router" 
                     elif southbound == "paramiko":
                         device_type = "switch"
                     else:
@@ -1767,7 +1982,7 @@ class NorthboundApi(ControllerBase):
                             "username": device.get("username", "unknown"),
                             "identity": device.get("identity", device.get("hostname", "unknown")),
                             "os_version": device.get("version", "unknown"),
-                            "board": device.get("board"),
+                            "model": device.get("model"),
                             "serial_number": device.get("serial-number"),
                             "vendor": device.get("vendor", "unknown"),
                             "main_ip_address": device.get("ip"),
@@ -1785,6 +2000,18 @@ class NorthboundApi(ControllerBase):
                             "main_ip_address": device.get("ip"),
                             "main_mac_address": device.get("mac_address", ""),
                             "main_interface": device.get("main_interface", "")
+                        })
+                    elif device_type == "access_point":  # access_point
+                        clean_dev.update({
+                            "username": device.get("username", "unknown"),
+                            "identity": device.get("identity", device.get("hostname", "unknown")),
+                            "os_version": device.get("version", "unknown"),
+                            "model": device.get("model"),
+                            "serial_number": device.get("serial-number"),
+                            "vendor": device.get("vendor", "unknown"),
+                            "main_ip_address": device.get("ip"),
+                            "main_mac_address": device.get("mac-address"),
+                            "main_interface": device.get("main_interface", "unknown")
                         })
                     
                     return self._resp(req, json.dumps(clean_dev))

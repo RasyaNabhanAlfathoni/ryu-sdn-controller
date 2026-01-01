@@ -14,12 +14,11 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install setuptools==20.3.4
+RUN pip install setuptools==58.2.0
 
 # install ryu controller
-RUN git clone https://github.com/faucetsdn/ryu.git . \
-    && cd ryu \
-    && pip install .
+RUN git clone https://github.com/faucetsdn/ryu.git \
+    && pip install ./ryu
 
 # install dependency
 COPY requirements.txt .

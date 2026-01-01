@@ -1,6 +1,7 @@
 services:
   ryu-controller:
-    image: sdn-controller:1.0.0
+#    image: sdn-controller:1.1.2
+    build: .
     container_name: sdn_controller
     environment:
       CONTROLLER_PORT: 9090
