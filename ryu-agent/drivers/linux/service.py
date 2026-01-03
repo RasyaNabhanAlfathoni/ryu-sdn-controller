@@ -2,47 +2,61 @@ import subprocess
 import psutil
 import json
 import os
-from utils import detect_os_family, execute_command
+from utils import detect_os_family, execute_command, execute_on_host, execute_on_ssh
 
 class ServerServiceDriver:
     def __init__(self, logger=print):
         self.logger = logger
-        self.os_family = detect_os_family()
+        os_info = detect_os_family()
+        self.os_family = os_info.get('family', 'unknown')
         self._execute_command = execute_command
+        self._execute_on_host = execute_on_host
+        self._execute_on_ssh = execute_on_ssh
         self.init_system = self.detect_init_system()
         self.logger(f"Detected OS: {self.os_family}, Init: {self.init_system}")
+
+    def _execute(self, cmd, use_ssh=False):
+        """Wrapper untuk execute command dengan pilihan SSH"""
+        try:
+            if use_ssh:
+                return self._execute_on_ssh(cmd)
+            else:
+                return self._execute_on_host(cmd)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def detect_init_system(self):
         """Detect init system"""
         try:
-            # Check systemd (most modern distros)
-            result = subprocess.run(["systemctl", "--version"], capture_output=True, timeout=5)
-            if result.returncode == 0:
+            # Check systemd
+            result = self._execute("systemctl --version", use_ssh=True)
+            if result["success"]:
                 return 'systemd'
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except Exception:
             pass
 
-        # Check Upstart (older Ubuntu)
+        # Check Upstart
         try:
-            result = subprocess.run(["initctl", "--version"], capture_output=True, timeout=5)
-            if result.returncode == 0:
+            result = self._execute("initctl --version", use_ssh=False)
+            if result["success"]:
                 return 'upstart'
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except Exception:
             pass
 
-        # Check SysV init (legacy)
-        if os.path.exists("/etc/init.d"):
+        # Check SysV init
+        result = self._execute("[ -d /etc/init.d ] && echo 'exists'", use_ssh=False)
+        if result["success"] and result["stdout"] == "exists":
             return 'sysvinit'
 
         return 'unknown'
 
     def list_services(self):
-        """List services based on init system"""
+        """List services from HOST (read-only operation, bisa pakai chroot)"""
         try:
             if self.init_system == 'systemd':
-                # Use systemctl for modern systems
+                # Use systemctl (read-only, aman pakai chroot)
                 cmd = "systemctl list-units --type=service --all --no-legend"
-                result = self._execute_command(cmd)
+                result = self._execute(cmd, use_ssh=True)
                 
                 if not result["success"]:
                     return {"error": result.get("error", result["stderr"])}
@@ -63,9 +77,9 @@ class ServerServiceDriver:
                 return services
                 
             elif self.init_system == 'sysvinit':
-                # Use service --status-all for SysV
+                # Use service --status-all (read-only)
                 cmd = "service --status-all"
-                result = self._execute_command(cmd)
+                result = self._execute(cmd, use_ssh=False)
                 
                 if not result["success"]:
                     return {"error": result.get("error", result["stderr"])}
@@ -92,17 +106,23 @@ class ServerServiceDriver:
             return {"error": str(e)}
 
     def service_control(self, service, action):
-        """Control service based on init system"""
+        """Control service (gunakan SSH untuk write operations)"""
         valid_actions = ["start", "stop", "restart", "enable", "disable", "reload"]
         if action not in valid_actions:
             return {"error": f"Invalid action. Use: {valid_actions}"}
         
         try:
+            cmd = ""
+            use_ssh = True  # Default pakai SSH untuk semua control operations
+            
             if self.init_system == 'systemd':
+                # Systemctl butuh D-Bus, pakai SSH
                 cmd = f"systemctl {action} {service}"
+                use_ssh = True
+                
             elif self.init_system == 'sysvinit':
                 if action in ['enable', 'disable']:
-                    # SysV doesn't have native enable/disable, use update-rc.d or chkconfig
+                    # SysV enable/disable butuh write ke runlevels, pakai SSH
                     if self.os_family in ['debian', 'ubuntu']:
                         if action == 'enable':
                             cmd = f"update-rc.d {service} enable"
@@ -115,14 +135,24 @@ class ServerServiceDriver:
                             cmd = f"chkconfig {service} off"
                     else:
                         return {"error": f"Enable/disable not supported for {self.os_family} with SysV"}
+                    use_ssh = True
                 else:
+                    # start/stop/restart bisa coba chroot dulu, fallback ke SSH
                     cmd = f"service {service} {action}"
+                    # Coba dulu dengan chroot
+                    result = self._execute(cmd, use_ssh=False)
+                    if result["success"]:
+                        return {"status": "success", "output": result["stdout"], "method": "chroot"}
+                    else:
+                        # Fallback ke SSH
+                        use_ssh = True
             else:
                 return {"error": f"Unsupported init system: {self.init_system}"}
             
-            result = self._execute_command(cmd)
+            result = self._execute(cmd, use_ssh=use_ssh)
             if result["success"]:
-                return {"status": "success", "output": result["stdout"]}
+                method = "ssh" if use_ssh else "chroot"
+                return {"status": "success", "output": result["stdout"], "method": method}
             else:
                 return {"error": result.get("error", result["stderr"])}
                 
@@ -130,17 +160,17 @@ class ServerServiceDriver:
             return {"error": str(e)}
 
     def service_status(self, service):
-        """Get detailed service status"""
+        """Get detailed service status from HOST (read-only, bisa pakai chroot)"""
         try:
             if self.init_system == 'systemd':
-                # Get service status
+                # Get service status (read-only, aman pakai chroot)
                 status_cmd = f"systemctl is-active {service}"
-                status_result = self._execute_command(status_cmd)
+                status_result = self._execute(status_cmd, use_ssh=True)
                 status = status_result["stdout"] if status_result["success"] else "unknown"
                 
-                # Get detailed info
+                # Get detailed info (read-only)
                 info_cmd = f"systemctl show {service} --property=LoadState,ActiveState,SubState,MainPID"
-                info_result = self._execute_command(info_cmd)
+                info_result = self._execute(info_cmd, use_ssh=True)
                 
                 info = {}
                 if info_result["success"]:
@@ -160,9 +190,9 @@ class ServerServiceDriver:
                 }
                 
             elif self.init_system == 'sysvinit':
-                # Simple status for SysV
+                # Simple status for SysV (read-only)
                 cmd = f"service {service} status"
-                result = self._execute_command(cmd)
+                result = self._execute(cmd, use_ssh=False)
                 
                 return {
                     "service": service,

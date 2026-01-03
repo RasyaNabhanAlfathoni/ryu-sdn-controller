@@ -40,6 +40,9 @@ class ServerActions:
                 lambda: d.disable_interface(p.get("iface"), logger=logger),
                 "interface"
             ),
+            
+            # Network info actions (tanpa auto-update)
+            "server.network.interface.list": lambda p, logger: d.list_interfaces(logger=logger),
             "server.network.interface.info": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
             "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
             "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
@@ -79,24 +82,16 @@ class ServerActions:
                 lambda: d.ufw_delete(p.get("rule"), logger=logger),
                 "firewall"
             ),
-            "server.firewall.ufw.allow_in": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_allow_in", p, logger,
-                lambda: d.ufw("allow", "in", p.get("port_proto"), logger=logger),
+            
+            # Firewalld actions dengan auto-update
+            "server.firewall.firewalld.enable": lambda p, logger: ServerActions._simple_auto_update(
+                d, "firewalld_enable", p, logger,
+                lambda: d.firewalld_enable(logger=logger),
                 "firewall"
             ),
-            "server.firewall.ufw.allow_out": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_allow_out", p, logger,
-                lambda: d.ufw("allow", "out", p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.deny_in": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_deny_in", p, logger,
-                lambda: d.ufw("deny", "in", p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.deny_out": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_deny_out", p, logger,
-                lambda: d.ufw("deny", "out", p.get("port_proto"), logger=logger),
+            "server.firewall.firewalld.disable": lambda p, logger: ServerActions._simple_auto_update(
+                d, "firewalld_disable", p, logger,
+                lambda: d.firewalld_disable(logger=logger),
                 "firewall"
             ),
             "server.firewall.firewalld.reload": lambda p, logger: ServerActions._simple_auto_update(
@@ -106,27 +101,52 @@ class ServerActions:
             ),
             "server.firewall.firewalld.add_port": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_add_port", p, logger,
-                lambda: d.firewall_add_port(p.get("port_proto"), logger=logger),
+                lambda: d.firewall_add_port(
+                    p.get("port_proto"), 
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.remove_port": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_remove_port", p, logger,
-                lambda: d.firewall_remove_port(p.get("port_proto"), logger=logger),
+                lambda: d.firewall_remove_port(
+                    p.get("port_proto"),
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.enable_masquerade": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_enable_masquerade", p, logger,
-                lambda: d.firewall_enable_masquerade(logger=logger),
+                lambda: d.firewall_enable_masquerade(
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.disable_masquerade": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_disable_masquerade", p, logger,
-                lambda: d.firewall_disable_masquerade(logger=logger),
+                lambda: d.firewall_disable_masquerade(
+                    p.get("zone", "public"),  # Default zonenya public
+                    logger=logger
+                ),
                 "firewall"
             ),
             "server.firewall.firewalld.command": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewall_cmd", p, logger,
-                lambda: d.firewall_cmd(p.get("args"), logger=logger),
+                lambda: d.firewall_cmd(
+                    p.get("args"),
+                    p.get("zone"),
+                    logger=logger
+                ),
+                "firewall"
+            ),
+            
+            # NAT actions dengan auto-update
+            "server.firewall.nat.list": lambda p, logger: ServerActions._simple_auto_update(
+                d, "get_nat_rules", p, logger,
+                lambda: d.get_nat_rules(logger=logger),
                 "firewall"
             ),
             "server.firewall.nat.add": lambda p, logger: ServerActions._simple_auto_update(
@@ -145,19 +165,85 @@ class ServerActions:
             "server.firewall.firewalld.list_services": lambda p, logger: d.firewall_cmd("--list-services", logger=logger),
             "server.firewall.status": lambda p, logger: d.status_all(logger=logger),
             "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
-
+            "server.system.hostname.get": lambda p, logger: d.get_hostname(logger=logger),
+            "server.system.hostname.set": lambda p, logger: d.set_hostname(
+                hostname=p.get("hostname"),
+                logger=logger
+            ),
+            "server.system.reboot": lambda p, logger: d.reboot(
+                delay_seconds=p.get("delay_seconds", 0),
+                logger=logger
+            ),
+            
+            # ================= SYSTEM MANAGEMENT =================
+            # System info actions (tanpa auto-update)
             "server.system.logs": lambda p, logger: d.get_logs(p.get("lines", 50), logger=logger),
             "server.system.services.list": lambda p, logger: d.list_services(logger=logger),
             "server.system.services.control": lambda p, logger: d.service_control(p.get("service"), p.get("action"), logger=logger),
             "server.system.services.status": lambda p, logger: d.service_status(p.get("service"), logger=logger),
 
-            "server.network.lldp.neighbors": lambda p, logger: d.get_lldp_neighbors(iface=p.get("iface"), logger=logger),
+            # ================= USERS MANAGEMENT =================
+            "server.system.users.list": lambda p, logger: d.get_users(logger=logger),
+            "server.system.users.get": lambda p, logger: d.get_user_info(p.get("username"), logger=logger),
+            "server.system.users.create": lambda p, logger: d.create_user(
+                username=p.get("username"),
+                password=p.get("password"),
+                shell=p.get("shell", "/bin/bash"),
+                home_dir=p.get("home_dir"),
+                logger=logger
+            ),
+            "server.system.users.delete": lambda p, logger: d.delete_user(
+                username=p.get("username"),
+                remove_home=p.get("remove_home", False),
+                logger=logger
+            ),
+            "server.system.users.modify": lambda p, logger: d.modify_user(
+                username=p.get("username"),
+                shell=p.get("shell"),
+                home_dir=p.get("home_dir"),
+                logger=logger
+            ),
+            "server.system.users.change_password": lambda p, logger: d.change_user_password(
+                username=p.get("username"),
+                password=p.get("password"),
+                logger=logger
+            ),
+            "server.system.users.add_to_group": lambda p, logger: d.add_user_to_group(
+                username=p.get("username"),
+                group=p.get("group"),
+                logger=logger
+            ),
+            "server.system.users.remove_from_group": lambda p, logger: d.remove_user_from_group(
+                username=p.get("username"),
+                group=p.get("group"),
+                logger=logger
+            ),
+            "server.system.groups.list": lambda p, logger: d.get_groups(logger=logger),
+            "server.system.groups.create": lambda p, logger: d.create_group(
+                group_name=p.get("group_name"),
+                logger=logger
+            ),
+            "server.system.groups.delete": lambda p, logger: d.delete_group(
+                group_name=p.get("group_name"),
+                logger=logger
+            ),
+            
+            # ================= LLDP DISCOVERY =================
+            # LLDP actions (tanpa auto-update)
+            "server.network.lldp.neighbors": lambda p, logger: d.get_lldp_neighbors(
+                iface=p.get('iface'), 
+                logger=logger
+            ),
             "server.network.lldp.statistics": lambda p, logger: d.get_lldp_statistics(logger=logger),
             "server.network.lldp.status": lambda p, logger: d.get_lldp_status(logger=logger),
 
             "server.wazuh.agent.status": lambda p, logger: d.wazuh_agent_status(logger=logger),
-            "server.wazuh.agent.config.get": lambda p, logger=None: d.wazuh_get_config(logger=logger),
-            "server.wazuh.agent.config.update": lambda p, logger=None: d.wazuh_update_config(
+            "server.wazuh.agent.start": lambda p, logger: d.wazuh_agent_start(logger=logger),
+            "server.wazuh.agent.stop": lambda p, logger: d.wazuh_agent_stop(logger=logger),
+            "server.wazuh.agent.config.get": lambda p, logger=None: d.wazuh_get_config(
+                logger=logger
+            ),
+            "server.wazuh.agent.config.update": lambda p, logger=None: d.wazuh_update_config( 
                 config_content=p["config_content"],
                 logger=logger
             )

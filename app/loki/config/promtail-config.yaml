@@ -19,7 +19,7 @@ scrape_configs:
 
   - job_name: router-syslog
     syslog:
-      listen_address: 0.0.0.0:1514
+      listen_address: 0.0.0.0:1510
       listen_protocol: udp
       idle_timeout: 60s
       syslog_format: rfc3164
@@ -27,7 +27,7 @@ scrape_configs:
       labels:
         job: "router"
         service_name: "router"
-
+        component: "router"
     relabel_configs:
       - source_labels: ["__syslog_connection_ip_address"]
         target_label: "source_address"
@@ -43,7 +43,7 @@ scrape_configs:
 
   - job_name: unifi_access_point-syslog
     syslog:
-      listen_address: 0.0.0.0:1515
+      listen_address: 0.0.0.0:1512
       listen_protocol: udp
       idle_timeout: 60s
       syslog_format: rfc3164
@@ -51,7 +51,7 @@ scrape_configs:
       labels:
         job: "unifi_access_point"
         service_name: "unifi_access_point"
-
+        component: "access_point"
     relabel_configs:
       - source_labels: ["__syslog_connection_ip_address"]
         target_label: "source_address"
@@ -65,17 +65,17 @@ scrape_configs:
       - source_labels: ["__syslog_message_facility"]
         target_label: "syslog_facility"
 
-  - job_name: cisco_switch-syslog
+  - job_name: switch-syslog
     syslog:
-      listen_address: 0.0.0.0:1516
+      listen_address: 0.0.0.0:1511
       listen_protocol: udp
       idle_timeout: 60s
       syslog_format: rfc3164
       label_structured_data: false
       labels:
-        job: "cisco_switch"
-        service_name: "cisco_switch"
-
+        job: "switch"
+        service_name: "switch"
+        component: "switch"
     relabel_configs:
       - source_labels: ["__syslog_connection_ip_address"]
         target_label: "source_address"

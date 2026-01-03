@@ -1,6 +1,7 @@
 import requests
 import datetime
 import urllib3
+from typing import Optional
 
 # Workaround untuk SSL recursion error di Python 3.9
 def patch_ssl():
@@ -82,63 +83,175 @@ class WazuhIndexerAPI:
                 }
             }
         )
-    def threat_events(self, hours=24, size=100):
+    def threat_events(self, agent_id: Optional[str] = None, hours=24, size=100):
+        query_filter = [
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
         return self.search(
             "wazuh-alerts-4.x-*",
             {
                 "size": size,
                 "sort": [{"@timestamp": {"order": "desc"}}],
                 "query": {
-                    "range": {"@timestamp": {"gte": f"now-{hours}h"}}
-                }
-            }
-        )
-    def threat_failed_logins(self, hours=24):
-        return self.search(
-            "wazuh-alerts-4.x-*",
-            {
-                "query": {
                     "bool": {
-                        "filter": [
-                            {"match": {"rule.groups": "authentication_failed"}},
-                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
-                        ]
+                        "filter": query_filter
                     }
                 }
             }
         )
-    def threat_success_logins(self, hours=24):
+    def threat_failed_logins(self, agent_id: Optional[str] = None, hours=24):
+        query_filter = [
+            {"match": {"rule.groups": "authentication_failed"}},
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
         return self.search(
             "wazuh-alerts-4.x-*",
             {
+                "size": 0,
                 "query": {
                     "bool": {
-                        "filter": [
-                            {"match": {"rule.groups": "authentication_success"}},
-                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
-                        ]
+                        "filter": query_filter
+                    }
+                },
+                "aggs": {
+                    "by_user": {
+                        "terms": {"field": "data.win.eventdata.targetUserName"}
+                    },
+                    "by_source": {
+                        "terms": {"field": "data.win.eventdata.ipAddress"}
+                    },
+                    "timeline": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "fixed_interval": "30m"
+                        }
                     }
                 }
             }
         )
-
-    # === FILE INTEGRITY MONITORING === #
-    def fim_events(self, agent_id, hours=24):
+    def threat_success_logins(self, agent_id: Optional[str] = None, hours=24):
+        query_filter = [
+            {"match": {"rule.groups": "authentication_success"}},
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
         return self.search(
             "wazuh-alerts-4.x-*",
             {
+                "size": 0,
                 "query": {
                     "bool": {
-                        "filter": [
-                            {"term": {"agent.id": agent_id}},
-                            {"match": {"rule.groups": "syscheck"}},
-                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
-                        ]
+                        "filter": query_filter
+                    }
+                },
+                "aggs": {
+                    "by_user": {
+                        "terms": {"field": "data.win.eventdata.targetUserName"}
+                    },
+                    "by_logon_type": {
+                        "terms": {"field": "data.win.eventdata.logonType"}
+                    },
+                    "timeline": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "fixed_interval": "1h"
+                        }
                     }
                 }
             }
         )
-    def fim_timeline(self, agent_id, hours=24):
+    def threat_high_level(self, agent_id: Optional[str] = None, hours: int = 24):
+        query_filter = [
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
+            {"range": {"rule.level": {"gte": 10}}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
+        return self.search(
+            "wazuh-alerts-4.x-*",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {
+                        "filter": query_filter
+                    }
+                },
+                "aggs": {
+                    "by_severity": {
+                        "terms": {"field": "rule.level", "size": 10}
+                    },
+                    "by_rule": {
+                        "terms": {"field": "rule.description.keyword", "size": 20}
+                    },
+                    "by_agent": {
+                        "terms": {"field": "agent.name.keyword", "size": 10}
+                    },
+                    "timeline": {
+                        "date_histogram": {
+                            "field": "@timestamp",
+                            "fixed_interval": "1h"
+                        }
+                    }
+                }
+            }
+        )
+    def top_mitre_attacks(self, agent_id: Optional[str] = None, hours: int = 24, top: int = 10):
+        query_filter = [
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
+            {"exists": {"field": "rule.mitre.id"}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
+        return self.search(
+            "wazuh-alerts-4.x-*",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {
+                        "filter": query_filter
+                    }
+                },
+                "aggs": {
+                    "top_mitre_techniques": {
+                        "terms": {
+                            "field": "rule.mitre.id",
+                            "size": top,
+                            "order": {"_count": "desc"}
+                        },
+                        "aggs": {
+                            "technique_names": {
+                                "terms": {"field": "rule.mitre.technique"}
+                            },
+                            "severity_stats": {
+                                "stats": {"field": "rule.level"}
+                            }
+                        }
+                    },
+                    "by_technique": {
+                        "terms": {
+                            "field": "rule.mitre.technique",
+                            "size": 10
+                        }
+                    }
+                }
+            }
+        )
+    def top_threat_agents(self, hours: int = 24, top: int = 5):
         return self.search(
             "wazuh-alerts-4.x-*",
             {
@@ -146,17 +259,141 @@ class WazuhIndexerAPI:
                 "query": {
                     "bool": {
                         "filter": [
-                            {"term": {"agent.id": agent_id}},
-                            {"match": {"rule.groups": "syscheck"}},
-                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
+                            {"range": {"rule.level": {"gte": 5}}}
                         ]
+                    }
+                },
+                "aggs": {
+                    "top_agents": {
+                        "terms": {
+                            "field": "agent.name",
+                            "size": top,
+                            "order": {"_count": "desc"}
+                        },
+                        "aggs": {
+                            "severity_stats": {
+                                "stats": {"field": "rule.level"}
+                            },
+                            "top_rules": {
+                                "terms": {
+                                    "field": "rule.description.keyword",
+                                    "size": 5
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        )
+
+    # === FILE INTEGRITY MONITORING === #
+    def fim_events(self, agent_id: Optional[str] = None, hours=24):
+        query_filter = [
+            {"match": {"rule.groups": "syscheck"}},
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
+        return self.search(
+            "wazuh-alerts-4.x-*",
+            {
+                "query": {
+                    "bool": {
+                        "filter": query_filter
+                    }
+                },
+                "sort": [{"@timestamp": {"order": "desc"}}],
+                "size": 100
+            }
+        )
+    def fim_timeline(self, agent_id: Optional[str] = None, hours=24):
+        query_filter = [
+            {"match": {"rule.groups": "syscheck"}},
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
+        return self.search(
+            "wazuh-alerts-4.x-*",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {
+                        "filter": query_filter
                     }
                 },
                 "aggs": {
                     "timeline": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "fixed_interval": "30m"
+                            "fixed_interval": "30m",
+                            "aggs": {
+                                "by_action": {
+                                    "terms": {"field": "syscheck.event"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    def fim_action_summary(self, agent_id: Optional[str] = None, hours: int = 24):
+        query_filter = [
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
+            {"match": {"rule.groups": "syscheck"}}
+        ]
+        
+        if agent_id:
+            query_filter.append({"term": {"agent.id": agent_id}})
+        
+        return self.search(
+            "wazuh-alerts-4.x-*",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {
+                        "filter": query_filter
+                    }
+                },
+                "aggs": {
+                    "actions": {
+                        "terms": {"field": "syscheck.event", "size": 5}
+                    }
+                }
+            }
+        )
+    def fim_most_active_agents(self, hours: int = 24, top: int = 5):
+        return self.search(
+            "wazuh-alerts-4.x-*",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {
+                        "filter": [
+                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
+                            {"match": {"rule.groups": "syscheck"}}
+                        ]
+                    }
+                },
+                "aggs": {
+                    "active_agents": {
+                        "terms": {
+                            "field": "agent.name",
+                            "size": top,
+                            "order": {"_count": "desc"}
+                        },
+                        "aggs": {
+                            "by_action": {
+                                "terms": {"field": "syscheck.event"}
+                            },
+                            "top_files": {
+                                "terms": {"field": "syscheck.path", "size": 10}
+                            }
                         }
                     }
                 }

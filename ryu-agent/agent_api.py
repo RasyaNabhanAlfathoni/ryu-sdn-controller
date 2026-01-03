@@ -95,6 +95,17 @@ def disable_interface():
         log_message(f"Error in disable_interface: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/network/interfaces', methods=['GET'])
+def list_interfaces():
+    """List all network interfaces"""
+    try:
+        log_message("GET /api/network/interfaces")
+        result = network_driver.list_interfaces()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in list_interfaces: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/network/interface/<iface>/info', methods=['GET'])
 def get_ip_info(iface):
     # Get IP info for specific interface
@@ -295,7 +306,28 @@ def ufw_command():
 
 
 # === FIREWALLD ENDPOINTS ===
+@app.route('/api/firewall/firewalld/enable', methods=['POST'])
+def firewalld_enable():
+    """Enable and start firewalld service"""
+    try:
+        log_message("POST /api/firewall/firewalld/enable")
+        result = firewall_driver.firewalld_enable()
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewalld_enable: {e}")
+        return jsonify({"error": str(e)}), 500
 
+@app.route('/api/firewall/firewalld/disable', methods=['POST'])
+def firewalld_disable():
+    """Disable and stop firewalld service"""
+    try:
+        log_message("POST /api/firewall/firewalld/disable")
+        result = firewall_driver.firewalld_disable()
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewalld_disable: {e}")
+        return jsonify({"error": str(e)}), 500
+    
 @app.route('/api/firewall/firewalld/status', methods=['GET'])
 def firewall_status():
     # Get firewalld status
@@ -342,11 +374,14 @@ def firewall_reload():
 
 @app.route('/api/firewall/firewalld/add-port', methods=['POST'])
 def firewall_add_port():
-    # Add port to firewalld
+    # Add port to firewalld dengan zone support
     try:
         data = request.json
-        log_message(f"POST /api/firewall/firewalld/add-port - {data}")
-        result = firewall_driver.firewall_add_port(data['port_proto'])
+        port_proto = data.get('port_proto')
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/add-port - port: {port_proto}, zone: {zone}")
+        result = firewall_driver.firewall_add_port(port_proto, zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_add_port: {e}")
@@ -354,11 +389,14 @@ def firewall_add_port():
 
 @app.route('/api/firewall/firewalld/remove-port', methods=['POST'])
 def firewall_remove_port():
-    # Remove port from firewalld
+    # Remove port from firewalld dengan zone support
     try:
         data = request.json
-        log_message(f"POST /api/firewall/firewalld/remove-port - {data}")
-        result = firewall_driver.firewall_remove_port(data['port_proto'])
+        port_proto = data.get('port_proto')
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/remove-port - port: {port_proto}, zone: {zone}")
+        result = firewall_driver.firewall_remove_port(port_proto, zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_remove_port: {e}")
@@ -366,10 +404,13 @@ def firewall_remove_port():
 
 @app.route('/api/firewall/firewalld/enable-masquerade', methods=['POST'])
 def firewall_enable_masquerade():
-    # Enable masquerade in firewalld
+    # Enable masquerade in firewalld dengan zone support
     try:
-        log_message("POST /api/firewall/firewalld/enable-masquerade")
-        result = firewall_driver.firewall_enable_masquerade()
+        data = request.json or {}
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/enable-masquerade - zone: {zone}")
+        result = firewall_driver.firewall_enable_masquerade(zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_enable_masquerade: {e}")
@@ -377,10 +418,13 @@ def firewall_enable_masquerade():
 
 @app.route('/api/firewall/firewalld/disable-masquerade', methods=['POST'])
 def firewall_disable_masquerade():
-    # Disable masquerade in firewalld
+    # Disable masquerade in firewalld dengan zone support
     try:
-        log_message("POST /api/firewall/firewalld/disable-masquerade")
-        result = firewall_driver.firewall_disable_masquerade()
+        data = request.json or {}
+        zone = data.get('zone', 'public')
+        
+        log_message(f"POST /api/firewall/firewalld/disable-masquerade - zone: {zone}")
+        result = firewall_driver.firewall_disable_masquerade(zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_disable_masquerade: {e}")
@@ -388,18 +432,55 @@ def firewall_disable_masquerade():
 
 @app.route('/api/firewall/firewalld/command', methods=['POST'])
 def firewall_command():
-    # Execute firewall-cmd command
+    # Execute firewall-cmd command dengan zone support
     try:
         data = request.json
-        log_message(f"POST /api/firewall/firewalld/command - {data}")
-        result = firewall_driver.firewall_cmd(data['args'])
+        args = data.get('args', '')
+        zone = data.get('zone')
+        
+        log_message(f"POST /api/firewall/firewalld/command - args: {args}, zone: {zone}")
+        
+        # Jika ada zone, tambah ke args
+        if zone:
+            args = f"--zone={zone} {args}"
+        
+        result = firewall_driver.firewall_cmd(args, zone=zone)
         return jsonify({"status": "success", "output": result})
     except Exception as e:
         log_message(f"Error in firewall_command: {e}")
         return jsonify({"error": str(e)}), 500
 
+# agent_api.py - tambah endpoint baru
+@app.route('/api/firewall/firewalld/offline-command', methods=['POST'])
+def firewall_offline_command():
+    """Execute firewall-offline-cmd command"""
+    try:
+        data = request.json
+        args = data.get('args', '')
+        zone = data.get('zone')
+        
+        log_message(f"POST /api/firewall/firewalld/offline-command - args: {args}, zone: {zone}")
+        
+        # Panggil driver method
+        result = firewall_driver.firewall_offline_cmd(args, zone=zone)
+        return jsonify({"status": "success", "output": result})
+    except Exception as e:
+        log_message(f"Error in firewall_offline_command: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 # === NAT FIREWALL ENDPOINTS ===
+
+@app.route('/api/firewall/nat/list', methods=['GET'])
+def list_nat():
+    # Get NAT rules list
+    try:
+        log_message("GET /api/firewall/nat/list")
+        result = firewall_driver.get_nat_rules()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in list_nat: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/firewall/nat/setup', methods=['POST'])
 def setup_nat():
@@ -500,7 +581,7 @@ def get_lldp_neighbors():
             
         return jsonify({
             "status": "success",
-            "data": result,
+            "result": result,
             "timestamp": datetime.datetime.now().isoformat()
         })
     except Exception as e:
@@ -519,7 +600,7 @@ def get_lldp_statistics():
         result = lldp_driver.get_lldp_statistics()
         return jsonify({
             "status": "success",
-            "data": result,
+            "result": result,
             "timestamp": datetime.datetime.now().isoformat()
         })
     except Exception as e:
@@ -536,11 +617,7 @@ def get_lldp_status():
     try:
         log_message("GET /api/network/lldp/status")
         result = lldp_driver.get_lldp_status()
-        return jsonify({
-            "status": "success",
-            "data": result,
-            "timestamp": datetime.datetime.now().isoformat()
-        })
+        return jsonify(result)
     except Exception as e:
         log_message(f"Error in get_lldp_status: {e}")
         return jsonify({
@@ -551,6 +628,215 @@ def get_lldp_status():
 
 
 # === SYSTEM ENDPOINTS ===
+
+@app.route('/api/system/users', methods=['GET'])
+def get_users():
+    """Get list of system users"""
+    try:
+        log_message("GET /api/system/users")
+        result = system_driver.get_users()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_users: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/<username>', methods=['GET'])
+def get_user_info(username):
+    """Get detailed information about a specific user"""
+    try:
+        log_message(f"GET /api/system/users/{username}")
+        result = system_driver.get_user_info(username)
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_user_info: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/create', methods=['POST'])
+def create_user():
+    """Create a new system user"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/create - {data}")
+        
+        result = system_driver.create_user(
+            username=data['username'],
+            password=data.get('password'),
+            shell=data.get('shell', '/bin/bash'),
+            home_dir=data.get('home_dir')
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in create_user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/delete', methods=['POST'])
+def delete_user():
+    """Delete a system user"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/delete - {data}")
+        
+        result = system_driver.delete_user(
+            username=data['username'],
+            remove_home=data.get('remove_home', False)
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in delete_user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/modify', methods=['POST'])
+def modify_user():
+    """Modify user properties"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/modify - {data}")
+        
+        result = system_driver.modify_user(
+            username=data['username'],
+            shell=data.get('shell'),
+            home_dir=data.get('home_dir')
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in modify_user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/change-password', methods=['POST'])
+def change_user_password():
+    """Change user password"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/change-password - {data}")
+        
+        # Don't log the password
+        safe_data = data.copy()
+        if 'password' in safe_data:
+            safe_data['password'] = '******'
+        log_message(f"POST /api/system/users/change-password - {safe_data}")
+        
+        result = system_driver.change_user_password(
+            username=data['username'],
+            password=data['password']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in change_user_password: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/add-to-group', methods=['POST'])
+def add_user_to_group():
+    """Add user to group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/add-to-group - {data}")
+        
+        result = system_driver.add_user_to_group(
+            username=data['username'],
+            group=data['group']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in add_user_to_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/users/remove-from-group', methods=['POST'])
+def remove_user_from_group():
+    """Remove user from group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/users/remove-from-group - {data}")
+        
+        result = system_driver.remove_user_from_group(
+            username=data['username'],
+            group=data['group']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in remove_user_from_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/groups', methods=['GET'])
+def get_groups():
+    """Get list of system groups"""
+    try:
+        log_message("GET /api/system/groups")
+        result = system_driver.get_groups()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_groups: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/groups/create', methods=['POST'])
+def create_group():
+    """Create a new system group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/groups/create - {data}")
+        
+        result = system_driver.create_group(
+            group_name=data['group_name']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in create_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/groups/delete', methods=['POST'])
+def delete_group():
+    """Delete a system group"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/groups/delete - {data}")
+        
+        result = system_driver.delete_group(
+            group_name=data['group_name']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in delete_group: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/hostname', methods=['GET'])
+def get_hostname():
+    """Get current hostname"""
+    try:
+        log_message("GET /api/system/hostname")
+        result = system_driver.get_hostname()
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in get_hostname: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/hostname/set', methods=['POST'])
+def set_hostname():
+    """Set new hostname"""
+    try:
+        data = request.json
+        log_message(f"POST /api/system/hostname/set - {data}")
+        
+        result = system_driver.set_hostname(
+            hostname=data['hostname']
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in set_hostname: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/reboot', methods=['POST'])
+def reboot():
+    """Reboot the system"""
+    try:
+        data = request.json
+        log_message("POST /api/system/reboot")
+        
+        result = system_driver.reboot(
+            delay_seconds=data.get('delay_seconds', 0)
+        )
+        return jsonify(result)
+    except Exception as e:
+        log_message(f"Error in reboot: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/system/logs', methods=['GET'])
 def get_logs():
@@ -695,6 +981,68 @@ def wazuh_status():
         
     except Exception as e:
         print(f"CRITICAL ERROR in wazuh_status: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
+    
+@app.route('/api/wazuh/start', methods=['GET'])
+def wazuh_start():
+    """Get Wazuh agent start"""
+    try:
+        import sys
+        import traceback
+        
+        print("=== DEBUG: /api/wazuh/start called ===", file=sys.stderr)
+        
+        # Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Create dispatcher
+        dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+        
+        # Dispatch action
+        result = dispatcher.dispatch("server.wazuh.start", {})
+        
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"CRITICAL ERROR in wazuh_start: {e}", file=sys.stderr)
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
+    
+@app.route('/api/wazuh/stop', methods=['GET'])
+def wazuh_stop():
+    """Get Wazuh agent stop"""
+    try:
+        import sys
+        import traceback
+        
+        print("=== DEBUG: /api/wazuh/stop called ===", file=sys.stderr)
+        
+        # Import dispatcher
+        try:
+            from drivers.linux.wazuh_dispatcher import WazuhDispatcher
+            print("DEBUG: WazuhDispatcher import successful", file=sys.stderr)
+        except ImportError as e:
+            print(f"ERROR: Cannot import WazuhDispatcher: {e}", file=sys.stderr)
+            return jsonify({"error": f"Import error: {e}", "success": False}), 500
+        
+        # Create dispatcher
+        dispatcher = WazuhDispatcher(logger=lambda msg: print(f"[Dispatcher] {msg}", file=sys.stderr))
+        
+        # Dispatch action
+        result = dispatcher.dispatch("server.wazuh.stop", {})
+        
+        print(f"DEBUG: Result from dispatch: {result}", file=sys.stderr)
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"CRITICAL ERROR in wazuh_stop: {e}", file=sys.stderr)
         print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
         return jsonify({"error": f"Server error: {str(e)}", "success": False}), 500
     

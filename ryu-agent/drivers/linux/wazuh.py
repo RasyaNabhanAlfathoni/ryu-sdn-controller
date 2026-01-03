@@ -675,6 +675,227 @@ class WazuhDriver:
                 "source": "local_agent",
                 "timestamp": datetime.datetime.now().isoformat()
             }
+        
+    def get_wazuh_agent_start(self) -> Dict:
+        """Start Wazuh agent service"""
+        try:
+            import datetime
+            
+            self.logger("[WazuhDriver] Starting Wazuh agent...")
+            
+            # Check if installed first
+            installed_result = self._execute_ssh(
+                "test -f /var/ossec/bin/wazuh-agentd || "
+                "test -f /usr/bin/wazuh-agent || "
+                "test -f /opt/wazuh/bin/wazuh-agent && echo 'installed' || echo 'not_installed'"
+            )
+            
+            if "not_installed" in installed_result.get("stdout", ""):
+                return {
+                    "success": False,
+                    "error": "Wazuh agent is not installed",
+                    "installed": False,
+                    "timestamp": datetime.datetime.now().isoformat()
+                }
+            
+            # Try multiple start methods dengan prioritas
+            start_methods = [
+                # Systemd (modern)
+                "systemctl start wazuh-agent",
+                # Upstart
+                "service wazuh-agent start",
+                # SysV init
+                "/etc/init.d/wazuh-agent start",
+                # Wazuh control script
+                "/var/ossec/bin/wazuh-control start",
+                # Direct binary
+                "/var/ossec/bin/wazuh-agentd -d",
+                # Alternative binary
+                "cd /var/ossec && ./bin/wazuh-agentd -d"
+            ]
+            
+            start_results = []
+            started = False
+            method_used = None
+            
+            for method in start_methods:
+                self.logger(f"Trying start method: {method}")
+                result = self._execute_ssh(method, timeout=30)
+                
+                start_results.append({
+                    "method": method,
+                    "success": result["success"],
+                    "output": result.get("stdout", "")[:200],
+                    "error": result.get("stderr", "")[:200] if result.get("stderr") else None
+                })
+                
+                if result["success"]:
+                    started = True
+                    method_used = method
+                    self.logger(f"✓ Started with: {method}")
+                    break
+            
+            # Wait a bit for service to start
+            import time
+            time.sleep(3)
+            
+            # Verify service status
+            status_result = self._execute_ssh(
+                "systemctl is-active wazuh-agent 2>/dev/null || "
+                "service wazuh-agent status 2>/dev/null | grep -q 'active' && echo 'active' || echo 'inactive'"
+            )
+            
+            # Check process
+            process_check = self._execute_ssh(
+                "pgrep -f 'wazuh-agent|ossec-agent' 2>/dev/null | wc -l"
+            )
+            process_count = int(process_check.get("stdout", "0").strip())
+            
+            status_active = "active" in status_result.get("stdout", "")
+            has_process = process_count > 0
+            
+            return {
+                "success": started or (status_active and has_process),
+                "started": started or (status_active and has_process),
+                "method_used": method_used,
+                "service_status": "active" if status_active else "inactive",
+                "process_count": process_count,
+                "start_methods_tried": start_results,
+                "final_status": {
+                    "service_active": status_active,
+                    "process_running": has_process,
+                    "process_count": process_count
+                },
+                "timestamp": datetime.datetime.now().isoformat(),
+                "message": "Wazuh agent started successfully" if (started or (status_active and has_process)) 
+                           else "Wazuh agent may not have started properly"
+            }
+            
+        except Exception as e:
+            self.logger(f"[WazuhDriver] Error starting agent: {e}")
+            import traceback
+            self.logger(f"Traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error": str(e),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+
+    def get_wazuh_agent_stop(self) -> Dict:
+        """Stop Wazuh agent service"""
+        try:
+            import datetime
+            
+            self.logger("[WazuhDriver] Stopping Wazuh agent...")
+            
+            # Check if installed first
+            installed_result = self._execute_ssh(
+                "test -f /var/ossec/bin/wazuh-agentd || "
+                "test -f /usr/bin/wazuh-agent || "
+                "test -f /opt/wazuh/bin/wazuh-agent && echo 'installed' || echo 'not_installed'"
+            )
+            
+            if "not_installed" in installed_result.get("stdout", ""):
+                return {
+                    "success": False,
+                    "error": "Wazuh agent is not installed",
+                    "installed": False,
+                    "timestamp": datetime.datetime.now().isoformat()
+                }
+            
+            # Try multiple stop methods dengan prioritas
+            stop_methods = [
+                # Systemd (modern)
+                "systemctl stop wazuh-agent",
+                # Upstart
+                "service wazuh-agent stop",
+                # SysV init
+                "/etc/init.d/wazuh-agent stop",
+                # Wazuh control script
+                "/var/ossec/bin/wazuh-control stop",
+                # Kill processes gently
+                "pkill -TERM wazuh-agent",
+                "pkill -TERM wazuh-agentd",
+                # Kill all related processes
+                "killall wazuh-agent wazuh-agentd wazuh-execd wazuh-syscheckd wazuh-logcollectd wazuh-modulesd 2>/dev/null || true",
+                # Force kill
+                "pkill -9 wazuh-agent",
+                "pkill -9 wazuh-agentd"
+            ]
+            
+            stop_results = []
+            stopped = False
+            method_used = None
+            
+            for method in stop_methods:
+                self.logger(f"Trying stop method: {method}")
+                result = self._execute_ssh(method, timeout=30)
+                
+                stop_results.append({
+                    "method": method,
+                    "success": result["success"],
+                    "output": result.get("stdout", "")[:200],
+                    "error": result.get("stderr", "")[:200] if result.get("stderr") else None
+                })
+                
+                if result["success"]:
+                    stopped = True
+                    method_used = method
+                    self.logger(f"✓ Stopped with: {method}")
+            
+            # Wait a bit for service to stop
+            import time
+            time.sleep(3)
+            
+            # Verify service is stopped
+            status_result = self._execute_ssh(
+                "systemctl is-active wazuh-agent 2>/dev/null || "
+                "service wazuh-agent status 2>/dev/null | grep -q 'inactive' && echo 'inactive' || echo 'active'"
+            )
+            
+            # Check if any processes remain
+            process_check = self._execute_ssh(
+                "pgrep -f 'wazuh-agent|ossec-agent' 2>/dev/null | wc -l"
+            )
+            process_count = int(process_check.get("stdout", "0").strip())
+            
+            status_inactive = "inactive" in status_result.get("stdout", "")
+            no_processes = process_count == 0
+            
+            # Additional check for zombie processes
+            zombie_check = self._execute_ssh(
+                "ps aux | grep -E '[w]azuh|[o]ssec' | wc -l"
+            )
+            zombie_count = int(zombie_check.get("stdout", "0").strip())
+            
+            return {
+                "success": stopped and (status_inactive or no_processes),
+                "stopped": stopped and (status_inactive or no_processes),
+                "method_used": method_used,
+                "service_status": "inactive" if status_inactive else "active",
+                "process_count": process_count,
+                "zombie_processes": zombie_count,
+                "stop_methods_tried": stop_results,
+                "final_status": {
+                    "service_active": not status_inactive,
+                    "process_running": process_count > 0,
+                    "process_count": process_count,
+                    "zombie_processes": zombie_count
+                },
+                "timestamp": datetime.datetime.now().isoformat(),
+                "message": "Wazuh agent stopped successfully" if (stopped and (status_inactive or no_processes))
+                           else "Wazuh agent may not have stopped completely"
+            }
+            
+        except Exception as e:
+            self.logger(f"[WazuhDriver] Error stopping agent: {e}")
+            import traceback
+            self.logger(f"Traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error": str(e),
+                "timestamp": datetime.datetime.now().isoformat()
+            }
     
     def uninstall_wazuh_agent(self) -> Dict:
         """Wazuh agent uninstaller"""

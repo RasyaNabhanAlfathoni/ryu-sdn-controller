@@ -27,12 +27,14 @@ services:
       - ./config:/mnt/config # promtail-config.yaml di sini
       - /var/log:/var/log # membaca log system
     ports:
-      - "1510:1510/udp" # Syslog dari router network devices
+      - "1510:1510/udp" # Syslog dari routers
       - "1510:1510/tcp"
-      - "1511:1511/udp" # Syslog dari switch network devices
+      - "1511:1511/udp" # Syslog dari switch devices
       - "1511:1511/tcp"
-      - "1512:1512/udp" # Syslog dari access point devices
+      - "1512:1512/udp" # Syslog dari AP devices
       - "1512:1512/tcp"
+      - "2514:2514/udp" # Syslog dari servers
+      - "2514:2514/tcp"
     restart: unless-stopped
     environment:
       - TZ=Asia/Jakarta
