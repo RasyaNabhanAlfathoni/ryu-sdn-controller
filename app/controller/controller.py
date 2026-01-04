@@ -1024,14 +1024,12 @@ class NorthboundApi(ControllerBase):
                 import hashlib
                 
                 if registration_mode == "server_agent":
-                    ip = device_data.get('main_ip_address', device_data.get('ip', 'unknown'))
-                    mac = device_data.get('main_mac_address', device_data.get('mac_address', 'unknown'))
+                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
                     device_type = "server"
-                    unique_components = [device_type, ip, mac]
+                    unique_components = [device_type, serial]
                 else:  # active_discovery
-                    ip = device_data.get('main_ip_address', 'unknown')
                     serial = device_data.get('serial_number', device_data.get('serial-number', 'unknown'))
-                    unique_components = [ip, serial]
+                    unique_components = serial
                 
                 unique_str = "_".join(str(c) for c in unique_components)
                 hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
