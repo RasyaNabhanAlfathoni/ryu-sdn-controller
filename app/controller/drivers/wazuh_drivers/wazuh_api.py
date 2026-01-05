@@ -537,13 +537,13 @@ class WazuhAPI:
             manager_config = self._make_request('GET', '/manager/configuration')
             
             # Get active configuration
-            pretty_config = self._make_request('GET', '/manager/configuration?pretty=true')
+            active_config = self._make_request('GET', '/manager/configuration?active=true')
             
             return {
                 "status": "success",
                 "config_assessment": {
                     "manager_config": manager_config.get('data', {}),
-                    "pretty_config": pretty_config.get('data', {}),
+                    "active_config": active_config.get('data', {}),
                     "assessment_time": datetime.datetime.now().isoformat()
                 }
             }
@@ -728,7 +728,7 @@ class WazuhAPI:
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
-    def get_fim_data(self, agent_id: str = None, filters: Dict = None, logger=None) -> Dict:
+    def get_fim_data(self, agent_id: str, filters: Dict = None, logger=None) -> Dict:
         """Get File Integrity Monitoring data"""
         log = logger or self._log
         log(f"Getting FIM data for agent {agent_id}...")
@@ -753,7 +753,7 @@ class WazuhAPI:
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
-    def get_syscollector_hardware(self, agent_id: str = None, logger=None) -> Dict:
+    def get_syscollector_hardware(self, agent_id: str, logger=None) -> Dict:
         """Get system hardware information"""
         log = logger or self._log
         log(f"Getting hardware info for agent {agent_id}...")
@@ -774,7 +774,7 @@ class WazuhAPI:
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
-    def get_syscollector_processes(self, agent_id: str = None, filters: Dict = None, logger=None) -> Dict:
+    def get_syscollector_processes(self, agent_id: str, filters: Dict = None, logger=None) -> Dict:
         """Get running processes"""
         log = logger or self._log
         log(f"Getting processes for agent {agent_id}...")

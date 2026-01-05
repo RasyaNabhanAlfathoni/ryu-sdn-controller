@@ -309,15 +309,16 @@ class WazuhIndexerAPI:
                 "size": 100
             }
         )
+        
     def fim_timeline(self, agent_id: Optional[str] = None, hours=24):
         query_filter = [
             {"match": {"rule.groups": "syscheck"}},
             {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
         ]
-        
+
         if agent_id:
             query_filter.append({"term": {"agent.id": agent_id}})
-        
+
         return self.search(
             "wazuh-alerts-4.x-*",
             {
@@ -331,10 +332,13 @@ class WazuhIndexerAPI:
                     "timeline": {
                         "date_histogram": {
                             "field": "@timestamp",
-                            "fixed_interval": "30m",
-                            "aggs": {
-                                "by_action": {
-                                    "terms": {"field": "syscheck.event"}
+                            "fixed_interval": "30m"
+                        },
+                        "aggs": {
+                            "by_action": {
+                                "terms": {
+                                    "field": "syscheck.event",
+                                    "size": 5
                                 }
                             }
                         }
@@ -342,6 +346,7 @@ class WazuhIndexerAPI:
                 }
             }
         )
+
     def fim_action_summary(self, agent_id: Optional[str] = None, hours: int = 24):
         query_filter = [
             {"range": {"@timestamp": {"gte": f"now-{hours}h"}}},
@@ -401,17 +406,24 @@ class WazuhIndexerAPI:
         )
     
     # === SECURITY CONFIGURATION ASSESSMENT === #
-    def sca_events(self, agent_id, hours=24):
+    def sca_events(self, agent_id: Optional[str] = None, hours=24):
+        filters = [
+            {"term": {"decoder.name": "sca"}},
+            {"term": {"data.sca.type": "check"}},
+            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
+        ]
+
+        if agent_id:
+            filters.append({"term": {"agent.id": agent_id}})
+
         return self.search(
-            "wazuh-alerts-4.x-*",
+            "wazuh-archives-4.x-*",
             {
+                "size": 500,
+                "sort": [{"@timestamp": {"order": "desc"}}],
                 "query": {
                     "bool": {
-                        "filter": [
-                            {"term": {"agent.id": agent_id}},
-                            {"match": {"rule.groups": "sca"}},
-                            {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
-                        ]
+                        "filter": filters
                     }
                 }
             }
