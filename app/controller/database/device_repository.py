@@ -195,12 +195,8 @@ class DeviceRepository:
                     dev.get("architecture"),
                     dev.get("architecture_bits"),
                     dev.get("processor_type"),
-<<<<<<< HEAD
-                    dev.get("vendor"),
-=======
                     dev.get("vendor", "unknown"),
                     dev.get("serial_number", "unknown"),
->>>>>>> 8d66b4436a0360da2518627d3824dd8cf7b9042b
                     dev.get("main_ip_address"),
                     dev.get("main_mac_address"),
                     dev.get("main_interface"),
