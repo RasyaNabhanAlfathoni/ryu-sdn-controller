@@ -26,6 +26,46 @@ RETRY_INTERVAL = 5
 MAX_RETRIES = 12
 HEARTBEAT_INTERVAL = 10
 
+def get_serial_number():
+    """ Mendapatkan serial number system dari server """
+    serial = "unknown"
+    
+    # Method 1: Coba dmidecode (perlu sudo/root)
+    try:
+        result = subprocess.run(
+            ["sudo", "dmidecode", "-s", "system-serial-number"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            raw_serial = result.stdout.strip()
+            # Filter out invalid responses
+            if raw_serial and raw_serial not in ["", "Not Specified", "Default string", "To be filled by O.E.M."]:
+                serial = raw_serial
+                return serial
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass  # dmidecode tidak tersedia atau timeout
+    
+    # Method 2: Coba dari /sys filesystem 
+    sys_paths = [
+        "/sys/class/dmi/id/product_serial",
+        "/host-rootfs/sys/class/dmi/id/product_serial",  # Untuk container dengan mount host
+    ]
+    
+    for path in sys_paths:
+        try:
+            if os.path.exists(path):
+                with open(path, 'r') as f:
+                    raw_serial = f.read().strip()
+                    if raw_serial and raw_serial not in ["", "Not Specified", "Default string", "To be filled by O.E.M."]:
+                        serial = raw_serial
+                        return serial
+        except Exception:
+            continue
+    
+    return serial
+
 def find_best_ip(controller_url):
     """Cari IP dan interface terbaik - return (ip, interface)"""
     try:
@@ -453,6 +493,7 @@ def build_payload(controller_url):
     main_ip, main_interface, main_mac = get_main_interface_info(controller_url)
     architecture = get_architecture()
     vendor = get_hardware_vendor()
+    serial_number = get_serial_number()
 
     print(f"[AGENT] Using IP: {main_ip} for registration")
 
@@ -469,6 +510,7 @@ def build_payload(controller_url):
         "architecture_bits": architecture["bits"],
         "processor_type": architecture["processor_type"],
         "vendor": vendor,
+        "serial_number": serial_number,
         "last_seen": datetime.datetime.now().isoformat(),
         "meta": {
             "virtualization": detect_virtualization(),

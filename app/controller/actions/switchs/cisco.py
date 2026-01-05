@@ -24,9 +24,7 @@ class CiscoSwitchActions:
         
         return {
             # === System & Discovery ===
-            "switch.cisco.discovery": lambda p, logger: driver.get_device_info(),
             "switch.cisco.info": lambda p, logger: driver.get_device_info(),
-            "switch.cisco.system.info": lambda p, logger: driver.system.get_system_info(logger),
             "switch.cisco.test.connection": lambda p, logger: driver.test_connection(),
             
             # === Interface Management ===
