@@ -143,10 +143,10 @@ class DeviceRepository:
                 cursor.execute("""
                     INSERT INTO servers
                     (device_id, hostname, main_username, os_version, architecture,
-                    architecture_bits, processor_type, vendor, main_ip_address,
+                    architecture_bits, processor_type, vendor, serial_number, main_ip_address,
                     main_mac_address, main_interface, southbound, status,
                     virtualization, created_at, updated_at, last_seen)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                             NOW(), NOW(), NOW())
                     RETURNING id
                 """, (
@@ -157,7 +157,8 @@ class DeviceRepository:
                     dev.get("architecture"),
                     dev.get("architecture_bits"),
                     dev.get("processor_type"),
-                    dev.get("vendor"),
+                    dev.get("vendor", "unknown"),
+                    dev.get("serial_number", "unknown"),
                     dev.get("main_ip_address"),
                     dev.get("main_mac_address"),
                     dev.get("main_interface"),
@@ -180,7 +181,7 @@ class DeviceRepository:
                 sql = """
                     UPDATE servers 
                     SET hostname=%s, main_username=%s, os_version=%s, architecture=%s,
-                        architecture_bits=%s, processor_type=%s, vendor=%s,
+                        architecture_bits=%s, processor_type=%s, vendor=%s, serial_number=%s,
                         main_ip_address=%s, main_mac_address=%s, main_interface=%s,
                         southbound=%s, status=%s, virtualization=%s,
                         updated_at=NOW(), last_seen=NOW()
@@ -194,7 +195,8 @@ class DeviceRepository:
                     dev.get("architecture"),
                     dev.get("architecture_bits"),
                     dev.get("processor_type"),
-                    dev.get("vendor"),
+                    dev.get("vendor", "unknown"),
+                    dev.get("serial_number", "unknown"),
                     dev.get("main_ip_address"),
                     dev.get("main_mac_address"),
                     dev.get("main_interface"),
@@ -219,6 +221,48 @@ class DeviceRepository:
                 )
                 row = cursor.fetchone()
                 return row[0] if row else None
+
+            finally:
+                cursor.close()
+
+    # ============================
+    # GET ALL SERVERS
+    # ============================
+    @staticmethod
+    def get_all_servers():
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
+            try:
+                cursor.execute("""
+                    SELECT 
+                        s.device_id,
+                        'server' AS device_type,
+                        s.hostname,
+                        s.main_username,
+                        s.os_version,
+                        s.architecture,
+                        s.architecture_bits,
+                        s.processor_type,
+                        s.vendor,
+                        s.serial_number,
+                        s.main_ip_address,
+                        s.main_mac_address,
+                        s.main_interface,
+                        s.southbound,
+                        s.status,
+                        s.virtualization,
+                        s.last_seen,
+                        s.created_at,
+                        s.updated_at
+                    FROM servers s
+                    ORDER BY s.last_seen DESC
+                """)
+                return cursor.fetchall()
+
+            finally:
+                cursor.close()
 
     # ============================
     # INSERT ROUTER
@@ -338,7 +382,10 @@ class DeviceRepository:
                         'router' AS device_type,
                         r.identity AS hostname,
                         r.username AS main_username,
+                        r.password AS password,
                         r.os_version,
+                        r.model,
+                        r.serial_number,
                         NULL AS architecture,
                         NULL AS architecture_bits,
                         NULL AS processor_type,
@@ -575,7 +622,8 @@ class DeviceRepository:
                         ap.device_id,
                         'access_point' AS device_type,
                         ap.identity AS hostname,
-                        ap.username AS main_username,
+                        ap.username AS username,
+                        ap.password AS password,
                         ap.os_version,
                         ap.model,
                         ap.serial_number,

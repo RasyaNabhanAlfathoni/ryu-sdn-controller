@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS servers (
     processor_type VARCHAR(128),
 
     vendor VARCHAR(64),
+    serial_number VARCHAR(128),
 
     main_ip_address VARCHAR(64),
     main_mac_address VARCHAR(64),
