@@ -118,99 +118,84 @@ class ServerAPI:
         }, logger=logger)
 
     def get_ip_info(self, iface, logger=None):
-        """Get IP info for specific interface from agent"""
         try:
             result = self._call_agent(f"/api/network/interface/{iface}/info", logger=logger)
-            
-            # DEBUG LOGGING
+
             if logger:
                 logger(f"[DEBUG] Raw get_ip_info response for {iface}: {result}")
-            
-            # PARSE RESPONSE 
-            if isinstance(result, dict):
-                # DAPATKAN STATUS (default 'unknown' jika tidak ada)
-                interface_status = result.get("status", "unknown")
-                
-                parsed_result = {
-                    "interface": result.get("interface", iface),
-                    "mac": result.get("mac_address", "unknown"),
-                    "ip_addresses": [],
-                    "status": interface_status 
-                }
-                
-                # SIMPAN SEMUA IP ADDRESSES
-                if "ip_addresses" in result and isinstance(result["ip_addresses"], list):
-                    parsed_result["ip_addresses"] = result["ip_addresses"]
-                    
-                    # Ambil IP pertama untuk backward compatibility
-                    if result["ip_addresses"] and len(result["ip_addresses"]) > 0:
-                        first_ip_info = result["ip_addresses"][0]
-                        parsed_result["primary_ip"] = {
-                            "address": first_ip_info.get("address", ""),
-                            "netmask": first_ip_info.get("netmask", ""),
-                            "cidr": first_ip_info.get("cidr", ""),
-                            "network": first_ip_info.get("network", ""),
-                            "broadcast": first_ip_info.get("broadcast", "")
-                        }
-                        
-                        # Set legacy fields
-                        parsed_result["address"] = first_ip_info.get("address", "")
-                        parsed_result["netmask"] = first_ip_info.get("netmask", "")
-                        parsed_result["network"] = first_ip_info.get("network", "")
-                        parsed_result["broadcast"] = first_ip_info.get("broadcast", "")
-                else:
-                    # Format lama (single IP)
-                    parsed_result["address"] = result.get("address", "")
-                    parsed_result["netmask"] = result.get("netmask", "")
-                    parsed_result["network"] = result.get("network", "")
-                    parsed_result["broadcast"] = result.get("broadcast", "")
-                    
-                    # Buat array ip_addresses dari data lama
-                    if parsed_result["address"]:
-                        ip_info = {
-                            "address": parsed_result["address"],
-                            "netmask": parsed_result["netmask"],
-                            "network": parsed_result.get("network", ""),
-                            "broadcast": parsed_result["broadcast"]
-                        }
-                        if parsed_result["netmask"]:
-                            parsed_result["ip_addresses"] = [f"{parsed_result['address']}/{parsed_result['netmask']}"]
-                        else:
-                            parsed_result["ip_addresses"] = [parsed_result["address"]]
-                    else:
-                        parsed_result["ip_addresses"] = []
-                
-                if logger:
-                    logger(f"[DEBUG] Parsed get_ip_info response: {parsed_result}")
-                
-                return parsed_result
-            else:
-                # Fallback
+
+            if not isinstance(result, dict):
                 return {
                     "interface": iface,
                     "address": "",
-                    "netmask": "", 
+                    "netmask": "",
                     "network": "",
                     "broadcast": "",
                     "mac": "unknown",
                     "ip_addresses": [],
-                    "status": "unknown"
+                    "status": "unknown",
+                    "error": "Invalid response type from agent"
                 }
-                
+
+            parsed_result = {
+                "interface": result.get("interface", iface),
+                "mac": result.get("mac_address", "unknown"),
+                "ip_addresses": [],
+                "status": result.get("status", "unknown")
+            }
+
+            if isinstance(result.get("ip_addresses"), list):
+                parsed_result["ip_addresses"] = result["ip_addresses"]
+
+                if result["ip_addresses"]:
+                    first = result["ip_addresses"][0]
+                    if isinstance(first, dict):
+                        parsed_result["primary_ip"] = {
+                            "address": first.get("address", ""),
+                            "netmask": first.get("netmask", ""),
+                            "cidr": first.get("cidr", ""),
+                            "network": first.get("network", ""),
+                            "broadcast": first.get("broadcast", "")
+                        }
+
+                        parsed_result["address"] = first.get("address", "")
+                        parsed_result["netmask"] = first.get("netmask", "")
+                        parsed_result["network"] = first.get("network", "")
+                        parsed_result["broadcast"] = first.get("broadcast", "")
+            else:
+                parsed_result["address"] = result.get("address", "")
+                parsed_result["netmask"] = result.get("netmask", "")
+                parsed_result["network"] = result.get("network", "")
+                parsed_result["broadcast"] = result.get("broadcast", "")
+
+                if parsed_result["address"]:
+                    if parsed_result["netmask"]:
+                        parsed_result["ip_addresses"] = [
+                            f"{parsed_result['address']}/{parsed_result['netmask']}"
+                        ]
+                    else:
+                        parsed_result["ip_addresses"] = [parsed_result["address"]]
+
+            if logger:
+                logger(f"[DEBUG] Parsed get_ip_info response: {parsed_result}")
+
+            return parsed_result
+
         except Exception as e:
             if logger:
                 logger(f"[ERROR] get_ip_info failed: {e}")
             return {
                 "interface": iface,
                 "address": "",
-                "netmask": "", 
+                "netmask": "",
+                "network": "",
                 "broadcast": "",
                 "mac": "unknown",
                 "ip_addresses": [],
                 "status": "unknown",
                 "error": str(e)
             }
-        
+    
     def list_interfaces(self, logger=None):
         """List all network interfaces"""
         return self._call_agent("/api/network/interfaces", logger=logger)
