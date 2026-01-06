@@ -8,10 +8,27 @@ class CiscoQoSDriver:
     def set_base(self, base):
         """Set base SSH connection"""
         self.base = base
+
+    def _is_switchport(self, interface):
+        out = self.base.execute_command(
+            f"show run interface {interface}",
+            enable_mode=True
+        )
+        return "switchport" in out
     
     def set_rate_limit(self, interface, rate_kbps, direction='input', logger=None):
         """Set rate limiting on interface"""
         try:
+            if self._is_switchport(interface):
+                return {
+                    "status": "error",
+                    "error": (
+                        f"Interface {interface} is a Layer-2 switchport. "
+                        "QoS rate-limit via policy-map is NOT supported on L2 ports. "
+                        "Apply QoS on SVI (interface vlan X) or routed port instead."
+                    )
+                }
+            
             policy = f"RL_{interface.replace('/', '_')}"
             if logger:
                 logger(f"Setting rate limit on {interface} to {rate_kbps} kbps...")
@@ -38,7 +55,7 @@ class CiscoQoSDriver:
                 'message': f'Rate limit {rate_kbps} kbps set on {interface}',
                 'interface': interface,
                 'rate_kbps': rate_kbps,
-                'rate_mbps': rate_bps,
+                'rate_bps': rate_bps,
                 'direction': direction
             }
             

@@ -50,11 +50,14 @@ class CiscoSwitchActions:
             "switch.cisco.vlan.assign.access": lambda p, logger: driver.vlan.assign_vlan_access(
                 p['interface'], p['vlan_id'], logger
             ),
-            "switch.cisco.vlan.assign.trunk": lambda p, logger: CiscoSwitchActions._assign_vlan_trunk(driver, p, logger),
+            "switch.cisco.vlan.assign.trunk": lambda p, logger: driver.vlan.assign_vlan_trunk(
+                p['interface'], p['native_vlan'], p['allowed_vlans'], logger
+            ),
             
             # === STP Management ===
             "switch.cisco.stp.info": lambda p, logger: driver.stp.get_stp_info(logger),
             "switch.cisco.stp.enable": lambda p, logger: driver.stp.enable_stp(logger),
+            "switch.cisco.stp.disable": lambda p, logger: driver.stp.disable_stp(logger),
             "switch.cisco.stp.vlan.enable": lambda p, logger: driver.stp.enable_stp_vlan(
                 p['vlan'], logger
             ),
@@ -65,6 +68,9 @@ class CiscoSwitchActions:
                 p['priority'], p['vlan'], logger
             ),
             "switch.cisco.stp.interface.portfast": lambda p, logger: driver.stp.configure_portfast(
+                p.get('interface'), logger
+            ),
+            "switch.cisco.stp.interface.portfast.disable": lambda p, logger: driver.stp.disable_portfast(
                 p.get('interface'), logger
             ),
             
@@ -104,7 +110,7 @@ class CiscoSwitchActions:
                 p['interface'], logger
             ),
             "switch.cisco.security.static.mac": lambda p, logger: driver.security.add_static_mac(
-                p['interface'], p['mac_address'], p.get('vlan', 1), logger
+                p['interface'], p['mac_address'], logger
             ),
             "switch.cisco.security.status": lambda p, logger: driver.security.get_port_security_status(
                 p.get('interface'), logger
@@ -167,59 +173,6 @@ class CiscoSwitchActions:
         }
     
     # === Helper Methods ===
-    
-    @staticmethod
-    def _assign_vlan_trunk(driver, params, logger):
-        try:
-            interface = params['interface']
-            native_vlan = params.get('native_vlan', 1)
-            allowed_vlans = params.get('allowed_vlans', 'all')
-
-            if isinstance(allowed_vlans, list):
-                allowed_vlans = ",".join(map(str, allowed_vlans))
-
-            if logger:
-                logger(f"Configuring trunk on {interface}")
-
-            driver.base.execute_command("configure terminal", enable_mode=True)
-            driver.base.execute_command(f"interface {interface}", enable_mode=True)
-            driver.base.execute_command("switchport mode trunk", enable_mode=True)
-            driver.base.execute_command(f"switchport trunk native vlan {native_vlan}", enable_mode=True)
-            driver.base.execute_command(f"switchport trunk allowed vlan {allowed_vlans}", enable_mode=True)
-            driver.base.execute_command("exit", enable_mode=True)
-            driver.base.execute_command("end", enable_mode=True)
-
-            # Verifikasi Commandnya
-            verify = driver.base.execute_command(
-                "show interface trunk",
-                enable_mode=True
-            )
-
-            if interface not in verify:
-                raise Exception("Trunk configuration verification failed")
-
-            driver.base.execute_command("write memory", enable_mode=True)
-
-            if logger:
-                logger(f"Trunk successfully configured on {interface}")
-
-            return {
-                "status": "success",
-                "interface": interface,
-                "mode": "trunk",
-                "native_vlan": native_vlan,
-                "allowed_vlans": allowed_vlans
-            }
-
-        except Exception as e:
-            if logger:
-                logger(f"Error configuring trunk on {interface}: {e}")
-
-            return {
-                "status": "error",
-                "error": str(e)
-            }
-    
     @staticmethod
     def _configure_snmp(driver, params, logger):
         """Configure SNMP with auto-add to Prometheus"""
