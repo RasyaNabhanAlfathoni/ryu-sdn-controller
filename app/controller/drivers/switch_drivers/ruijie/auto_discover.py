@@ -3,6 +3,7 @@ import hashlib
 from datetime import datetime
 from ryu.lib import hub
 from database.device_repository import DeviceRepository
+from controller.drivers.snmp.snmp_file_manager import SNMPFileManager
 
 class AutoDiscoverRuijie:
     name = "ruijie_auto_discover"
@@ -125,35 +126,31 @@ class AutoDiscoverRuijie:
 
                         if not existing:
                             cls._snapshot[dev["device_id"]] = fingerprint
-                            print(f"[RUIJIE] INSERT {dev['identity']}")
 
+                            print(f"[RUIJIE] INSERT {dev['identity']}")
                             DeviceRepository.insert_network_device(dev)
                             DeviceRepository.insert_switch(dev)
 
                             try:
                                 snmp = SNMPFileManager()
                                 snmp.add_device({
-                                    "device_id": device_id,
+                                    "device_id": dev["device_id"],
                                     "ip": dev["main_ip_address"],
                                     "module": dev["vendor"].lower(),
                                     "device_name": dev["identity"],
                                     "location": dev.get("snmp_location", "Unknown"),
                                 })
-                                print(f"[RUIJIE-AUTO] SNMP TARGET ADDED {device_id}")
+                                print(f"[RUIJIE-AUTO] SNMP TARGET ADDED {dev['device_id']}")
 
                             except Exception as e:
-                                print(f"[RUIJIE-AUTO] SNMP SKIP {device_id}: {e}")
+                                print(f"[RUIJIE-AUTO] SNMP SKIP {dev['device_id']}: {e}")
 
                         elif old_fp != fingerprint:
                             cls._snapshot[dev["device_id"]] = fingerprint
-                            print(f"[RUIJIE] UPDATE {dev['identity']}")
 
-                            DeviceRepository.update_network_device(
-                                dev["device_id"], dev
-                            )
-                            DeviceRepository.update_switch(
-                                dev["device_id"], dev
-                            )
+                            print(f"[RUIJIE] UPDATE {dev['identity']}")
+                            DeviceRepository.update_network_device(dev["device_id"], dev)
+                            DeviceRepository.update_switch(dev["device_id"], dev)
 
                         detail = cls.fetch_device_detail(dev["serial_number"])
                         status = "active" if detail.get("onlineStatus") == "ON" else "inactive"

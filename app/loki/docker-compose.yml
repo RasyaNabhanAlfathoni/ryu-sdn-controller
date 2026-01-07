@@ -33,6 +33,8 @@ services:
       - "1511:1511/tcp"
       - "1512:1512/udp" # Syslog dari access point devices
       - "1512:1512/tcp"
+      - "1513:1513/udp" # Syslog dari mikrotik access point devices
+      - "1513:1513/tcp"
       - "2514:2514/udp" # Syslog dari servers
       - "2514:2514/tcp"
     restart: unless-stopped
