@@ -142,3 +142,155 @@ class CiscoVlanDriver:
             if logger:
                 logger(f"Error assigning VLAN: {e}")
             return {"status": "error", "error": str(e)}
+        
+    def assign_vlan_trunk(self, interface_name, native_vlan=1, allowed_vlans=None, logger=None):
+        try:
+            # Convert allowed_vlans
+            if allowed_vlans is None:
+                allowed_vlans_str = "all"
+            elif isinstance(allowed_vlans, list):
+                allowed_vlans_str = ",".join(map(str, allowed_vlans))
+            else:
+                allowed_vlans_str = str(allowed_vlans)
+            
+            # 1. Reset interface completely
+            if logger:
+                logger(f"1. Resetting interface {interface_name}")
+            
+            reset_commands = [
+                "configure terminal",
+                f"interface {interface_name}",
+                "shutdown",
+                "no switchport port-security",
+                "no switchport",
+                "switchport",
+                "exit",
+                "end"
+            ]
+            
+            for cmd in reset_commands:
+                try:
+                    self.base.execute_command(cmd, enable_mode=True)
+                except Exception as e:
+                    if logger:
+                        logger(f"Note: {e}")
+            
+            import time
+            time.sleep(2)
+            
+            # 2. Configure trunk dengan Encapsulation
+            if logger:
+                logger(f"\n2. Configuring trunk with dot1q encapsulation")
+            
+            trunk_commands = [
+                "configure terminal",
+                f"interface {interface_name}",
+                "switchport",  # Ensure its a switchport
+                "switchport trunk encapsulation dot1q",
+                "switchport mode trunk",
+                f"switchport trunk native vlan {native_vlan}",
+                f"switchport trunk allowed vlan {allowed_vlans_str}",
+                "no shutdown",
+                "exit",
+                "end"
+            ]
+            
+            for cmd in trunk_commands:
+                result = self.base.execute_command(cmd, enable_mode=True)
+                if result and logger:
+                    logger(f"Output: {result}")
+            
+            time.sleep(2)
+            
+            # 3. Verification
+            if logger:
+                logger(f"\n3. Verification")
+            
+            # Check running config
+            running_config = self.base.execute_command(
+                f"show run interface {interface_name}",
+                enable_mode=True
+            )
+            
+            # Check for critical lines
+            required_configs = [
+                "switchport trunk encapsulation dot1q",
+                "switchport mode trunk",
+                f"switchport trunk native vlan {native_vlan}",
+                f"switchport trunk allowed vlan {allowed_vlans_str}"
+            ]
+            
+            missing_configs = []
+            for required in required_configs:
+                if required not in running_config:
+                    missing_configs.append(required)
+            
+            if missing_configs:
+                if logger:
+                    logger(f"Missing configs: {missing_configs}")
+                
+                # Try alternative approach if encapsulation fails
+                if "switchport trunk encapsulation" not in running_config:
+                    if logger:
+                        logger(f"\n4. Alternative approach - try without explicit encapsulation")
+                    
+                    alt_commands = [
+                        "configure terminal",
+                        f"interface {interface_name}",
+                        "switchport mode dynamic desirable", 
+                        f"switchport trunk native vlan {native_vlan}",
+                        f"switchport trunk allowed vlan {allowed_vlans_str}",
+                        "end"
+                    ]
+                    
+                    for cmd in alt_commands:
+                        self.base.execute_command(cmd, enable_mode=True)
+                    
+                    time.sleep(1)
+                    
+                    # Check again
+                    running_config = self.base.execute_command(
+                        f"show run interface {interface_name}",
+                        enable_mode=True
+                    )
+                    
+                    if logger:
+                        logger(f"Alt config:\n{running_config}")
+            
+            # Final verification with show command
+            switchport_output = self.base.execute_command(
+                f"show interfaces {interface_name} switchport",
+                enable_mode=True
+            )
+            
+            if logger:
+                logger(f"\nSwitchport status:\n{switchport_output}")
+            
+            # Check if trunk is operational
+            if "operational mode: trunk" not in switchport_output.lower():
+                if logger:
+                    logger(f"Warning: May not be operational trunk yet")
+            
+            # 5. Save configuration
+            self.base.execute_command("write memory", enable_mode=True)
+            
+            if logger:
+                logger(f"\nTrunk configuration attempt completed")
+            
+            return {
+                "status": "success",
+                "interface": interface_name,
+                "mode": "trunk",
+                "native_vlan": native_vlan,
+                "allowed_vlans": allowed_vlans_str,
+                "note": "Configuration applied, check switchport status for operational state"
+            }
+            
+        except Exception as e:
+            if logger:
+                logger(f"\nError: {e}")
+            
+            return {
+                "status": "error",
+                "error": str(e)
+            }

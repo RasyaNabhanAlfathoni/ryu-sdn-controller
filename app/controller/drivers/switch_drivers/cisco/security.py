@@ -115,7 +115,7 @@ class CiscoSecurityDriver:
                 'error': str(e)
             }
     
-    def add_static_mac(self, interface, mac_address, vlan=1, logger=None):
+    def add_static_mac(self, interface, mac_address, logger=None):
         """Add static MAC address to port security"""
         try:
             if logger:
@@ -130,7 +130,7 @@ class CiscoSecurityDriver:
 
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
-            self.base.execute_command(f"switchport port-security mac-address {mac_formatted} vlan {vlan}", enable_mode=True)
+            self.base.execute_command(f"switchport port-security mac-address {mac_formatted}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
             
             save_result = self.base.save_configuration()
@@ -142,8 +142,7 @@ class CiscoSecurityDriver:
                 'status': 'success',
                 'message': f'Static MAC {mac_address} added to {interface}',
                 'interface': interface,
-                'mac_address': mac_address,
-                'vlan': vlan
+                'mac_address': mac_address
             }
             
         except Exception as e:
@@ -211,39 +210,116 @@ class CiscoSecurityDriver:
         return data
     
     def clear_port_security(self, interface, logger=None):
-        """Clear port security violation on interface"""
+        """Clear ALL port security configuration on interface"""
         try:
             if logger:
-                logger(f"Clearing port security on {interface}...")
-
-            # Disable dulu
-            disable_security = self.disable_port_security(interface, logger)    
-
+                logger(f"Clearing ALL port security configuration on {interface}...")
+            
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface}", enable_mode=True)
+            
+            # Dapatkan semua MAC addresses yang terdaftar
+            try:
+                mac_output = self.base.execute_command(
+                    f"show port-security address interface {interface}",
+                    enable_mode=True
+                )
+                
+                # Parse MAC addresses dari output
+                mac_addresses = self._extract_mac_addresses(mac_output)
+                
+                if logger:
+                    logger(f"Found {len(mac_addresses)} MAC addresses to remove")
+                
+                # Hapus satu per satu
+                for mac in mac_addresses:
+                    try:
+                        self.base.execute_command(
+                            f"no switchport port-security mac-address {mac}",
+                            enable_mode=True
+                        )
+                        if logger:
+                            logger(f"Removed MAC address: {mac}")
+                    except Exception as mac_error:
+                        if logger:
+                            logger(f"Warning: Could not remove MAC {mac}: {mac_error}")
+            except Exception as e:
+                if logger:
+                    logger(f"Warning: Could not get MAC addresses: {e}")
+            
+            # Hapus sticky MAC configuration
+            self.base.execute_command("no switchport port-security mac-address sticky", enable_mode=True)
+            
+            # Reset semua parameter ke default
+            self.base.execute_command("no switchport port-security maximum", enable_mode=True)
+            self.base.execute_command("no switchport port-security violation", enable_mode=True)
+            self.base.execute_command("no switchport port-security aging time", enable_mode=True)
+            self.base.execute_command("no switchport port-security aging type", enable_mode=True)
+            
+            self.base.execute_command("no switchport port-security", enable_mode=True)
+            
+            # Keluar dari interface dan config mode
+            self.base.execute_command("exit", enable_mode=True)
+            self.base.execute_command("end", enable_mode=True)
+            
+            # Clear sticky MAC di memory
+            self.base.execute_command(f"clear port-security sticky interface {interface}", enable_mode=True)
+            # Clear MAC address table untuk interface ini
+            self.base.execute_command(f"clear mac address-table interface {interface}", enable_mode=True)
+            
+            # Reset interface
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             self.base.execute_command("shutdown", enable_mode=True)
             self.base.execute_command("no shutdown", enable_mode=True)
+            self.base.execute_command("exit", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
             
-            # Clear port security counters
-            self.base.execute_command(f"clear port-security sticky interface {interface}", enable_mode=True)
+            import time
+            time.sleep(2)
             
+            # Save configuration
             save_result = self.base.save_configuration()
             
-            if logger:
-                logger(f"Port security cleared on {interface}")
+            # Verify
+            verify_output = self.base.execute_command(
+                f"show port-security interface {interface}",
+                enable_mode=True
+            )
             
             return {
                 'status': 'success',
-                'message': f'Port security cleared on {interface}',
-                'interface': interface
+                'message': f'Port security completely cleared on {interface}',
+                'interface': interface,
+                'verification': verify_output,
+                'save_result': save_result
             }
             
         except Exception as e:
             if logger:
                 logger(f"Error clearing port security: {str(e)}")
+                import traceback
+                logger(f"Traceback: {traceback.format_exc()}")
             
             return {
                 'status': 'error',
                 'error': str(e)
             }
+
+    def _extract_mac_addresses(self, output):
+        """Extract MAC addresses from show port-security address output"""
+        mac_addresses = []
+        
+        # Format AABB.CCDD.EEFF atau AA:BB:CC:DD:EE:FF
+        patterns = [
+            r'([0-9A-F]{4}\.[0-9A-F]{4}\.[0-9A-F]{4})',  # XXXX.XXXX.XXXX
+            r'([0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2})',  # XX:XX:XX:XX:XX:XX
+            r'([0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4})'  # XXXX-XXXX-XXXX
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, output.upper())
+            mac_addresses.extend(matches)
+        
+        # Remove duplicates
+        return list(set(mac_addresses))

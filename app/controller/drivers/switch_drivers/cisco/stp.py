@@ -209,6 +209,43 @@ class CiscoSTPDriver:
                 'error': str(e)
             }
 
+    def disable_stp(self, logger=None):
+        """Disable STP globally"""
+        try:
+            if logger:
+                logger("Disabling STP globally...")
+            
+            # Masuk ke config mode
+            self.base.execute_command("configure terminal", enable_mode=True)
+            
+            # Disable STP secara global
+            self.base.execute_command("no spanning-tree mode", enable_mode=True)
+            
+            # Keluar dari config mode
+            self.base.execute_command("end", enable_mode=True)
+            
+            # Save configuration
+            save_result = self.base.save_configuration()
+            
+            if logger:
+                logger("STP disabled globally")
+                logger(f"Configuration saved: {save_result}")
+            
+            return {
+                'status': 'success',
+                'message': 'STP disabled globally',
+                'save_result': save_result
+            }
+            
+        except Exception as e:
+            if logger:
+                logger(f"Error disabling STP: {str(e)}")
+            
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
+
     def enable_stp_vlan(self, vlan, logger=None):
         """Enable STP untuk VLAN tertentu"""
         try:
@@ -217,7 +254,7 @@ class CiscoSTPDriver:
 
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(
-                f"spanning-tree vlan {vlan}",
+                f"spanning-tree vlan {vlan} priority 32768",
                 enable_mode=True
             )
             self.base.execute_command("end", enable_mode=True)
@@ -396,3 +433,46 @@ class CiscoSTPDriver:
             result["default"] = True
 
         return result
+    
+    def disable_portfast(self, interface=None, logger=None):
+        """Disable PortFast on interface"""
+        try:
+            if logger:
+                logger(f"Disabling PortFast on {interface or 'all'}...")
+            
+            # Masuk ke config mode
+            self.base.execute_command("configure terminal", enable_mode=True)
+            
+            if interface:
+                # Disable PortFast pada interface spesifik
+                self.base.execute_command(f"interface {interface}", enable_mode=True)
+                self.base.execute_command("no spanning-tree portfast", enable_mode=True)
+                self.base.execute_command("exit", enable_mode=True)
+            else:
+                # Disable PortFast default pada semua interface
+                self.base.execute_command("no spanning-tree portfast default", enable_mode=True)
+            
+            # Keluar dari config mode
+            self.base.execute_command("end", enable_mode=True)
+            
+            # Save configuration
+            save_result = self.base.save_configuration()
+            
+            if logger:
+                logger("PortFast disabled")
+                logger(f"Configuration saved: {save_result}")
+            
+            return {
+                'status': 'success',
+                'message': 'PortFast disabled',
+                'save_result': save_result
+            }
+            
+        except Exception as e:
+            if logger:
+                logger(f"Error disabling PortFast: {str(e)}")
+            
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
