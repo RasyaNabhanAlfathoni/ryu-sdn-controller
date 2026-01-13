@@ -322,8 +322,13 @@ class ServerFirewallDriver:
             result = self._execute_on_host("iptables -t nat -L -n -v --line-numbers")
             
             if not result["success"]:
-                return {"status": "error", "message": f"Failed to get NAT rules: {result.get('error')}"}
-            
+                return {
+                    "status": "error",
+                    "message": "iptables nat table not accessible",
+                    "stderr": result.get("stderr", ""),
+                    "firewall": self.firewall_type
+                }
+
             rules_output = result["stdout"]
             
             # Parse dengan state machine yang lebih simple

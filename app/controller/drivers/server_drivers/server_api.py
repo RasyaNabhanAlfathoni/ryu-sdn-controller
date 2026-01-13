@@ -176,6 +176,31 @@ class ServerAPI:
                     else:
                         parsed_result["ip_addresses"] = [parsed_result["address"]]
 
+            import ipaddress
+
+            if parsed_result.get("ip_addresses"):
+                first = parsed_result["ip_addresses"][0]
+
+                if isinstance(first, str) and "/" in first:
+                    addr, mask = first.split("/", 1)
+
+                    parsed_result["address"] = addr
+                    parsed_result["netmask"] = mask
+
+                    prefix = sum(bin(int(x)).count("1") for x in mask.split("."))
+                    net = ipaddress.IPv4Network(f"{addr}/{prefix}", strict=False)
+
+                    parsed_result["network"] = str(net.network_address)
+                    parsed_result["broadcast"] = str(net.broadcast_address)
+
+                    parsed_result["primary_ip"] = {
+                        "address": addr,
+                        "netmask": mask,
+                        "cidr": f"{addr}/{prefix}",
+                        "network": parsed_result["network"],
+                        "broadcast": parsed_result["broadcast"]
+                    }
+
             if logger:
                 logger(f"[DEBUG] Parsed get_ip_info response: {parsed_result}")
 

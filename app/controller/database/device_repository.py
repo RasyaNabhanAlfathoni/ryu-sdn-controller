@@ -222,9 +222,6 @@ class DeviceRepository:
                 row = cursor.fetchone()
                 return row[0] if row else None
 
-            finally:
-                cursor.close()
-
     # ============================
     # GET ALL SERVERS
     # ============================

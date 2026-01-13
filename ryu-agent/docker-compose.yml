@@ -4,9 +4,9 @@ services:
     build: .
     container_name: ryu-agent-register
     environment:
-      - RYU_CONTROLLER_URL=http://192.168.221.133:9090 # http:// dan port dari Ryu Manager
+      - RYU_CONTROLLER_URL=http://10.10.10.34:8080 # http:// dan port dari Ryu Manager
       - RYU_API_KEY=agent-secret-token-1 # API Key dari Ryu Manager
-      - AGENT_IP=192.168.221.133 # IP Server Agent yang 1 Network atau dapat diPing dengan Server Ryu Manager
+      - AGENT_IP=10.10.10.122 # IP Server Agent yang 1 Network atau dapat diPing dengan Server Ryu Manager
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -18,7 +18,7 @@ services:
     privileged: true # Untuk Akses command system pada Server
     network_mode: host # Untuk Scanning real network pada Server
     restart: unless-stopped
-    command: python3 agent_register.py --verbose
+    command: python3 agent_register.py
 
   ryu-agent-api:
     build: .
@@ -55,7 +55,7 @@ services:
       - /usr/bin/nsenter:/usr/bin/nsenter:ro
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - AGENT_API_PORT=8500 # Untuk Port Koneksi Agent API (Harus sama dengan sisi Manager)
+      - AGENT_API_PORT=8081 # Untuk Port Koneksi Agent API (Harus sama dengan sisi Manager)
       - AGENT_API_HOST=0.0.0.0 # Untuk Host Receive Agent API
       - AGENT_DEBUG=false # Untuk Debug Mode Agent API
     privileged: true # Untuk Akses command system pada Server
@@ -107,7 +107,7 @@ services:
       # - /run/log/journal:/run/log/journal:ro
       - /var/log/journal:/var/log/journal:ro
     environment:
-      - LOKI_URL=http://192.168.221.133:3100 # IP controller
+      - LOKI_URL=http://10.10.10.34:3100 # IP controller
     restart: unless-stopped
     network_mode: host # Agar bisa kirim log ke controller
     privileged: true # Untuk Akses command system pada Server

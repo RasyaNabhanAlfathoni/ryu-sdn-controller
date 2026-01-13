@@ -32,7 +32,9 @@ services:
       - unifi
     ports:
       - "3000:3000"
-    network_mode: host
+    network_mode: host  # Debug, agar bisa connect ke network luar supaya kehubung ke ip AP
+
+  # pastiin unifi container dah status healthy baru mongo api di up muach
 
 
 volumes:
