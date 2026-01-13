@@ -52,9 +52,12 @@ from drivers.server_file_manager import ServerFileManager
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
 from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 
+# === Loki Driver ===
+from drivers.loki_api import LokiAPI
+
 API_INSTANCE_NAME = 'northbound_api'
 
-# Ini sesuaikan dengan secret key nya (Untuk Server Agent)
+# Ini sesuaikan dengan secret key nya
 ALLOWED_API_KEYS = set([os.environ.get("RYU_API_KEY", "agent-secret-token-1")])
 
 def to_postgresql_datetime(ts):
@@ -169,6 +172,20 @@ class Orchestrator(app_manager.RyuApp):
         except Exception as e:
             self.logger.error(f"Wazuh Indexer init failed: {e}")
             self.wazuh_indexer = None
+
+        try:
+            from database.device_repository import DeviceRepository
+            loki_url = os.environ.get('LOKI_URL', 'http://localhost:3100')
+            
+            self.loki_api = LokiAPI(
+                base_url=loki_url,
+                device_repository=DeviceRepository,
+                logger=self.logger.info
+            )
+            self.logger.info("Loki API initialized with device validation")
+        except Exception as e:
+            self.logger.error(f"Loki initialization failed: {e}")
+            self.loki_api = None
 
     def health_check_loop(self):
         """Background thread untuk health check semua devices"""
@@ -577,8 +594,10 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.manager.info", "wazuh.manager.stats", "wazuh.manager.configuration",
             "wazuh.agent.list", "wazuh.agent.detail", "wazuh.agent.status", "wazuh.agent.config",
            "wazuh.sca.summary", "wazuh.sca.events", "wazuh.fim.summary", "wazuh.fim.events",
-            "wazuh.fim.timeline", "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
-            "wazuh.threat.success_login", "wazuh.discover.logs", "wazuh.system.processes", 
+            "wazuh.fim.timeline", "wazuh.fim.action_summary", "wazuh.fim.most_active_agents", 
+            "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
+            "wazuh.threat.success_login", "wazuh.threat.high_level", "wazuh.threat.top_mitre", 
+            "wazuh.threat.top_agents", "wazuh.discover.logs", "wazuh.system.processes", 
             "wazuh.system.hardware",
         ]
         
@@ -767,28 +786,52 @@ class Orchestrator(app_manager.RyuApp):
                 hours=p.get("hours", 24)
             ),
             "wazuh.fim.summary": lambda p, logger: self.wazuh_api.get_fim_data(
-                p["agent_id"], p.get("filters"), logger
+                p.get("agent_id"), p.get("filters"), logger
             ),
             "wazuh.fim.events": lambda p, logger: self.wazuh_indexer.fim_events(
-                agent_id=p["agent_id"],
+                agent_id=p.get("agent_id"),
                 hours=p.get("hours", 24)
             ),
             "wazuh.fim.timeline": lambda p, logger: self.wazuh_indexer.fim_timeline(
-                agent_id=p["agent_id"],
+                agent_id=p.get("agent_id"),
                 hours=p.get("hours", 24)
+            ),
+            "wazuh.fim.action_summary": lambda p, logger: self.wazuh_indexer.fim_action_summary(
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id")
+            ),
+            "wazuh.fim.most_active_agents": lambda p, logger: self.wazuh_indexer.fim_most_active_agents(
+                hours=p.get("hours", 24),
+                top=p.get("top", 5)
             ),
             "wazuh.threat.summary": lambda p, logger: self.wazuh_indexer.threat_summary(
                 hours=p.get("hours", 24)
             ),
             "wazuh.threat.events": lambda p, logger: self.wazuh_indexer.threat_events(
                 hours=p.get("hours", 24),
-                size=p.get("size", 100)
+                size=p.get("size", 100),
+                agent_id=p.get("agent_id"),
             ),
             "wazuh.threat.failed_login": lambda p, logger: self.wazuh_indexer.threat_failed_logins(
-                hours=p.get("hours", 24)
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
             ),
             "wazuh.threat.success_login": lambda p, logger: self.wazuh_indexer.threat_success_logins(
-                hours=p.get("hours", 24)
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
+            ),
+            "wazuh.threat.high_level": lambda p, logger: self.wazuh_indexer.threat_high_level(
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
+            ),
+            "wazuh.threat.top_mitre": lambda p, logger: self.wazuh_indexer.top_mitre_attacks(
+                hours=p.get("hours", 24),
+                agent_id=p.get("agent_id"),
+                top=p.get("top", 10)
+            ),
+            "wazuh.threat.top_agents": lambda p, logger: self.wazuh_indexer.top_threat_agents(
+                hours=p.get("hours", 24),
+                top=p.get("top", 5)
             ),
             "wazuh.discover.logs": lambda p, logger: self.wazuh_indexer.discover_logs(
                 index=p.get("index", "wazuh-alerts-*"),
@@ -803,6 +846,21 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.system.processes": lambda p, logger: self.wazuh_api.get_syscollector_processes(
                 agent_id=p.get("agent_id"),
                 filters=p.get("filters", {}),
+                logger=logger
+            ),
+
+            # === LOKI ACTIONS ===
+            "loki.query.logs": lambda p, logger: self.loki_api.query_range(
+                query=p.get("query", ""),
+                limit=p.get("limit", 100),
+                hours=p.get("hours", 1)
+            ),
+            "loki.search.logs": lambda p, logger: self.loki_api.search_logs(
+                params=p,
+                logger=logger
+            ),
+            "loki.health": lambda p, logger: self.loki_api.health(
+                params=p,
                 logger=logger
             ),
         }
@@ -964,20 +1022,22 @@ class NorthboundApi(ControllerBase):
             # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
                 import hashlib
-                
-                if registration_mode == "server_agent":
-                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
-                    device_type = "server"
-                    unique_components = [device_type, serial]
-                else:  # active_discovery
-                    serial = device_data.get('serial_number', device_data.get('serial-number', 'unknown'))
-                    unique_components = serial
-                
-                unique_components = [device_type, ip, hostname, registration_mode]
-                unique_str = "_".join(str(c) for c in unique_components)
-                hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
-                
-                return f"dev_{hash_digest}"
+
+                vendor = device_data.get("vendor", "unknown")
+                device_type = device_data.get("device_type", "unknown")
+                ip = device_data.get("ip") or device_data.get("main_ip_address", "unknown")
+                serial = (
+                    device_data.get("serial_number")
+                    or device_data.get("serial-number")
+                    or "unknown"
+                )
+
+                unique_components = [vendor, device_type, serial, ip]
+
+                unique_str = "_".join(map(str, unique_components))
+                digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
+
+                return f"dev_{digest}"
 
             device_type = None  
             if is_server:
@@ -1023,8 +1083,20 @@ class NorthboundApi(ControllerBase):
                 data["ip"] = str(final_ip)
                 data["main_ip_address"] = str(final_ip)
                 
-                # Generate device ID
+                # Generate device ID yang KONSISTEN berdasarkan IP + MAC
                 device_id = generate_device_id(data, registration_mode)
+                print(f"[CONTROLLER] Generated device_id: {device_id} for IP: {final_ip}")
+                
+                # Cek apakah device_id ini sudah ada di database
+                existing_device = DeviceRepository.find_by_device_id(device_id)
+                
+                if existing_device:
+                    print(f"[CONTROLLER] Found existing device {device_id}, updating...")
+                    # Device sudah ada, lalu UPDATE
+                else:
+                    print(f"[CONTROLLER] Creating new device {device_id}")
+                    # Device belum ada, lalu INSERT baru
+                
                 data["id"] = device_id
                 data["device_id"] = device_id
                 
