@@ -1027,9 +1027,10 @@ class NorthboundApi(ControllerBase):
                     serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
                     device_type = "server"
                     unique_components = [device_type, serial]
-                else:  # active_discovery
-                    serial = device_data.get('serial_number', device_data.get('serial-number', 'unknown'))
-                    unique_components = serial
+                else: 
+                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
+                    device_type = device_data.get("device_type", "unknown_type")
+                    unique_components = [device_type, serial]
                 
                 unique_str = "_".join(str(c) for c in unique_components)
                 hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
@@ -1200,7 +1201,8 @@ class NorthboundApi(ControllerBase):
                     
                     # Test connection dengan driver yang sudah diperbaiki
                     info = cisco_driver.get_device_info()
-                    
+                    serial = info.get('serial_number', '').strip()
+                    print(f"  Serial: '{serial}' (type: {type(serial)}, len: {len(serial)})")
                     # Validasi info sebelum dipakai
                     if info is None:
                         return self._resp(req, json.dumps({

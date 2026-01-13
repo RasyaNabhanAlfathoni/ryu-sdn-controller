@@ -4,9 +4,33 @@ import json
 import datetime
 
 class CiscoSwitchActions:
+
+    @staticmethod
+    def detect_switch_type(driver, logger=None):
+        """Simple but reliable L2/L3 detection"""
+        try:
+            if logger:
+                logger("Detecting switch type (L2/L3)...")
+            
+            # Gunakan method baru di driver jika ada
+            if hasattr(driver, 'get_device_type'):
+                device_type = driver.get_device_type()
+                if logger:
+                    logger(f"Device type from driver: {device_type}")
+                return device_type
+            
+            return 'L2'
+        except Exception as e:
+            if logger:
+                logger(f"Detection error, default to L2: {e}")
+            return 'L2'
     
     @staticmethod
-    def get_actions(driver):
+    def get_actions(driver, device_type=None):
+        # Auto-detect jika tidak ditentukan
+        if device_type is None:
+            device_type = CiscoSwitchActions.detect_switch_type(driver)
+
         # Pastikan semua modules terhubung ke base
         if driver.base:
             modules = [
@@ -15,6 +39,20 @@ class CiscoSwitchActions:
                 driver.system, driver.snmp, driver.users, 
                 driver.logging
             ]
+
+            if device_type == 'L3':
+                if hasattr(driver, 'l3') and driver.l3 is not None:
+                    modules.append(driver.l3)
+                    # Set base untuk L3 module
+                    if hasattr(driver.l3, 'set_base'):
+                        driver.l3.set_base(driver.base)
+                    elif hasattr(driver.l3, 'base'):
+                        driver.l3.base = driver.base
+            else:
+                # Jika L3 module tidak ada, ubah device_type ke L2
+                device_type = 'L2'
+                if hasattr(driver, 'logger'):
+                    driver.logger("L3 module not available, falling back to L2")
             
             for module in modules:
                 if hasattr(module, 'set_base'):
@@ -22,7 +60,7 @@ class CiscoSwitchActions:
                 elif hasattr(module, 'base'):
                     module.base = driver.base
         
-        return {
+        actions = {
             # === System & Discovery ===
             "switch.cisco.info": lambda p, logger: driver.get_device_info(),
             "switch.cisco.test.connection": lambda p, logger: driver.test_connection(),
@@ -171,6 +209,83 @@ class CiscoSwitchActions:
                 user=p.get("user", "unknown")
             ),
         }
+
+        # Tambahkan actions L3 jika device type L3
+        if device_type == 'L3':
+            if hasattr(driver, 'l3') and driver.l3 is not None:
+                if not hasattr(driver.l3, 'base') or driver.l3.base is None:
+                    driver.l3.set_base(driver.base)
+                l3_actions = {
+                    # === L3 IP Routing ===
+                    "switch.cisco.l3.routing.enable": lambda p, logger: driver.l3.enable_ip_routing(logger),
+                    "switch.cisco.l3.routing.disable": lambda p, logger: driver.l3.disable_ip_routing(logger),
+                    "switch.cisco.l3.routing.status": lambda p, logger: driver.l3.get_routing_status(logger),
+                    "switch.cisco.l3.routing.check": lambda p, logger: {
+                        'status': 'success',
+                        'device_type': 'L3',
+                        'ip_routing_enabled': driver.l3.is_ip_routing_enabled(logger)
+                    },
+                    
+                    # === SVI Management ===
+                    "switch.cisco.l3.svi.create": lambda p, logger: driver.l3.create_svi(
+                        p['vlan_id'], p['ip_address'], p['subnet_mask'], logger
+                    ),
+                    "switch.cisco.l3.svi.delete": lambda p, logger: driver.l3.delete_svi(
+                        p['vlan_id'], logger
+                    ),
+                    "switch.cisco.l3.svi.list": lambda p, logger: driver.l3.get_svi_interfaces(logger),
+                    "switch.cisco.l3.svi.configure": lambda p, logger: driver.l3.configure_svi(
+                        p['vlan_id'], p.get('ip_address'), p.get('subnet_mask'), p.get('description'), logger
+                    ),
+                    
+                    # === Static Routing ===
+                    "switch.cisco.l3.route.static.add": lambda p, logger: driver.l3.add_static_route(
+                        p['network'], p['mask'], p['next_hop'], p['description'], logger
+                    ),
+                    "switch.cisco.l3.route.static.remove": lambda p, logger: driver.l3.remove_static_route(
+                        p['network'], p['mask'], p['next_hop'], logger
+                    ),
+                    "switch.cisco.l3.route.static.list": lambda p, logger: driver.l3.get_static_routes(logger),
+                    
+                    # === Interface L3 Configuration ===
+                    "switch.cisco.l3.interface.ip.configure": lambda p, logger: driver.l3.configure_interface_ip(
+                        p['interface'], p['ip_address'], p['subnet_mask'], logger
+                    ),
+                    "switch.cisco.l3.interface.routed": lambda p, logger: driver.l3.convert_to_routed_port(
+                        p['interface'], logger
+                    ),
+                    "switch.cisco.l3.interface.switched": lambda p, logger: driver.l3.convert_to_switched_port(
+                        p['interface'], logger
+                    ),
+                    
+                    # === ACL Management ===
+                    "switch.cisco.l3.acl.standard.create": lambda p, logger: driver.l3.create_standard_acl(
+                        p['acl_number'], logger
+                    ),
+                    "switch.cisco.l3.acl.standard.add_rule": lambda p, logger: driver.l3.add_standard_acl_rule(
+                        p['acl_number'], p['action'], p['source'], logger
+                    ),
+                    "switch.cisco.l3.acl.extended.create": lambda p, logger: driver.l3.create_extended_acl(
+                        p['acl_number'], logger
+                    ),
+                    "switch.cisco.l3.acl.extended.add_rule": lambda p, logger: driver.l3.add_extended_acl_rule(
+                        p['acl_number'], p['action'], p['protocol'], p['source'], 
+                        p['destination'], p.get('options'), logger
+                    ),
+                    "switch.cisco.l3.acl.apply": lambda p, logger: driver.l3.apply_acl_to_interface(
+                        p['interface'], p['acl_number'], p['direction'], logger
+                    ),
+                    "switch.cisco.l3.acl.list": lambda p, logger: driver.l3.get_acls(logger),
+                    
+                    # === NTP ===
+                    "switch.cisco.l3.ntp.configure": lambda p, logger: driver.l3.configure_ntp_server(
+                        p['ntp_server'], logger
+                    ),
+                    "switch.cisco.l3.ntp.status": lambda p, logger: driver.l3.get_ntp_status(logger),
+                }
+                actions.update(l3_actions)
+        
+        return actions
     
     # === Helper Methods ===
     @staticmethod

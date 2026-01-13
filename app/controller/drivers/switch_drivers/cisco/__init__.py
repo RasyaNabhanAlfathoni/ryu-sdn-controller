@@ -40,9 +40,80 @@ class CiscoSSHDriver:
         self.snmp = CiscoSnmpDriver(config) 
         self.users = CiscoUserManagement(config)
         self.logging = CiscoLoggingManagement(config)
-        
+        self._device_type = None 
+        self.l3 = None
+
         # Set base reference untuk semua modules
+        self._detect_switch_type()
+        self._init_l3()
         self._init_modules()
+
+    def _detect_switch_type(self):
+        """Deteksi apakah switch L2 atau L3"""
+        try:            
+            # Method 1: Cek ip routing command
+            try:
+                ip_route = self.base.execute_command("show ip route", enable_mode=True)
+                
+                # Jika command invalid → dipastikan L2
+                if "% Invalid" in ip_route or "Invalid input" in ip_route:
+                    self._device_type = 'L2'
+                    return
+                
+                elif "Default gateway is" in ip_route:
+                    self._device_type = 'L3'
+                    return
+
+                elif "Codes:" in ip_route:
+                    self._device_type = 'L3'
+                    return
+                
+                elif "Gateway of last resort is" in ip_route:
+                    self._device_type = 'L3'
+                    return
+
+                # Method 2: Cek ip routing status
+                running_config = self.base.execute_command("show running-config", enable_mode=True).lower()
+                if "ip routing" in running_config:
+                    self._device_type = 'L3'
+                    return
+
+            except Exception as e:
+                self._device_type = 'L2'
+                
+        except Exception as e:
+            self._device_type = 'L2'
+    
+    def _init_l3(self):
+        """Initialize L3 module hanya jika switch L3"""
+        if self._device_type == 'L3':
+            try:
+                from .l3 import CiscoL3Management
+                self.l3 = CiscoL3Management(self.config, parent=self)
+                
+                # Set base ke L3 module
+                if hasattr(self.l3, 'set_base'):
+                    self.l3.set_base(self.base)
+                elif hasattr(self.l3, 'base'):
+                    self.l3.base = self.base
+                    
+            except ImportError as e:
+                self.l3 = None
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.l3 = None
+        else:
+            print(f"[CiscoSSHDriver] L2 switch detected, skipping L3 module initialization")
+            self.l3 = None
+    
+    def get_device_type(self):
+        """Get detected device type (L2/L3)"""
+        return self._device_type or 'L2'
+    
+    def ensure_l3_allowed(self):
+        if self.get_device_type() == 'L2':
+            raise Exception("This device is Layer 2 only. L3 features are not supported.")
     
     def _init_modules(self):
         """Set base reference untuk semua modules"""
@@ -51,6 +122,9 @@ class CiscoSSHDriver:
             self.qos, self.security, self.lldp, self.snmp,
             self.users, self.logging 
         ]
+
+        if hasattr(self, 'l3') and self.l3 is not None:
+            modules.append(self.l3)
         
         for module in modules:
             if hasattr(module, 'set_base'):
@@ -114,9 +188,7 @@ class CiscoSSHDriver:
             # Parse Result Show Version
             version_output = self.base.execute_command("show version", enable_mode=False)
             
-            if version_output and "ERROR" not in version_output:
-                print(f"[DEBUG] Show version (first 800 chars):\n{version_output[:800]}")
-                
+            if version_output and "ERROR" not in version_output:    
                 # Parse IOS Version
                 ios_patterns = [
                     r'[Cc]isco\s+IOS\s+[Ss]oftware\s*[,]?\s*(?:\([^)]+\))?\s*[,\s]*[Vv]ersion\s+([^,\s]+)',
@@ -145,7 +217,8 @@ class CiscoSSHDriver:
                     r'[Ss]ystem\s+[Ii]mage\s+[Ff]ile\s+is\s+"[^"]*[\\/]([A-Za-z0-9\-_]+)\.',
                     r'WS-\w+-\w+',  # Pattern umum untuk model Cisco switch
                     r'C\d{4}[A-Z]?-\d+[A-Z]+-\d+[A-Z]?',  # Pattern Cisco Catalyst
-                    r'CISCO\d+\w+'  # Pattern lainnya
+                    r'CISCO\d+\w+',  # Pattern lainnya
+                    r'cisco\s+(WS-\S+)'
                 ]
                 
                 for pattern in model_patterns:
