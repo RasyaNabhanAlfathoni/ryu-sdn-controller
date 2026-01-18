@@ -1037,8 +1037,18 @@ class NorthboundApi(ControllerBase):
 
                 device_type = device_data.get("device_type", "unknown")
 
-                unique_str = f"{device_type}_{serial}_{ip}"
-                hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
+                # Server agent → STABIL (tanpa IP)
+                if registration_mode == "server_agent":
+                    unique_parts = [device_type, serial]
+                else:
+                    # Discovery → UNIK (pakai IP)
+                    unique_parts = [device_type, serial, ip]
+
+                unique_str = "_".join(str(p) for p in unique_parts)
+
+                hash_digest = hashlib.sha256(
+                    unique_str.encode("utf-8")
+                ).hexdigest()[:10]
 
                 return f"dev_{hash_digest}"
 
