@@ -226,7 +226,6 @@ class CiscoInterfaceDriver:
                 self.base.execute_command(
                     f"ip address {params['ip_address']} {params['subnet_mask']}"
                 )
-
             # Speed
             if params.get('speed') in ['10', '100', '1000', 'auto']:
                 self.base.execute_command(f"speed {params['speed']}")

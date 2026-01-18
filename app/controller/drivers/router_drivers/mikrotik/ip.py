@@ -342,3 +342,49 @@ class RouterOSIpDriver:
 
         finally:
             pool.disconnect()
+
+    def delete_address(self, p, logger=print):
+        """
+        Delete IP Address (alias remove_address).
+
+        Parameter:
+        {
+            "address": "10.10.10.1/24",   # recommended
+            "interface": "ether3"         # optional fallback
+        }
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/address')
+
+            target = None
+
+            if "address" in p:
+                recs = res.get(address=p["address"])
+                if recs:
+                    target = recs[0]
+            elif "interface" in p:
+                recs = res.get(interface=p["interface"])
+                if len(recs) == 1:
+                    target = recs[0]
+                else:
+                    raise Exception(
+                        f"Multiple IPs found on {p['interface']}, specify 'address'"
+                    )
+
+            if not target:
+                raise Exception(f"IP {p.get('address')} not found")
+
+            record_id = target.get(".id") or target.get("id")
+            if not record_id:
+                raise Exception("Record ID not found")
+
+            res.remove(numbers=record_id)
+            logger(f"🗑️ Deleted IP {target['address']} from {target['interface']}")
+
+        except Exception as e:
+            logger(f"❌ Delete failed: {str(e)}")
+            raise Exception(f"Failed to delete address: {str(e)}")
+
+        finally:
+            pool.disconnect()

@@ -406,20 +406,19 @@ class WazuhIndexerAPI:
         )
     
     # === SECURITY CONFIGURATION ASSESSMENT === #
-    def sca_events(self, agent_id: Optional[str] = None, hours=24):
+    def sca_events(self, agent_id: Optional[str] = None, hours=24, size=500):
         filters = [
-            {"term": {"decoder.name": "sca"}},
-            {"term": {"data.sca.type": "check"}},
             {"range": {"@timestamp": {"gte": f"now-{hours}h"}}}
         ]
 
         if agent_id:
             filters.append({"term": {"agent.id": agent_id}})
+            filters.append({"term": {"rule.groups": "sca"}})
 
         return self.search(
-            "wazuh-archives-4.x-*",
+            "wazuh-alerts-4.x-*",
             {
-                "size": 500,
+                "size": size,
                 "sort": [{"@timestamp": {"order": "desc"}}],
                 "query": {
                     "bool": {

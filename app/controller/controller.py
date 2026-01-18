@@ -1023,21 +1023,24 @@ class NorthboundApi(ControllerBase):
             def generate_device_id(device_data, registration_mode):
                 import hashlib
 
-                vendor = device_data.get("vendor", "unknown")
-                device_type = device_data.get("device_type", "unknown")
-                ip = device_data.get("ip") or device_data.get("main_ip_address", "unknown")
                 serial = (
                     device_data.get("serial_number")
                     or device_data.get("serial-number")
-                    or "unknown"
+                    or "noserial"
                 )
 
-                unique_components = [vendor, device_type, serial, ip]
+                ip = (
+                    device_data.get("ip")
+                    or device_data.get("main_ip_address")
+                    or "noip"
+                )
 
-                unique_str = "_".join(map(str, unique_components))
-                digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
+                device_type = device_data.get("device_type", "unknown")
 
-                return f"dev_{digest}"
+                unique_str = f"{device_type}_{serial}_{ip}"
+                hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
+
+                return f"dev_{hash_digest}"
 
             device_type = None  
             if is_server:
