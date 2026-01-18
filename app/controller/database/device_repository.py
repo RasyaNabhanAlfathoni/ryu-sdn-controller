@@ -72,6 +72,99 @@ class DeviceRepository:
                 """, (serial,))
                 return cursor.fetchone()
 
+            finally:
+                cursor.close()
+
+
+    @staticmethod
+    def find_existing_device(device_type, serial, hostname, ip_address):
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor(
+                cursor_factory=psycopg2.extras.RealDictCursor
+            )
+            try:
+                # Normalize inputs
+                serial = str(serial).strip().lower() if serial else None
+                hostname = str(hostname).strip().lower() if hostname else None
+                ip_address = str(ip_address).strip() if ip_address else None
+                
+                if device_type == "server":
+                    sql = """
+                        SELECT device_id, hostname, serial_number, main_ip_address
+                        FROM servers
+                        WHERE 
+                            (LOWER(serial_number) = %s AND %s != 'unknown') OR
+                            (LOWER(hostname) = %s AND %s != 'unknown') OR
+                            (main_ip_address = %s AND %s != 'unknown')
+                        LIMIT 1
+                    """
+                    cursor.execute(sql, (
+                        serial, serial,
+                        hostname, hostname,
+                        ip_address, ip_address
+                    ))
+                    
+                elif device_type == "router":
+                    sql = """
+                        SELECT device_id, identity as hostname, serial_number, main_ip_address
+                        FROM routers
+                        WHERE 
+                            (LOWER(serial_number) = %s AND %s != 'unknown') OR
+                            (LOWER(identity) = %s AND %s != 'unknown') OR
+                            (main_ip_address = %s AND %s != 'unknown')
+                        LIMIT 1
+                    """
+                    cursor.execute(sql, (
+                        serial, serial,
+                        hostname, hostname,
+                        ip_address, ip_address
+                    ))
+                    
+                elif device_type == "switch":
+                    sql = """
+                        SELECT device_id, identity as hostname, serial_number, main_ip_address
+                        FROM switchs
+                        WHERE 
+                            (LOWER(serial_number) = %s AND %s != 'unknown') OR
+                            (LOWER(identity) = %s AND %s != 'unknown') OR
+                            (main_ip_address = %s AND %s != 'unknown')
+                        LIMIT 1
+                    """
+                    cursor.execute(sql, (
+                        serial, serial,
+                        hostname, hostname,
+                        ip_address, ip_address
+                    ))
+                    
+                elif device_type == "access_point":
+                    sql = """
+                        SELECT device_id, identity as hostname, serial_number, main_ip_address
+                        FROM access_points
+                        WHERE 
+                            (LOWER(serial_number) = %s AND %s != 'unknown') OR
+                            (LOWER(identity) = %s AND %s != 'unknown') OR
+                            (main_ip_address = %s AND %s != 'unknown')
+                        LIMIT 1
+                    """
+                    cursor.execute(sql, (
+                        serial, serial,
+                        hostname, hostname,
+                        ip_address, ip_address
+                    ))
+                else:
+                    return None
+                    
+                result = cursor.fetchone()
+                
+                # Debug logging (optional)
+                if result:
+                    print(f"Found existing device: {result}")
+                    
+                return result
+                
+            finally:
+                cursor.close() 
+
     # ============================
     # FIND DEVICE BY device_id
     # ============================

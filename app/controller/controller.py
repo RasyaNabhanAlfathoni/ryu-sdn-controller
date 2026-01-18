@@ -1206,7 +1206,8 @@ class NorthboundApi(ControllerBase):
                     
                     # Test connection dengan driver yang sudah diperbaiki
                     info = cisco_driver.get_device_info()
-                    
+                    serial = info.get('serial_number', '').strip()
+                    print(f"  Serial: '{serial}' (type: {type(serial)}, len: {len(serial)})")
                     # Validasi info sebelum dipakai
                     if info is None:
                         return self._resp(req, json.dumps({
