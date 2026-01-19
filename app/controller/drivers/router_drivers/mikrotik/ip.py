@@ -7,6 +7,54 @@ class RouterOSIpDriver:
         """
         self.core = core_driver
 
+    def list_addresses(self, p=None, logger=print):
+        """
+        List IP Address.
+
+        Parameter opsional:
+        {
+            "interface": "ether3"
+        }
+        atau
+        {
+            "address": "10.10.10.1/24"
+        }
+        atau kosong / None untuk list semua
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/ip/address')
+
+            if p:
+                if "address" in p:
+                    records = res.get(address=p["address"])
+                elif "interface" in p:
+                    records = res.get(interface=p["interface"])
+                else:
+                    records = res.get()
+            else:
+                records = res.get()
+
+            results = []
+            for r in records or []:
+                results.append({
+                    "id": r.get(".id") or r.get("id"),
+                    "address": r.get("address"),
+                    "interface": r.get("interface"),
+                    "network": r.get("network"),
+                    "disabled": r.get("disabled") == "true" or r.get("disabled") == "yes",
+                    "comment": r.get("comment")
+                })
+
+            return results
+
+        except Exception as e:
+            logger(f"❌ List failed: {str(e)}")
+            raise Exception(f"Failed to list addresses: {str(e)}")
+
+        finally:
+            pool.disconnect()
+
     def add_address(self, p, logger=print):
         pool, api = self.core.get_api()
         try:
