@@ -1022,34 +1022,19 @@ class NorthboundApi(ControllerBase):
             # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
                 import hashlib
-
-                serial = (
-                    device_data.get("serial_number")
-                    or device_data.get("serial-number")
-                    or "noserial"
-                )
-
-                ip = (
-                    device_data.get("ip")
-                    or device_data.get("main_ip_address")
-                    or "noip"
-                )
-
-                device_type = device_data.get("device_type", "unknown")
-
-                # Server agent → STABIL (tanpa IP)
+                
                 if registration_mode == "server_agent":
-                    unique_parts = [device_type, serial]
-                else:
-                    # Discovery → UNIK (pakai IP)
-                    unique_parts = [device_type, serial, ip]
-
-                unique_str = "_".join(str(p) for p in unique_parts)
-
-                hash_digest = hashlib.sha256(
-                    unique_str.encode("utf-8")
-                ).hexdigest()[:10]
-
+                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
+                    device_type = "server"
+                    unique_components = [device_type, serial]
+                else: 
+                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
+                    device_type = device_data.get("device_type", "unknown_type")
+                    unique_components = [device_type, serial]
+                
+                unique_str = "_".join(str(c) for c in unique_components)
+                hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
+                
                 return f"dev_{hash_digest}"
 
             device_type = None  

@@ -4,7 +4,7 @@
     "data": [
         {
             "_id": "69402af8d254ff29542c0488",
-            "hostname": "192.168.100.85",
+            "hostname": "10.10.10.34",
             "name": "UNIFI OS",
             "key": "super_identity"
         },
@@ -33,7 +33,7 @@
             "override_inform_host": true,
             "autobackup_cron_expr": "30 0 1 * *",
             "key": "super_mgmt",
-            "override_inform_host_location": "192.168.100.85"
+            "override_inform_host_location": "10.10.10.34"
         },
         {
             "_id": "69402af8d254ff29542c048b",
@@ -196,7 +196,7 @@
             "netconsole_enabled": false,
             "this_controller_encrypted_only": false,
             "port": 1515,
-            "ip": "192.168.100.85",
+            "ip": "10.10.10.34",
             "site_id": "69402ae3d254ff29542c0486",
             "key": "rsyslogd",
             "enabled": true

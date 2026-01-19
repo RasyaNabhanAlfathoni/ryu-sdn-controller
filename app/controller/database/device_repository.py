@@ -72,9 +72,6 @@ class DeviceRepository:
                 """, (serial,))
                 return cursor.fetchone()
 
-            finally:
-                cursor.close()
-
 
     @staticmethod
     def find_existing_device(device_type, serial, hostname, ip_address):

@@ -38,10 +38,10 @@ class WazuhDispatcher:
         elif action == "server.wazuh.stop":
             return self.wazuh_driver.get_wazuh_agent_stop()
         
-        elif action == "server.wazuh.config.get":
+        elif action == "server.wazuh.agent.config.get":
             return self.wazuh_driver.get_ossec_config()
         
-        elif action == "server.wazuh.config.update":
+        elif action == "server.wazuh.agent.config.update":
             return self.wazuh_driver.update_ossec_config(params.get("config_content"))
             
         else:

@@ -6,69 +6,6 @@ class RouterOSIpDriver:
         core_driver = instance dari RouterOSApiDriver
         """
         self.core = core_driver
-    def list_addresses(self, p, logger=print):
-        pool, api = self.core.get_api()
-        try:
-            res = api.get_resource('/ip/address')
-
-            query = {}
-
-            if p.get("interface"):
-                query["interface"] = p["interface"]
-
-            if p.get("address"):
-                query["address"] = p["address"]
-
-            if "disabled" in p:
-                if p["disabled"] in [True, "true", "yes", "1"]:
-                    query["disabled"] = "yes"
-                elif p["disabled"] in [False, "false", "no", "0"]:
-                    query["disabled"] = "no"
-
-            items = res.get(**query) if query else res.get()
-
-            logger(f"📄 Listed {len(items)} IP address(es)")
-
-            return items
-
-        except Exception as e:
-            logger(f"❌ List failed: {str(e)}")
-            raise Exception(f"Failed to list addresses: {str(e)}")
-
-        finally:
-            pool.disconnect()
-
-    def list_addresses(self, p=None, logger=print):
-        """
-        Mengambil seluruh IP address dari /ip/address.
-        Parameter optional:
-        {
-            "interface": "ether1"  # optional
-        }
-        """
-        pool, api = self.core.get_api()
-        try:
-            res = api.get_resource('/ip/address')
-
-            if p and "interface" in p:
-                # Filter berdasarkan interface
-                records = res.get(interface=p["interface"])
-                logger(f"📌 Found {len(records)} IPs on interface {p['interface']}")
-                return records
-
-            # Ambil semua IP
-            records = res.get()
-            logger(f"📌 Total IPs fetched: {len(records)}")
-
-            return records
-
-        except Exception as e:
-            logger(f"❌ List failed: {str(e)}")
-            raise Exception(f"Failed to list addresses: {str(e)}")
-
-        finally:
-            pool.disconnect()
-
 
     def add_address(self, p, logger=print):
         pool, api = self.core.get_api()
@@ -339,52 +276,6 @@ class RouterOSIpDriver:
         except Exception as e:
             logger(f"❌ Comment update failed: {str(e)}")
             raise Exception(f"Failed to update comment: {str(e)}")
-
-        finally:
-            pool.disconnect()
-
-    def delete_address(self, p, logger=print):
-        """
-        Delete IP Address (alias remove_address).
-
-        Parameter:
-        {
-            "address": "10.10.10.1/24",   # recommended
-            "interface": "ether3"         # optional fallback
-        }
-        """
-        pool, api = self.core.get_api()
-        try:
-            res = api.get_resource('/ip/address')
-
-            target = None
-
-            if "address" in p:
-                recs = res.get(address=p["address"])
-                if recs:
-                    target = recs[0]
-            elif "interface" in p:
-                recs = res.get(interface=p["interface"])
-                if len(recs) == 1:
-                    target = recs[0]
-                else:
-                    raise Exception(
-                        f"Multiple IPs found on {p['interface']}, specify 'address'"
-                    )
-
-            if not target:
-                raise Exception(f"IP {p.get('address')} not found")
-
-            record_id = target.get(".id") or target.get("id")
-            if not record_id:
-                raise Exception("Record ID not found")
-
-            res.remove(numbers=record_id)
-            logger(f"🗑️ Deleted IP {target['address']} from {target['interface']}")
-
-        except Exception as e:
-            logger(f"❌ Delete failed: {str(e)}")
-            raise Exception(f"Failed to delete address: {str(e)}")
 
         finally:
             pool.disconnect()

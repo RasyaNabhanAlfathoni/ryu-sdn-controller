@@ -12,7 +12,7 @@ class AutoDiscoverAPUnifi:
     DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
     SETTING_ENDPOINT = f"{UNIFI_BASE}/query_range?field=setting"
 
-    INTERVAL = 60
+    INTERVAL = 25
 
     # SNAPSHOT CACHE (MEMORY)
     _snapshot = {}
@@ -119,6 +119,7 @@ class AutoDiscoverAPUnifi:
                     # identity
                     "identity": d.get("name") or "unifi-ap",
                     "hostname": d.get("name") or "unifi-ap",
+                    "serial_number": d.get("external_id"),
 
                     # auth
                     "username": username,
