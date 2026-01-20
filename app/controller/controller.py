@@ -1012,44 +1012,36 @@ class NorthboundApi(ControllerBase):
         data = json.loads(req.body)
         
         try:
-            # === DETECT DEVICE TYPE ===
+            # IMPORT MODULES
+            import re
+            import hashlib
+            
+            # === 1. VALIDASI DASAR ===
             southbound_type = data.get("southbound", "").lower()
+            if not southbound_type:
+                return self._resp(req, json.dumps({
+                    "status": "error", 
+                    "error": "southbound is required"
+                }), 400)
+            
+            # === 2. DETERMINE DEVICE TYPE ===
+            device_type = None
             is_server = southbound_type in ["server", "server_api"]
             is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
             is_cisco = southbound_type in ["cisco", "paramiko"]
             is_unifi = southbound_type in ["unifi", "paramiko"]
             
-            # === GENERATE CONSISTENT DEVICE ID ===
-            def generate_device_id(device_data, registration_mode):
-                import hashlib
-                
-                if registration_mode == "server_agent":
-                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
-                    device_type = "server"
-                    unique_components = [device_type, serial]
-                else: 
-                    serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
-                    device_type = device_data.get("device_type", "unknown_type")
-                    unique_components = [device_type, serial]
-                
-                unique_str = "_".join(str(c) for c in unique_components)
-                hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
-                
-                return f"dev_{hash_digest}"
-
-            device_type = None  
             if is_server:
                 device_type = "server"
                 registration_mode = "server_agent"
             elif is_mikrotik:
-                info = self.core.detect_vendor(data)
-                device_type = info.get("device_type", "router")
+                device_type = "router"  # Default untuk Mikrotik
                 registration_mode = "active_discovery"
             elif is_cisco:
-                device_type = "switch" 
+                device_type = "switch"
                 registration_mode = "paramiko_discovery"
             elif is_unifi:
-                device_type = "access_point" 
+                device_type = "access_point"
                 registration_mode = "paramiko_discovery"
             else:
                 return self._resp(req, json.dumps({
@@ -1057,18 +1049,137 @@ class NorthboundApi(ControllerBase):
                     "error": f"Unknown southbound type: {southbound_type}"
                 }), 400)
             
-            # === HANDLE SERVER AGENT REGISTRATION ===
+            # === 3. FLEKSIBEL: CARI IDENTITY DARI BERBAGAI FIELD ===
+            def normalize_identity(value):
+                if value is None:
+                    return ""
+                if isinstance(value, (int, float, bool)):
+                    value = str(value)
+                if not isinstance(value, str):
+                    return ""
+                
+                normalized = value.strip().lower()
+                normalized = ' '.join(normalized.split())
+                
+                invalid_values = ["", "unknown", "none", "null", "n/a", "na", "undefined"]
+                if normalized in invalid_values:
+                    return ""
+                    
+                return normalized
+            
+            # Kumpulkan semua kemungkinan identity dengan prioritas
+            identities = []
+            
+            # 1. SERIAL NUMBER
+            serial_fields = ["serial_number", "serial-number", "serial", "serialnumber", "sn"]
+            for field in serial_fields:
+                serial = normalize_identity(data.get(field))
+                if serial:
+                    serial_clean = re.sub(r'[^a-zA-Z0-9]', '', serial)
+                    if len(serial_clean) >= 3:
+                        identities.append(f"sn_{serial_clean}")
+                        break
+            
+            # 2. MAC ADDRESS
+            mac_fields = ["main_mac_address", "mac-address", "mac_address", "mac", "macaddress", "hwaddr"]
+            for field in mac_fields:
+                mac = normalize_identity(data.get(field))
+                if mac:
+                    mac_clean = re.sub(r'[^a-f0-9]', '', mac)
+                    if len(mac_clean) == 12 or len(mac_clean) == 16:
+                        identities.append(f"mac_{mac_clean[:12]}")
+                        break
+            
+            # 3. HOSTNAME/IDENTITY
+            identity_fields = ["identity", "hostname", "name", "device_name", "device-id", "device_id"]
+            for field in identity_fields:
+                identity = normalize_identity(data.get(field))
+                if identity:
+                    if '.' in identity:
+                        identity = identity.split('.')[0]
+                    safe_identity = re.sub(r'[^\w\-]', '_', identity)
+                    if len(safe_identity) >= 3:
+                        identities.append(f"id_{safe_identity}")
+                        break
+            
+            # 4. IP ADDRESS FALLBACK
+            if not identities:
+                ip_fields = ["ip", "main_ip_address", "address", "host", "target_ip"]
+                for field in ip_fields:
+                    ip = normalize_identity(data.get(field))
+                    if ip:
+                        if '.' in ip or ':' in ip:
+                            ip_clean = re.sub(r'[\.\:]', '_', ip)
+                            identities.append(f"ip_{ip_clean}")
+                            break
+            
+            # === 4. VALIDASI: HARUS ADA MINIMAL SATU IDENTITY ===
+            if not identities:
+                available_fields = {k: v for k, v in data.items() if v is not None}
+                return self._resp(req, json.dumps({
+                    "status": "error",
+                    "error": "No valid hardware identity found",
+                    "debug": {
+                        "checked_fields": {
+                            "serial": serial_fields,
+                            "mac": mac_fields,
+                            "identity": identity_fields,
+                            "ip": ip_fields
+                        },
+                        "available_data": {k: str(v)[:50] for k, v in available_fields.items()}
+                    }
+                }), 400)
+            
+            # === 5. GENERATE DETERMINISTIC DEVICE ID ===
+            # Base components: vendor + device_type + primary identity
+            vendor = normalize_identity(data.get("vendor", "")) or device_type
+            
+            # Gunakan identity pertama sebagai primary
+            primary_identity = identities[0]
+            
+            # Create unique string untuk hash
+            unique_str = f"{vendor}_{device_type}_{primary_identity}"
+            
+            # Generate 10-character hash
+            hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
+            
+            # Device ID format: dev_{hash}
+            device_id = f"dev_{hash_digest}"
+            
+            # === 6. PREVENT COLLISION (FAIL FAST) ===
+            existing_device = DeviceRepository.find_by_device_id(device_id)
+            
+            if existing_device:
+                existing_type = existing_device.get("device_type", "").lower()
+                new_type = device_type.lower()
+                
+                if existing_type != new_type:
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": f"Device ID collision detected! ID '{device_id}' already exists as '{existing_type}', but trying to register as '{new_type}'.",
+                        "details": {
+                            "existing_device_type": existing_type,
+                            "new_device_type": new_type,
+                            "device_id": device_id,
+                            "vendor": vendor,
+                            "primary_identity": primary_identity,
+                            "all_identities": identities
+                        }
+                    }), 409)
+            
+            # === 7. CONNECTION TEST & DATA ENRICHMENT ===
+            enriched_data = {"id": device_id, "device_id": device_id}
+            
             if is_server:
+                # Handle server agent registration
                 device_ip_from_body = data.get("main_ip_address")
                 client_ip = req.remote_addr
                 
-                # Determine final IP (prioritize body IP)
                 if device_ip_from_body and device_ip_from_body != '127.0.0.1':
                     final_ip = device_ip_from_body
                 elif client_ip and client_ip != '127.0.0.1':
                     final_ip = client_ip
                 else:
-                    # Fallback to headers
                     forwarded_for = req.headers.get('X-Forwarded-For')
                     real_ip = req.headers.get('X-Real-IP')
                     if forwarded_for:
@@ -1078,160 +1189,90 @@ class NorthboundApi(ControllerBase):
                     else:
                         final_ip = device_ip_from_body or "unknown"
                 
-                data["ip"] = str(final_ip)
-                data["main_ip_address"] = str(final_ip)
-                
-                # Generate device ID yang KONSISTEN berdasarkan IP + MAC
-                device_id = generate_device_id(data, registration_mode)
-                print(f"[CONTROLLER] Generated device_id: {device_id} for IP: {final_ip}")
-                
-                # Cek apakah device_id ini sudah ada di database
-                existing_device = DeviceRepository.find_by_device_id(device_id)
-                
-                if existing_device:
-                    print(f"[CONTROLLER] Found existing device {device_id}, updating...")
-                    # Device sudah ada, lalu UPDATE
-                else:
-                    print(f"[CONTROLLER] Creating new device {device_id}")
-                    # Device belum ada, lalu INSERT baru
-                
-                data["id"] = device_id
-                data["device_id"] = device_id
-                
-                # Data langsung dari payload (bukan dari meta)
-                server_data = {
+                enriched_data.update({
+                    "ip": str(final_ip),
+                    "main_ip_address": str(final_ip),
                     "status": str(data.get("status", "active")),
-                    "southbound": str(data.get("southbound", "server_api")),
+                    "southbound": "server_api",
                     "hostname": str(data.get("identity", data.get("hostname", "unknown"))),
                     "main_username": str(data.get("main_username", "unknown")),
-                    "os_version": str(data.get("os", "unknown")),  # Map os -> os_version
+                    "os_version": str(data.get("os", "unknown")),
                     "architecture": str(data.get("architecture", "")),
                     "architecture_bits": str(data.get("architecture_bits", "")),
                     "processor_type": str(data.get("processor_type", "")),
                     "vendor": str(data.get("vendor", "unknown")),
-                    "serial_number": str(data.get("serial_number", "")),
+                    "serial_number": normalize_identity(data.get("serial_number", "")),
                     "connected": True,
-                    "main_ip_address": str(data.get("main_ip_address", "")),
                     "main_interface": str(data.get("main_interface", "unknown")),
-                    "main_mac_address": str(data.get("main_mac_address", "unknown")),
                     "last_seen": to_postgresql_datetime(time.time())
-                }
-
-                # Hanya ambil dari meta yang diperlukan
+                })
+                
                 meta = data.get("meta", {})
                 if meta and "virtualization" in meta:
                     virtualization_data = meta["virtualization"]
-                    
-                    # OPTION 1: Ambil hanya type saja (paling sederhana)
                     if isinstance(virtualization_data, dict):
-                        # Ambil virtualization type, default "physical"
-                        server_data["virtualization"] = str(virtualization_data.get("hypervisor", "physical"))
+                        enriched_data["virtualization"] = str(virtualization_data.get("hypervisor", "physical"))
                     else:
-                        server_data["virtualization"] = str(virtualization_data)
+                        enriched_data["virtualization"] = str(virtualization_data)
                 else:
-                    server_data["virtualization"] = "physical"
-    
-                # Update data dengan server_data
-                data.update(server_data)
-
-            # === HANDLE MIKROTIK/ACTIVE DISCOVERY REGISTRATION ===
+                    enriched_data["virtualization"] = "physical"
+                    
             elif is_mikrotik:
-                # Test connection first
+                # Test connection to Mikrotik device
                 info = self.core.detect_vendor(data)
                 
                 if not info.get("connected", False):
                     return self._resp(req, json.dumps({
                         "status": "error",
-                        "error": "Unable to connect to device or detect vendor",
+                        "error": "Unable to connect to Mikrotik device",
                         "details": info
                     }), 400)
                 
-                device_id = generate_device_id(data, registration_mode)
-                data["id"] = device_id
-                data["device_id"] = device_id
-                data.update(info)
-                detected_device_type = info.get("device_type", "router")
+                # Mikrotik bisa jadi router atau access point
+                detected_device_type = info.get("device_type", "router").lower()
+                if detected_device_type == "access_point":
+                    device_type = "access_point"
                 
-                # Map MikroTik specific fields
-                data.update({
+                enriched_data.update(info)
+                enriched_data.update({
                     "status": "active",
                     "southbound": "routeros_api",
                     "vendor": "MikroTik",
-                    "identity": info.get("identity"),
+                    "identity": info.get("identity", data.get("identity", "unknown")),
                     "username": data.get("username", "admin"),
-                    "os_version": info.get("version"),
-                    "model": info.get("model"),
+                    "password": data.get("password", ""),
+                    "os_version": info.get("version", "unknown"),
+                    "model": info.get("model", "unknown"),
                     "board_name": info.get("board-name", ""),
-                    "serial_number": info.get("serial-number"),
-                    "main_ip_address": data.get("ip"),
-                    "main_mac_address": info.get("mac-address"),
-                    "main_interface": info.get("main_interface"),
-                    "device_type": detected_device_type,
+                    "serial_number": info.get("serial-number") or normalize_identity(data.get("serial_number", "")),
+                    "main_ip_address": data.get("ip") or info.get("ip", "unknown"),
+                    "main_mac_address": info.get("mac-address") or normalize_identity(data.get("main_mac_address", "")),
+                    "main_interface": info.get("main_interface", "unknown"),
+                    "device_type": device_type,
+                    "connected": True,
                 })
-
-                # AUTO ADD TO SNMP TARGETS (jika bukan access point)
-                if detected_device_type != "access_point":
-                    try:
-                        snmp = SNMPFileManager()
-                        snmp.add_device({
-                            "device_id": device_id,
-                            "ip": data["ip"],
-                            "module": "mikrotik",  # Module khusus Mikrotik
-                            "device_name": info.get("identity") or data.get("hostname", device_id),
-                            "location": data.get("location", "Unknown"),
-                            "community": data.get("snmp_community", "public")
-                        })
-                        data["snmp_target_status"] = "success"
-                    except Exception as e:
-                        data["snmp_target_status"] = f"failed: {str(e)}"
-                else:
-                    data["snmp_target_status"] = "skipped (access_point)"
-
+                
             elif is_cisco:
-                # Pakai CiscoSSHDriver untuk mendapatkan data REAL dari device
+                # Test connection to Cisco switch
                 try:
-                    # Buat driver untuk test connection
                     cisco_driver = CiscoSSHDriver({
                         "ip": data['ip'],
                         "username": data.get("username", "admin"),
                         "password": data.get("password", ""),
                         "enable": True,
-                        "device_id": ""  # Akan diisi nanti
+                        "device_id": device_id
                     })
                     
-                    # Test connection dengan driver yang sudah diperbaiki
                     info = cisco_driver.get_device_info()
-                    serial = info.get('serial_number', '').strip()
-                    print(f"  Serial: '{serial}' (type: {type(serial)}, len: {len(serial)})")
-                    # Validasi info sebelum dipakai
-                    if info is None:
+                    
+                    if not info or not isinstance(info, dict) or not info.get('connected', False):
                         return self._resp(req, json.dumps({
                             "status": "error",
-                            "error": "Driver failed to return device information (got None)"
-                        }), 400)
-                    
-                    # Pastikan info adalah dictionary sebelum panggil .get()
-                    if not isinstance(info, dict):
-                        return self._resp(req, json.dumps({
-                            "status": "error", 
-                            "error": f"Driver returned invalid data type: {type(info)}"
-                        }), 400)
-                    
-                    # Sekarang baru cek koneksi
-                    if not info.get('connected', False):
-                        return self._resp(req, json.dumps({
-                            "status": "error",
-                            "error": info.get('error', 'Device not connected'),
+                            "error": info.get('error', 'Device not connected') if info else 'Connection failed',
                             "details": info
                         }), 400)
                     
-                    # Generate device ID
-                    device_id = generate_device_id(data, registration_mode)
-                    data["id"] = device_id
-                    data["device_id"] = device_id
-                    
-                    # Update data dengan info REAL dari device (bukan generic)
-                    data.update({
+                    enriched_data.update({
                         "status": "active",
                         "southbound": "paramiko",
                         "vendor": "Cisco",
@@ -1241,309 +1282,238 @@ class NorthboundApi(ControllerBase):
                         "identity": info.get('identity', info.get('hostname', f"cisco-{data['ip']}")),
                         "os_version": info.get('os_version', info.get('ios_version', 'Unknown')),
                         "model": info.get('model', 'Unknown'),
-                        "serial_number": info.get('serial_number', info.get('serial', '')),
+                        "serial_number": info.get('serial_number', info.get('serial', '')) or normalize_identity(data.get("serial_number", "")),
                         "main_ip_address": info.get('main_ip_address', data['ip']),
-                        "main_mac_address": info.get('main_mac_address', ''),
+                        "main_mac_address": info.get('main_mac_address', '') or normalize_identity(data.get("main_mac_address", "")),
                         "main_interface": info.get('main_interface', 'eth0'),
                         "connected": True,
                         "last_seen": to_postgresql_datetime(time.time()),
                     })
-                    try:
-                        # Gunakan driver yang sama untuk konfigurasi SNMP
-                        cisco_snmp_config = {
-                            "enabled": True,
-                            "community": "public",
-                            "community_access": "RO",
-                            "contact": "Network Admin",
-                            "location": data.get("location", "Unknown"),
-                            "add_to_prometheus": True  # Flag untuk SNMP target
-                        }
-                        
-                        # Konfigurasi SNMP di switch
-                        snmp_result = cisco_driver.snmp.configure_snmp(cisco_snmp_config, logger=self.core.logger.info)
-                        
-                        if snmp_result.get('status') != 'success':
-                            self.core.logger.warning(f"SNMP configuration failed: {snmp_result}")
-                            # Lanjutkan tanpa SNMP
-                            data["snmp_configured"] = False
-                        else:
-                            data["snmp_configured"] = True
-                            data["snmp_community"] = "public"
-                            
-                    except Exception as snmp_err:
-                        self.core.logger.error(f"SNMP setup error: {snmp_err}")
-                        data["snmp_configured"] = False
-
-                    try:
-                        snmp = SNMPFileManager()
-                        # Gunakan default SNMP community untuk Cisco
-                        community = data.get("snmp_community", "public")
-                        
-                        snmp.add_device({
-                            "device_id": device_id,
-                            "ip": data["ip"],
-                            "module": "cisco",  # Pakai module "cisco" yang sudah ada di snmp.yml
-                            "device_name": info.get('identity') or data.get('hostname', device_id),
-                            "location": data.get("location", "Unknown"),
-                            "community": community  # Opsional
-                        })    
-                        data["snmp_target_status"] = "success"
-                    
-                    except Exception as e:
-                        data["snmp_target_status"] = f"failed: {str(e)}"
-                        self.core.logger.error(f"Failed to add Cisco switch to SNMP targets: {e}")
                     
                 except Exception as e:
-                    print(f"Cisco registration error: {e}")
-                    import traceback
-                    traceback.print_exc()
                     return self._resp(req, json.dumps({
                         "status": "error",
-                        "error": f"Registration failed: {str(e)}"
+                        "error": f"Cisco connection failed: {str(e)}"
                     }), 400)
-                
-            # === HANDLE UNIFI ===
+                    
             elif is_unifi:
-                # === CONNECT & COLLECT INFO ===
-                driver = UnifiParamikoDriver(data)
-                info = driver.get_device_info()
-
-                if not info.get("connected"):
+                # Test connection to UniFi device
+                try:
+                    driver = UnifiParamikoDriver(data)
+                    info = driver.get_device_info()
+                    
+                    if not info.get("connected"):
+                        return self._resp(req, json.dumps({
+                            "status": "error",
+                            "error": "Unable to connect to UniFi device"
+                        }), 400)
+                    
+                    enriched_data.update(info)
+                    enriched_data.update({
+                        "device_type": "access_point",
+                        "southbound": "paramiko",
+                        "vendor": "unifi",
+                        "identity": info.get("identity", data.get("identity", "unknown")),
+                        "main_ip_address": info.get("main_ip_address") or data.get("ip", "unknown"),
+                        "main_mac_address": info.get("main_mac_address") or normalize_identity(data.get("main_mac_address", "")),
+                        "status": "active",
+                        "connected": True
+                    })
+                    
+                except Exception as e:
                     return self._resp(req, json.dumps({
                         "status": "error",
-                        "error": "Unable to connect to UniFi device"
+                        "error": f"UniFi connection failed: {str(e)}"
                     }), 400)
-
-                # === GENERATE DEVICE ID ===
-                device_id = generate_device_id(data, registration_mode)
-                data["id"] = device_id
-                data["device_id"] = device_id
-
-                # === MERGE INFO ===
-                data.update(info)
-
-                data.update({
-                    "device_type": "access_point",
-                    "southbound": "paramiko",
-                    "vendor": "unifi",
-                    "identity": info.get("identity"),
-                    "main_ip_address": info.get("main_ip_address") or data.get("ip"),
-                    "main_mac_address": info.get("main_mac_address"),
-                    "status": "active",
-                    "connected": True
-                })
-
-                # AUTO ADD TO SNMP TARGETS
-                try:
-                    snmp = SNMPFileManager()
-                    snmp.add_device({
-                        "device_id": device_id,
-                        "ip": data["ip"],
-                        "module": info.get("vendor", "Unknown").lower(),
-                        "device_name": info.get("identity") or data.get("hostname", device_id),
-                        "location": data.get("location", "Unknown")
-                    })
-                except Exception as e:
-                    data["snmp_target_status"] = f"failed: {str(e)}"
-
-            else:
-                return self._resp(req, json.dumps({
-                    "status": "error", 
-                    "error": "Unknown device type."
-                }), 400)
-
-            # === DATABASE REGISTRATION ===
+            
+            # === 8. DATABASE OPERATION (IDEMPOTENT) ===
             db_registered = False
             try:
-                # Prepare common device data untuk network_devices table
+                # Common data untuk semua devices
                 common_data = {
                     "device_id": device_id,
                     "device_type": device_type,
-                    "southbound": data.get("southbound", "unknown"),
+                    "southbound": enriched_data.get("southbound", "unknown"),
                     "status": "active",
                     "last_seen": to_postgresql_datetime(time.time())
                 }
                 
-                # Check for duplicates by device_id
-                existing = DeviceRepository.find_by_device_id(device_id)
-                
-                if existing: # Untuk Update data Existing
-                    # Update existing device
+                if existing_device:
+                    # UPDATE existing device
                     DeviceRepository.update_network_device(device_id, common_data)
                     
-                    # Update specific table
                     if device_type == "server":
                         server_data = {
                             "device_id": device_id,
-                            "hostname": data.get("identity", data.get("hostname", "unknown")),
-                            "main_username": data.get("main_username", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "architecture": data.get("architecture"),
-                            "architecture_bits": data.get("architecture_bits"),
-                            "processor_type": data.get("processor_type"),
-                            "vendor": data.get("vendor", "unknown"),
-                            "serial_number": data.get("serial_number", "unknown"),
-                            "main_ip_address": data.get("main_ip_address"),
-                            "main_mac_address": data.get("main_mac_address"),
-                            "main_interface": data.get("main_interface"),
-                            "southbound": data.get("southbound", "unknown"),
+                            "hostname": enriched_data.get("hostname", "unknown"),
+                            "main_username": enriched_data.get("main_username", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "architecture": enriched_data.get("architecture"),
+                            "architecture_bits": enriched_data.get("architecture_bits"),
+                            "processor_type": enriched_data.get("processor_type"),
+                            "vendor": enriched_data.get("vendor", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", "unknown"),
+                            "main_interface": enriched_data.get("main_interface"),
+                            "southbound": enriched_data.get("southbound", "unknown"),
                             "status": "active",
-                            "virtualization": data.get("virtualization"),
+                            "virtualization": enriched_data.get("virtualization"),
                             "last_seen": to_postgresql_datetime(time.time())
                         }
                         DeviceRepository.update_server(device_id, server_data)
-
-                    if device_type == "router":  # router
+                        
+                    elif device_type == "router":
                         router_data = {
                             "device_id": device_id,
-                            "username": data.get("username", "unknown"),
-                            "password": data.get("password", ""),
-                            "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("version") or data.get("os_version", "unknown"),
-                            "model": data.get("model") or data.get("model-name"),
-                            "serial_number": data.get("serial_number") or data.get("serial-number"),
-                            "vendor": data.get("vendor", "MikroTik"),
-                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
-                            "main_mac_address": data.get("main_mac_address") or data.get("mac-address"),
-                            "main_interface": data.get("main_interface"),
-                            "southbound": data.get("southbound", "routeros_api"),
+                            "username": enriched_data.get("username", "unknown"),
+                            "password": enriched_data.get("password", ""),
+                            "identity": enriched_data.get("identity", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "model": enriched_data.get("model", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "vendor": enriched_data.get("vendor", "MikroTik"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", "unknown"),
+                            "main_interface": enriched_data.get("main_interface", "unknown"),
+                            "southbound": enriched_data.get("southbound", "routeros_api"),
                             "status": "active",
                             "last_seen": to_postgresql_datetime(time.time())
                         }
                         DeviceRepository.update_router(device_id, router_data)
-
+                        
                     elif device_type == "switch":
                         switch_data = {
                             "device_id": device_id,
-                            "username": data.get("username", "unknown"),
-                            "password": data.get("password", ""),
-                            "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "model": data.get("model", "unknown"),
-                            "serial_number": data.get("serial_number", "unknown"),
-                            "vendor": data.get("vendor", "Cisco"),
-                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
-                            "main_mac_address": data.get("main_mac_address", ""),
-                            "main_interface": data.get("main_interface", ""),
-                            "southbound": data.get("southbound", "paramiko"),
+                            "username": enriched_data.get("username", "unknown"),
+                            "password": enriched_data.get("password", ""),
+                            "identity": enriched_data.get("identity", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "model": enriched_data.get("model", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "vendor": enriched_data.get("vendor", "Cisco"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", ""),
+                            "main_interface": enriched_data.get("main_interface", ""),
+                            "southbound": enriched_data.get("southbound", "paramiko"),
                             "status": "active",
                             "last_seen": to_postgresql_datetime(time.time())
-                        }    
+                        }
                         DeviceRepository.update_switch(device_id, switch_data)
                         
-                    elif device_type == "access_point":  # access point
+                    elif device_type == "access_point":
                         access_point_data = {
                             "device_id": device_id,
-                            "username": data.get("username", "unknown"),
-                            "password": data.get("password", ""),
-                            "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("version") or data.get("os_version", "unknown"),
-                            "model": data.get("model") or data.get("model-name"),
-                            "serial_number": data.get("serial_number") or data.get("serial-number"),
-                            "vendor": data.get("vendor", "unknown"),
-                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
-                            "main_mac_address": data.get("main_mac_address"),
-                            "main_interface": data.get("main_interface", "unknown"),
-                            "southbound": data.get("southbound", "unknown"),
-                            "status": data.get("status", "active"),
+                            "username": enriched_data.get("username", "unknown"),
+                            "password": enriched_data.get("password", ""),
+                            "identity": enriched_data.get("identity", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "model": enriched_data.get("model", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "vendor": enriched_data.get("vendor", "unknown"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", "unknown"),
+                            "main_interface": enriched_data.get("main_interface", "unknown"),
+                            "southbound": enriched_data.get("southbound", "paramiko"),
+                            "status": "active",
                             "last_seen": to_postgresql_datetime(time.time())
                         }
                         DeviceRepository.update_access_point(device_id, access_point_data)
                     
                     self.core.logger.info(f"Updated existing device in database: {device_id}")
                     
-                else: # Jika tidak ada data existing
-                    # Insert new device
-                    # First insert to network_devices
+                else:
+                    # INSERT new device
                     network_id = DeviceRepository.insert_network_device(common_data)
                     
-                    # Then insert to specific table
                     if device_type == "server":
                         server_data = {
                             "device_id": device_id,
-                            "hostname": str(data.get("hostname", "unknown")),
-                            "main_username": str(data.get("main_username", "unknown")),
-                            "os_version": str(data.get("os_version", "unknown")),
-                            "architecture": str(data.get("architecture", "")),
-                            "architecture_bits": str(data.get("architecture_bits", "")),
-                            "processor_type": str(data.get("processor_type", "")),
-                            "vendor": str(data.get("vendor", "unknown")),
-                            "serial_number": str(data.get("serial_number", "unknown")),
-                            "main_ip_address": str(data.get("main_ip_address", "")),
-                            "main_mac_address": str(data.get("main_mac_address", "unknown")),
-                            "main_interface": str(data.get("main_interface", "unknown")),
-                            "southbound": str(data.get("southbound", "server_api")),
-                            "status": str(data.get("status", "active")),
-                            "virtualization": str(data.get("virtualization", "physical")),
+                            "hostname": str(enriched_data.get("hostname", "unknown")),
+                            "main_username": str(enriched_data.get("main_username", "unknown")),
+                            "os_version": str(enriched_data.get("os_version", "unknown")),
+                            "architecture": str(enriched_data.get("architecture", "")),
+                            "architecture_bits": str(enriched_data.get("architecture_bits", "")),
+                            "processor_type": str(enriched_data.get("processor_type", "")),
+                            "vendor": str(enriched_data.get("vendor", "unknown")),
+                            "serial_number": str(enriched_data.get("serial_number", "unknown")),
+                            "main_ip_address": str(enriched_data.get("main_ip_address", "")),
+                            "main_mac_address": str(enriched_data.get("main_mac_address", "unknown")),
+                            "main_interface": str(enriched_data.get("main_interface", "unknown")),
+                            "southbound": str(enriched_data.get("southbound", "server_api")),
+                            "status": str(enriched_data.get("status", "active")),
+                            "virtualization": str(enriched_data.get("virtualization", "physical")),
                         }
-                        server_id = DeviceRepository.insert_server(server_data)
-
-                    elif device_type == "router":  # router
+                        DeviceRepository.insert_server(server_data)
+                        
+                    elif device_type == "router":
                         router_data = {
                             "device_id": device_id,
-                            "username": data.get("username", "unknown"),
-                            "password": data.get("password", ""),
-                            "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "model": data.get("model") or data.get("model-name"),
-                            "serial_number": data.get("serial_number") or data.get("serial-number"),
-                            "vendor": data.get("vendor", "MikroTik"),
-                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
-                            "main_mac_address": data.get("main_mac_address") or data.get("mac-address"),
-                            "main_interface": data.get("main_interface"),
-                            "southbound": data.get("southbound", "routeros_api"),
+                            "username": enriched_data.get("username", "unknown"),
+                            "password": enriched_data.get("password", ""),
+                            "identity": enriched_data.get("identity", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "model": enriched_data.get("model", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "vendor": enriched_data.get("vendor", "MikroTik"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", "unknown"),
+                            "main_interface": enriched_data.get("main_interface", "unknown"),
+                            "southbound": enriched_data.get("southbound", "routeros_api"),
                             "status": "active",
                         }
                         DeviceRepository.insert_router(router_data)
+                        
                     elif device_type == "switch":
                         switch_data = {
                             "device_id": device_id,
-                            "username": data.get("username", "unknown"),
-                            "password": data.get("password", ""),
-                            "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "model": data.get("model", "unknown"),
-                            "serial_number": data.get("serial_number", "unknown"),
-                            "vendor": data.get("vendor", "Cisco"),
-                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
-                            "main_mac_address": data.get("main_mac_address", ""),
-                            "main_interface": data.get("main_interface", ""),
-                            "southbound": data.get("southbound", "paramiko"),
+                            "username": enriched_data.get("username", "unknown"),
+                            "password": enriched_data.get("password", ""),
+                            "identity": enriched_data.get("identity", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "model": enriched_data.get("model", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "vendor": enriched_data.get("vendor", "Cisco"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", ""),
+                            "main_interface": enriched_data.get("main_interface", ""),
+                            "southbound": enriched_data.get("southbound", "paramiko"),
                             "status": "active",
-                            "last_seen": to_postgresql_datetime(time.time())
-                        }    
+                        }
                         DeviceRepository.insert_switch(switch_data)
-
-                    elif device_type == "access_point":  # access_point
+                        
+                    elif device_type == "access_point":
                         access_point_data = {
                             "device_id": device_id,
-                            "username": data.get("username", "unknown"),
-                            "password": data.get("password", ""),
-                            "identity": data.get("identity", "unknown"),
-                            "os_version": data.get("os_version", "unknown"),
-                            "model": data.get("model") or data.get("model-name"),
-                            "serial_number": data.get("serial_number", "unknown") or data.get("serial-number", "unknown"),
-                            "vendor": data.get("vendor", "unknown"),
-                            "main_ip_address": data.get("main_ip_address") or data.get("ip"),
-                            "main_mac_address": data.get("main_mac_address"),
-                            "main_interface": data.get("main_interface", "unknown"),
-                            "southbound": data.get("southbound", "paramiko"),
-                            "status": data.get("status", "active"),
+                            "username": enriched_data.get("username", "unknown"),
+                            "password": enriched_data.get("password", ""),
+                            "identity": enriched_data.get("identity", "unknown"),
+                            "os_version": enriched_data.get("os_version", "unknown"),
+                            "model": enriched_data.get("model", "unknown"),
+                            "serial_number": enriched_data.get("serial_number", "unknown"),
+                            "vendor": enriched_data.get("vendor", "unknown"),
+                            "main_ip_address": enriched_data.get("main_ip_address"),
+                            "main_mac_address": enriched_data.get("main_mac_address", "unknown"),
+                            "main_interface": enriched_data.get("main_interface", "unknown"),
+                            "southbound": enriched_data.get("southbound", "paramiko"),
+                            "status": "active",
                         }
                         DeviceRepository.insert_access_point(access_point_data)
                     
                     self.core.logger.info(f"Registered new device in database: {device_id}")
                 
                 db_registered = True
-                    
+                
             except Exception as db_error:
-                self.core.logger.warning(f"Database registration failed, using memory fallback: {db_error}")
-                db_registered = False
-
-            # === MEMORY REGISTRY (FALLBACK/COMPATIBILITY) ===
+                self.core.logger.error(f"Database operation failed: {db_error}")
+                return self._resp(req, json.dumps({
+                    "status": "error",
+                    "error": f"Database error: {str(db_error)}"
+                }), 500)
+            
+            # === 9. MEMORY REGISTRY (FALLBACK) ===
             memory_registered = False
             try:
-                # Initialize memory registry if not exists
                 if not hasattr(self.core, 'devices'):
                     class MemoryDeviceRegistry:
                         def __init__(self): self.db = {}
@@ -1555,33 +1525,34 @@ class NorthboundApi(ControllerBase):
                     
                     self.core.devices = MemoryDeviceRegistry()
                 
-                # Save to memory registry
-                memory_result = self.core.devices.create(data)
+                enriched_data["last_seen"] = time.time()
+                memory_result = self.core.devices.create(enriched_data)
                 memory_registered = True
                 
-                device_type_str = "Server Agent" if is_server else "Mikrotik/Active"
-                self.core.logger.info(f"{device_type_str} Device registered in memory: {device_id}")
-
             except Exception as memory_error:
-                self.core.logger.error(f"Memory registration also failed: {memory_error}")
-                memory_registered = False
-
-            # === SUCCESS RESPONSE ===
+                self.core.logger.warning(f"Memory registration failed: {memory_error}")
+            
+            # === 10. SUCCESS RESPONSE ===
             response_data = {
                 "status": "ok",
                 "device": { 
                     "device_id": device_id,
                     "device_type": device_type,
-                    "southbound": data.get("southbound", "unknown"),
-                    "hostname": data.get("identity", data.get("hostname", "unknown")),
-                    "main_ip_address": data.get("main_ip_address"),
+                    "southbound": enriched_data.get("southbound", "unknown"),
+                    "hostname": enriched_data.get("identity", enriched_data.get("hostname", "unknown")),
+                    "main_ip_address": enriched_data.get("main_ip_address"),
                     "status": "active"
                 },
-                "registration_type": registration_mode,
+                "registration_mode": registration_mode,
                 "database_registered": db_registered,
-                "memory_registered": memory_registered
+                "memory_registered": memory_registered,
+                "device_identity": {
+                    "vendor": vendor,
+                    "primary_identity": primary_identity,
+                    "all_identities": identities
+                }
             }
-
+            
             return self._resp(req, json.dumps(response_data), 200)
 
         except Exception as e:
@@ -1591,7 +1562,6 @@ class NorthboundApi(ControllerBase):
                 "status": "error",
                 "error": str(e)
             }), 500)
-
     def _resp(self, req, body, status=200):
         if isinstance(body, str):
             body = body.encode('utf-8')
