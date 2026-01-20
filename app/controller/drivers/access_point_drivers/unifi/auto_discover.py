@@ -8,11 +8,11 @@ from drivers.snmp_file_manager import SNMPFileManager
 class AutoDiscoverAPUnifi:
     name = "unifi_auto_discover"
 
-    UNIFI_BASE = "http://10.10.10.34:3000"
+    UNIFI_BASE = "http://192.168.100.85:3000"
     DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
     SETTING_ENDPOINT = f"{UNIFI_BASE}/query_range?field=setting"
 
-    INTERVAL = 25
+    INTERVAL = 10
 
     # SNAPSHOT CACHE (MEMORY)
     _snapshot = {}
@@ -112,6 +112,7 @@ class AutoDiscoverAPUnifi:
                 )
                 
                 snmp_location = d.get("snmp_location", "unknown")
+                                
 
                 dev = {
                     "device_id": device_id,
@@ -119,7 +120,7 @@ class AutoDiscoverAPUnifi:
                     # identity
                     "identity": d.get("name") or "unifi-ap",
                     "hostname": d.get("name") or "unifi-ap",
-                    "serial_number": d.get("external_id"),
+                    "serial_number": d.get("external_id"), 
 
                     # auth
                     "username": username,
@@ -191,7 +192,7 @@ class AutoDiscoverAPUnifi:
     # LOOP
     @classmethod
     def loop(cls):
-        print("[UNIFI-AUTO] UniFi Auto Discovery started (60s interval)")
+        print("[UNIFI-AUTO] UniFi Auto Discovery started (10s interval)")
         while True:
             try:
                 cls.run()

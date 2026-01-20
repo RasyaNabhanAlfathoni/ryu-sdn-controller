@@ -3,7 +3,7 @@ import requests
 class UnifiAPListDevices:
     name = "list_devices"
 
-    UNIFI_BASE = "http://10.10.10.34:3000"
+    UNIFI_BASE = "http://192.168.100.85:3000"
     ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
 
     @staticmethod

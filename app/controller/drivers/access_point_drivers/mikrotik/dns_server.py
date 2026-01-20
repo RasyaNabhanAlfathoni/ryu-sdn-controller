@@ -313,3 +313,4 @@ class MikroTikAPDnsDriver:
 
         finally:
             pool.disconnect()
+

@@ -2,10 +2,12 @@ import requests
 from database.device_repository import DeviceRepository
 
 class UnifiAPStatusControllerDevice:
+    # HARUS DOT STYLE
     name = "status.control.device"
 
-    UNIFI_BASE = "http://10.10.10.34:3000"
+    UNIFI_BASE = "http://192.168.100.85:3000"
     DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
+
 
     # GLOBAL ACTION
     def run_global(self):
@@ -15,18 +17,12 @@ class UnifiAPStatusControllerDevice:
 
         results = []
         for dev in db_devices:
-            # === FILTER KERAS ===
-            if dev.get("device_type") != "access_point":
-                continue
-
-            if str(dev.get("vendor", "")).lower() != "unifi":
-                continue
-
             results.append(
                 self._build_status(dev, controller_map, controller_up)
             )
 
         return results
+
 
     # INTERNAL
     def _fetch_controller_devices(self):
@@ -36,7 +32,7 @@ class UnifiAPStatusControllerDevice:
 
             # map pakai external_id (serial_number)
             controller_map = {
-                d.get("external_id"): d
+                d["external_id"]: d
                 for d in data
                 if d.get("external_id")
             }
@@ -48,8 +44,8 @@ class UnifiAPStatusControllerDevice:
             return {}, False
 
     def _build_status(self, db_dev, controller_map, controller_up):
-        serial = db_dev.get("serial_number")
-        mac = db_dev.get("main_mac_address")
+        serial = db_dev.get("serial_number")          # external_id
+        mac = db_dev.get("main_mac_address")          # FIX KEY
 
         in_controller = bool(serial and serial in controller_map)
 
