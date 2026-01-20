@@ -81,30 +81,32 @@ class RouterOSRouteDriver:
     def add_route(self, p, logger=print):
         pool, api = self._api()
         try:
-            payload = {"dst-address": p["dst_address"]}
+            payload = {
+                "dst-address": str(p["dst-address"])
+            }
 
             fields = {
                 "gateway": "gateway",
-                "check_gateway": "check-gateway",
+                "check-gateway": "check-gateway",
                 "type": "type",
                 "distance": "distance",
                 "scope": "scope",
-                "target_scope": "target-scope",
-                "routing_mark": "routing-mark",
-                "pref_source": "pref-src",
-                "vrf_interface": "vrf-interface",
+                "target-scope": "target-scope",
+                "routing-mark": "routing-mark",
+                "pref-src": "pref-src",
+                "vrf-interface": "vrf-interface",
                 "comment": "comment"
             }
 
             for key, mik in fields.items():
                 if key in p and p[key] not in ("", None):
-                    payload[mik] = p[key]
+                    payload[mik] = str(p[key])
 
-            if p.get("blackhole", False):
+            if p.get("blackhole") is True:
                 payload["type"] = "blackhole"
 
             api.get_resource('/ip/route').add(**payload)
-            logger(f"Added new route: {p['dst_address']}")
+            logger(f"Added route {payload['dst-address']}")
         finally:
             pool.disconnect()
 
@@ -114,29 +116,28 @@ class RouterOSRouteDriver:
     def edit_route(self, p, logger=print):
         pool, api = self._api()
         try:
-            rid = p["id"]
-            update = {".id": rid}
+            update = {".id": str(p["id"])}
 
             fields = {
-                "dst_address": "dst-address",
+                "dst-address": "dst-address",
                 "gateway": "gateway",
-                "check_gateway": "check-gateway",
+                "check-gateway": "check-gateway",
                 "type": "type",
                 "distance": "distance",
                 "scope": "scope",
-                "target_scope": "target-scope",
-                "routing_mark": "routing-mark",
-                "pref_source": "pref-src",
-                "vrf_interface": "vrf-interface",
+                "target-scope": "target-scope",
+                "routing-mark": "routing-mark",
+                "pref-src": "pref-src",
+                "vrf-interface": "vrf-interface",
                 "comment": "comment"
             }
 
             for key, mik in fields.items():
-                if key in p:
-                    update[mik] = p[key]
+                if key in p and p[key] not in ("", None):
+                    update[mik] = str(p[key])
 
             api.get_resource('/ip/route').set(**update)
-            logger(f"Edited route id={rid}")
+            logger(f"Edited route id={p['id']}")
         finally:
             pool.disconnect()
 
