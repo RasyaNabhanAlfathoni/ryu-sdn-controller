@@ -6,37 +6,6 @@ import urllib3
 import ssl
 import sys
 import datetime
-from drivers.server_drivers.server_api import ServerAPI
-
-# Workaround untuk SSL recursion error di Python 3.9
-def patch_ssl():
-    """Patch SSL context untuk menghindari recursion error"""
-    try:
-        # Method 1: Disable SSL verification completely
-        import ssl
-        ssl._create_default_https_context = ssl._create_unverified_context
-    except:
-        pass
-    
-    # Method 2: Disable urllib3 warnings
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    # Method 3: Patch untuk Python 3.9 SSL recursion bug
-    try:
-        import urllib3.util.ssl_ as ssl_
-        original_create_urllib3_context = ssl_.create_urllib3_context
-        
-        def patched_create_urllib3_context():
-            context = original_create_urllib3_context()
-            # Skip problematic minimum_version setting
-            return context
-            
-        ssl_.create_urllib3_context = patched_create_urllib3_context
-    except Exception as e:
-        print(f"SSL context patch 2 warning: {e}")
-
-# Apply patch saat module load
-patch_ssl()
 
 class WazuhAPI:
     def __init__(self, base_url: str, username: str, password: str, core=None, logger=None):
@@ -49,7 +18,7 @@ class WazuhAPI:
         
         # Buat custom session dengan SSL workaround
         self.session = self._create_secure_session()
-        self.token = self._authenticate(username, password)
+        self.token = None
     
     def _log(self, message: str):
         """Helper logging yang handle both function dan object logger"""
@@ -277,16 +246,31 @@ class WazuhAPI:
             
             # Trigger agent side installation
             log(f"Triggering agent side installation for {agent_name}...")
-            
-            server_api = ServerAPI(device)
-            installation_result = server_api.wazuh_install(
-                manager_ip=manager_ip,
-                agent_key=agent_key_decoded, 
-                agent_name=agent_name,
-                logger=log
-            )
-            
-            log(f"Agent side installation result: {installation_result}")
+            try:
+                # IMPORT ServerAPI hanya saat diperlukan
+                from drivers.server_drivers.server_api import ServerAPI
+                
+                # Buat instance ServerAPI
+                server_api = ServerAPI(device)
+                
+                # Trigger installation
+                installation_result = server_api.wazuh_install(
+                    manager_ip=manager_ip,
+                    agent_key=agent_key_decoded, 
+                    agent_name=agent_name,
+                    logger=log
+                )
+                
+                log(f"Agent side installation result: {installation_result}")
+                
+            except ImportError as e:
+                log(f"ERROR: Cannot import ServerAPI: {e}")
+                installation_result = {"error": f"ServerAPI not available: {str(e)}"}
+            except Exception as e:
+                log(f"ERROR: Failed to trigger agent installation: {e}")
+                import traceback
+                log(f"Traceback: {traceback.format_exc()}")
+                installation_result = {"error": str(e)}
             
             # Return result
             result = {
@@ -331,8 +315,18 @@ class WazuhAPI:
         try:
             # === STEP 1: Trigger agent side uninstallation ===
             log("Triggering agent side uninstallation...")
-            server_api = ServerAPI(device)
-            uninstall_result = server_api.wazuh_uninstall(logger=log)
+            try:
+                # LAZY IMPORT ServerAPI
+                from drivers.server_drivers.server_api import ServerAPI
+                server_api = ServerAPI(device)
+                uninstall_result = server_api.wazuh_uninstall(logger=log)
+                
+            except ImportError as e:
+                log(f"WARNING: Cannot import ServerAPI: {e}")
+                uninstall_result = {"error": f"ServerAPI not available: {str(e)}"}
+            except Exception as e:
+                log(f"ERROR: Failed to trigger agent uninstallation: {e}")
+                uninstall_result = {"error": str(e)}
             
             # === STEP 2: Remove agent dari Wazuh manager ===
             if agent_id:

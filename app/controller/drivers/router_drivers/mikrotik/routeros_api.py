@@ -1,3 +1,4 @@
+from drivers.router_drivers.mikrotik.snmp import RouterOSSNMPDriver
 from routeros_api import RouterOsApiPool
 from librouteros import connect
 
@@ -32,9 +33,43 @@ class RouterOSApiDriver:
             use_ssl=False
         )
 
-    # ===================================================================
-    #                           DEVICE INFO (FIXED)
-    # ===================================================================
+    def detect_device_type(self, model: str = "", board: str = "") -> str:
+        text = f"{model} {board}".lower()
+
+        ap_keywords = [
+            "cap",          # cAP, cAP lite, cAP ac
+            "cap lite",
+            "cap ac",
+            "access point",
+        ]
+
+        for k in ap_keywords:
+            if k in text:
+                return "access_point"
+
+        router_keywords = [
+            "rb",           # RB4011, RB750, dll
+            "routerboard",
+        ]
+
+        for k in router_keywords:
+            if k in text:
+                return "router"
+        return "router"
+
+        switch_keywords = [
+            "css",           # RB4011, RB750, dll
+            "switchboard",
+            "switch",
+            "crs",
+            "swos"           # cloud router switch
+        ]
+
+        for k in switch_keywords:
+            if k in text:
+                return "switch"
+        return "switch"
+
     def get_device_info(self):
         # api v1 routeros_api
 
@@ -46,7 +81,7 @@ class RouterOSApiDriver:
             res = api.get_resource('/system/resource').get()[0]
 
             version = res.get("version")
-            board = res.get("board-name", "RouterOS")
+            model = api.get_resource('/system/routerboard').get()[0].get("model", "RouterOS")
 
             try:
                 rb = api.get_resource('/system/routerboard').get()[0]
@@ -72,16 +107,19 @@ class RouterOSApiDriver:
                     mac = r.get("mac-address")
                     break
 
+            device_type = self.detect_device_type(model=model, board=res.get("board-name", ""))
+
             pool.disconnect()
 
             return {
                 "identity": identity,
                 "version": version,
-                "board-name": board,
+                "model": model,
                 "serial-number": serial,
                 "vendor": "MikroTik",
                 "mac-address": mac,
                 "main_interface": matched_iface,
+                "device_type": device_type,
                 "connected": True
             }
 
@@ -101,13 +139,15 @@ class RouterOSApiDriver:
             res = api2("/system/resource/print")[0]
 
             version = res.get("version", "UNKNOWN")
-            board = res.get("board-name", "RouterOS")
+            model = api2("/system/routerboard/print")[0].get("model", "RouterOS")
             serial = res.get("serial-number", "UNKNOWN")
 
             # v7 API tidak expose IP-address → interface mapping dibatasi
             iface_list = None
             mac = None
             iface = None
+
+            device_type = self.detect_device_type(model=model, board=res.get("board-name", ""))
 
             try:
                 iface_list = api2("/interface/ethernet/print")
@@ -120,11 +160,12 @@ class RouterOSApiDriver:
             return {
                 "identity": identity,
                 "version": version,
-                "board-name": board,
+                "model": model,
                 "serial-number": serial,
                 "vendor": "MikroTik",
                 "mac-address": mac,
                 "main_interface": iface,
+                "device_type": device_type,
                 "connected": True
             }
 
@@ -149,3 +190,32 @@ class RouterOSApiDriver:
             return True, ident
         finally:
             pool.disconnect()
+
+    def auto_configured_snmp(self, logger=print):
+        """
+        Auto provision SNMP default on MikroTik
+        """
+
+        logger(f"[SNMP-AUTO] Configuring SNMP on {self.host}")
+
+        snmp = RouterOSSNMPDriver(self)
+
+        snmp.edit_snmp_config({
+            "enabled": "yes",
+            "trap-community": "public",
+            "trap-version": "1",
+            "trap-generators": "temp-exception",
+            "trap-interfaces": "all",
+            "vrf": "main"
+        }, logger=logger)
+
+        snmp.add_community({
+            "name": "public",
+            "addresses": "::/0",
+            "security": "none",
+            "read-access": "yes",
+            "write-access": "no",
+            "comment": "Auto configured by SDN Controller"
+        }, logger=logger)
+
+        logger("[SNMP-AUTO] MikroTik SNMP configured successfully")

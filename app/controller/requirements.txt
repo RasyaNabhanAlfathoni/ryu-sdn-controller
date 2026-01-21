@@ -6,8 +6,15 @@ pymongo
 psutil
 PyYAML==6.0.1
 cryptography
+
 # southbound
 paramiko
 requests>=2.25.0
 routeros-api
 librouteros
+
+# utils
+fastapi
+uvicorn
+jinja2
+ncclient

@@ -12,7 +12,6 @@ import socket
 
 # === Database Integration ===
 from database.device_repository import DeviceRepository
-from database.db_connection import DBConnection
 
 # === SNMP Driver ===
 from drivers.snmp_file_manager import SNMPFileManager
@@ -24,11 +23,9 @@ from actions.routers.mikrotik import MikrotikRouterActions
 # === Switch Driver  ===
 from drivers.switch_drivers.cisco import CiscoSSHDriver
 from actions.switchs.cisco import CiscoSwitchActions
-from drivers.switch_drivers.ruijie.auto_discover import AutoDiscoverRuijie
 from actions.switchs.ruijie.global_actions import RuijieSwitchGlobalActions
 from actions.switchs.ruijie.device_actions import RuijieSwitchActions
 from drivers.switch_drivers.ruijie.ruijie_cloud import RuijieCloudDriver
-
 
 # === Access-Point Driver ===
 from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
@@ -44,6 +41,7 @@ from drivers.server_file_manager import ServerFileManager
 
 # === Wazuh Driver ===
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
+from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 
 API_INSTANCE_NAME = 'northbound_api'
 
@@ -101,11 +99,6 @@ class Orchestrator(app_manager.RyuApp):
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
 
-        # ruijie auto discovery (BACKGROUND THREAD)
-        self.ruijie_discover_thread = hub.spawn(
-            AutoDiscoverRuijie.loop
-        )
-
         # unifi auto discovery (BACKGROUND THREAD)
         self.unifi_discover_thread = hub.spawn(
             AutoDiscoverAPUnifi.loop
@@ -118,12 +111,11 @@ class Orchestrator(app_manager.RyuApp):
         # Start auto-sync thread (setiap 30 detik)
         self.sync_thread = hub.spawn(self.auto_sync_servers)
 
-        # Initialize Wazuh integration
         try:
             wazuh_api_url = os.getenv('WAZUH_API_URL')
-            wazuh_user = os.getenv('WAZUH_USER') 
-            wazuh_password = os.getenv('WAZUH_PASSWORD')
-            
+            wazuh_user = os.getenv('WAZUH_API_USER')
+            wazuh_password = os.getenv('WAZUH_API_PASSWORD')
+
             if all([wazuh_api_url, wazuh_user, wazuh_password]):
                 self.wazuh_api = WazuhAPI(
                     base_url=wazuh_api_url,
@@ -136,10 +128,32 @@ class Orchestrator(app_manager.RyuApp):
             else:
                 self.logger.warning("Wazuh environment variables not set")
                 self.wazuh_api = None
-                
+
         except Exception as e:
             self.logger.error(f"Failed to initialize Wazuh integration: {e}")
             self.wazuh_api = None
+
+        # Initialize Wazuh Indexer API (Threat Hunting)
+        try:
+            indexer_url = os.getenv('WAZUH_INDEXER_URL')
+            indexer_user = os.getenv('WAZUH_INDEXER_USER')
+            indexer_password = os.getenv('WAZUH_INDEXER_PASSWORD')
+
+            if all([indexer_url, indexer_user, indexer_password]):
+                self.wazuh_indexer = WazuhIndexerAPI(
+                    base_url=indexer_url,
+                    username=indexer_user,
+                    password=indexer_password,
+                    logger=self.logger
+                )
+                self.logger.info("Wazuh Indexer initialized")
+            else:
+                self.logger.warning("Wazuh Indexer env not set")
+                self.wazuh_indexer = None
+
+        except Exception as e:
+            self.logger.error(f"Wazuh Indexer init failed: {e}")
+            self.wazuh_indexer = None
 
     def health_check_loop(self):
         """Background thread untuk health check semua devices"""
@@ -176,6 +190,9 @@ class Orchestrator(app_manager.RyuApp):
                     elif device_type == 'switch' and southbound == 'paramiko':
                         # Test koneksi ke Cisco Paramiko SSH
                         is_active = self.check_switch_health(device)
+                    elif device_type == 'switch' and southbound == 'ruijie_cloud':
+                        # Test koneksi ke Ruijie Cloud
+                        is_active = self.check_switch_ruijie_health(device)
                     elif device_type == 'access_point' and southbound == 'paramiko':
                         # Test koneksi ke Paramiko
                         is_active = self.check_access_point_health(device)
@@ -386,6 +403,22 @@ class Orchestrator(app_manager.RyuApp):
             import traceback
             self.logger.error(traceback.format_exc())
             return False
+        
+    def check_switch_ruijie_health(self, device):
+        try:
+            driver = RuijieCloudDriver(device)
+
+            connected, message = driver.test_connection()
+
+            self.logger.info(
+                f"Ruijie {device.get('device_id')} health: {message}"
+            )
+
+            return connected
+
+        except Exception as e:
+            self.logger.error(f"Ruijie health check failed: {e}")
+            return False
 
     def check_access_point_health(self, device):
         """Check jika Access Point via Paramiko accessible"""
@@ -550,9 +583,10 @@ class Orchestrator(app_manager.RyuApp):
         wazuh_global_actions = [
             "wazuh.manager.info", "wazuh.manager.stats", "wazuh.manager.configuration",
             "wazuh.agent.list", "wazuh.agent.detail", "wazuh.agent.status", "wazuh.agent.config",
-            "wazuh.security.sca", "wazuh.security.fim", "wazuh.security.threat_hunting",
-            "wazuh.logs.discover", "wazuh.system.hardware", "wazuh.system.processes",
-            "wazuh.config.assessment"
+           "wazuh.sca.summary", "wazuh.sca.events", "wazuh.fim.summary", "wazuh.fim.events",
+            "wazuh.fim.timeline", "wazuh.threat.summary", "wazuh.threat.events", "wazuh.threat.failed_login",  
+            "wazuh.threat.success_login", "wazuh.discover.logs", "wazuh.system.processes", 
+            "wazuh.system.hardware",
         ]
         
         # SNMP ACTIONS (GLOBAL - TIDAK BUTUH device_id)
@@ -727,39 +761,45 @@ class Orchestrator(app_manager.RyuApp):
             "wazuh.manager.info": lambda p, logger: self.wazuh_api.get_manager_info(logger=logger),
             "wazuh.manager.stats": lambda p, logger: self.wazuh_api.get_manager_stats(logger=logger),
             "wazuh.manager.configuration": lambda p, logger: self.wazuh_api.get_manager_configuration(logger=logger),
-            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(
-                filters=p.get("filters", {}),
-                logger=logger
+            "wazuh.agent.list": lambda p, logger: self.wazuh_api.get_agents(p.get("filters"), logger),
+            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(p["agent_id"], logger),
+            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(p["agent_id"], logger),
+            "wazuh.sca.summary": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
+                p["agent_id"], logger
             ),
-            "wazuh.agent.detail": lambda p, logger: self.wazuh_api.get_agent_detail(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.sca.events": lambda p, logger: self.wazuh_indexer.sca_events(
+                agent_id=p["agent_id"],
+                hours=p.get("hours", 24)
             ),
-            "wazuh.agent.status": lambda p, logger: self.wazuh_api.get_agent_status(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.fim.summary": lambda p, logger: self.wazuh_api.get_fim_data(
+                p["agent_id"], p.get("filters"), logger
             ),
-            "wazuh.agent.config": lambda p, logger: self.wazuh_api.get_agent_config(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.fim.events": lambda p, logger: self.wazuh_indexer.fim_events(
+                agent_id=p["agent_id"],
+                hours=p.get("hours", 24)
             ),
-            "wazuh.security.sca": lambda p, logger: self.wazuh_api.get_security_configuration_assessment(
-                agent_id=p.get("agent_id"),
-                logger=logger
+            "wazuh.fim.timeline": lambda p, logger: self.wazuh_indexer.fim_timeline(
+                agent_id=p["agent_id"],
+                hours=p.get("hours", 24)
             ),
-            "wazuh.security.fim": lambda p, logger: self.wazuh_api.get_fim_data(
-                agent_id=p.get("agent_id"),
-                filters=p.get("filters", {}),
-                logger=logger
+            "wazuh.threat.summary": lambda p, logger: self.wazuh_indexer.threat_summary(
+                hours=p.get("hours", 24)
             ),
-            "wazuh.security.threat_hunting": lambda p, logger: self.wazuh_api.get_threat_hunting(
-                query=p.get("query", {}),
-                logger=logger
+            "wazuh.threat.events": lambda p, logger: self.wazuh_indexer.threat_events(
+                hours=p.get("hours", 24),
+                size=p.get("size", 100)
             ),
-            "wazuh.logs.discover": lambda p, logger: self.wazuh_api.get_logs(
-                agent_id=p.get("agent_id"),
-                query=p.get("query", {}),
-                logger=logger
+            "wazuh.threat.failed_login": lambda p, logger: self.wazuh_indexer.threat_failed_logins(
+                hours=p.get("hours", 24)
+            ),
+            "wazuh.threat.success_login": lambda p, logger: self.wazuh_indexer.threat_success_logins(
+                hours=p.get("hours", 24)
+            ),
+            "wazuh.discover.logs": lambda p, logger: self.wazuh_indexer.discover_logs(
+                index=p.get("index", "wazuh-alerts-*"),
+                keyword=p.get("keyword"),
+                hours=p.get("hours", 24),
+                size=p.get("size", 100)
             ),
             "wazuh.system.hardware": lambda p, logger: self.wazuh_api.get_syscollector_hardware(
                 agent_id=p.get("agent_id"),
@@ -880,35 +920,6 @@ class NorthboundApi(ControllerBase):
         b = json.dumps(self.core.jobs.data.get(jid, {"error":"not found"}))
         return self._resp(req, b)
 
-    @route('health', '/health', methods=['GET'])
-    def health_controller_db(self, req, **kwargs):
-        status = {
-            "controller": "ok",
-            "database": "unknown"
-        }
-
-        # cek koneksi database
-        try:
-            from database.db_connection import DBConnection
-
-            with DBConnection.get_conn() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT 1;")
-                cur.fetchone()
-                cur.close()
-
-            status["database"] = "ok"
-
-        except Exception as e:
-            status["database"] = "error"
-            status["db_error"] = str(e)
-
-        # status
-        if status["database"] == "ok":
-            return self._resp(req, json.dumps(status), status=200)
-        else:
-            return self._resp(req, json.dumps(status), status=500)
-
     # === Device Management ===
     # Create devices, disini ambil data dari payload agent_register
     @route('devices', '/devices', methods=['POST'])
@@ -926,6 +937,7 @@ class NorthboundApi(ControllerBase):
             is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
             is_cisco = southbound_type in ["cisco", "paramiko"]
             is_unifi = southbound_type in ["unifi", "paramiko"]
+            is_ruijie = southbound_type in ["ruijie", "ruijie_cloud"]
             
             # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
@@ -952,7 +964,7 @@ class NorthboundApi(ControllerBase):
                 registration_mode = "server_agent"
             elif is_mikrotik:
                 info = self.core.detect_vendor(data)
-                device_type = info.get("device_type", "router")
+                device_type = info.get("device_type")
                 registration_mode = "active_discovery"
             elif is_cisco:
                 device_type = "switch" 
@@ -960,6 +972,9 @@ class NorthboundApi(ControllerBase):
             elif is_unifi:
                 device_type = "access_point" 
                 registration_mode = "paramiko_discovery"
+            elif is_ruijie:
+                device_type = "switch"
+                registration_mode = "ruijie_cloud_discovery"
             else:
                 return self._resp(req, json.dumps({
                     "status": "error", 
@@ -1033,21 +1048,20 @@ class NorthboundApi(ControllerBase):
             # === HANDLE MIKROTIK/ACTIVE DISCOVERY REGISTRATION ===
             elif is_mikrotik:
                 info = self.core.detect_vendor(data)
-                
+
                 if not info.get("connected", False):
                     return self._resp(req, json.dumps({
                         "status": "error",
-                        "error": "Unable to connect to device or detect vendor",
+                        "error": "Unable to connect to MikroTik device",
                         "details": info
                     }), 400)
-                
+
+                detected_device_type = info.get("device_type", "router")
                 device_id = generate_device_id(data, registration_mode)
                 data["id"] = device_id
                 data["device_id"] = device_id
                 data.update(info)
-                detected_device_type = info.get("device_type", "router")
-                
-                # Map MikroTik specific fields
+
                 data.update({
                     "status": "active",
                     "southbound": "routeros_api",
@@ -1062,25 +1076,48 @@ class NorthboundApi(ControllerBase):
                     "main_mac_address": info.get("mac-address"),
                     "main_interface": info.get("main_interface"),
                     "device_type": detected_device_type,
+                    "connected": True
                 })
+                try:
+                    driver = RouterOSApiDriver({
+                        "ip": data.get("ip"),
+                        "username": data.get("username", "admin"),
+                        "password": data.get("password", ""),
+                        "device_id": device_id
+                    })
 
-                # AUTO ADD TO SNMP TARGETS (jika bukan access point)
-                if detected_device_type != "access_point":
-                    try:
-                        snmp = SNMPFileManager()
-                        snmp.add_device({
-                            "device_id": device_id,
-                            "ip": data["ip"],
-                            "module": "mikrotik",  # Module khusus Mikrotik
-                            "device_name": info.get("identity") or data.get("hostname", device_id),
-                            "location": data.get("location", "Unknown"),
-                            "community": data.get("snmp_community", "public")
-                        })
-                        data["snmp_target_status"] = "success"
-                    except Exception as e:
-                        data["snmp_target_status"] = f"failed: {str(e)}"
-                else:
-                    data["snmp_target_status"] = "skipped (access_point)"
+                    if driver.name == "routeros_api":
+                        self.core.logger.info(
+                            f"[SNMP-AUTO] configuring SNMP on RouterOS {data.get('ip')}"
+                        )
+
+                        driver.auto_configured_snmp(
+                            logger=self.core.logger.info
+                        )
+
+                        data["snmp_auto_config"] = "success"
+
+                except Exception as e:
+                    self.core.logger.warning(
+                        f"[SNMP-AUTO] failed on {data.get('ip')}: {e}"
+                    )
+                    data["snmp_auto_config"] = f"failed: {e}"
+                try:
+                    snmp = SNMPFileManager()
+
+                    snmp.add_device({
+                        "device_id": device_id,
+                        "ip": data["ip"],
+                        "module": "mikrotik",
+                        "device_name": data.get("identity") or device_id,
+                        "location": data.get("location", "Unknown"),
+                        "community": data.get("snmp_community", "public")
+                    })
+
+                    data["snmp_target_status"] = "success"
+
+                except Exception as e:
+                    data["snmp_target_status"] = f"failed: {str(e)}"
 
             elif is_cisco:
                 # Pakai CiscoSSHDriver untuk mendapatkan data REAL dari device
@@ -1220,6 +1257,50 @@ class NorthboundApi(ControllerBase):
                     "device_type": "access_point",
                     "southbound": "paramiko",
                     "vendor": "unifi",
+                    "identity": info.get("identity"),
+                    "main_ip_address": info.get("main_ip_address") or data.get("ip"),
+                    "main_mac_address": info.get("main_mac_address"),
+                    "status": "active",
+                    "connected": True
+                })
+
+                # AUTO ADD TO SNMP TARGETS
+                try:
+                    snmp = SNMPFileManager()
+                    snmp.add_device({
+                        "device_id": device_id,
+                        "ip": data["ip"],
+                        "module": info.get("vendor", "Unknown").lower(),
+                        "device_name": info.get("identity") or data.get("hostname", device_id),
+                        "location": data.get("location", "Unknown")
+                    })
+                except Exception as e:
+                    data["snmp_target_status"] = f"failed: {str(e)}"
+
+            # === HANDLE RUIJIE ===
+            elif is_ruijie:
+                # === CONNECT & COLLECT INFO ===
+                driver = RuijieCloudDriver(data)
+                info = driver.get_device_info()
+
+                if not info.get("connected"):
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": "Unable to connect to Ruijie device"
+                    }), 400)
+
+                # === GENERATE DEVICE ID ===
+                device_id = generate_device_id(data, registration_mode)
+                data["id"] = device_id
+                data["device_id"] = device_id
+
+                # === MERGE INFO ===
+                data.update(info)
+
+                data.update({
+                    "device_type": info.get("device_type", "switch"),
+                    "southbound": "ruijie_cloud",
+                    "vendor": "ruijie",
                     "identity": info.get("identity"),
                     "main_ip_address": info.get("main_ip_address") or data.get("ip"),
                     "main_mac_address": info.get("main_mac_address"),
@@ -1733,7 +1814,7 @@ class NorthboundApi(ControllerBase):
                     if southbound == "server_api":
                         device_type = "server"
 
-                    elif southbound in ["router_api", "routeros", "router"]:
+                    elif southbound in ["routeros_api", "routeros"]:
                         device_type = "router"
 
                     elif southbound in ["paramiko", "ssh"]:

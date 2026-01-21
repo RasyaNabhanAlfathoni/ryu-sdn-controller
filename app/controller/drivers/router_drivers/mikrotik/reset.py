@@ -1,5 +1,5 @@
-class RouterOSResetDriver:
-    name = "routeros_reset"
+class MikroTikRouterResetDriver:
+    name = "mikrotikrouter_reset"
     
     def __init__(self, core):
         self.core = core

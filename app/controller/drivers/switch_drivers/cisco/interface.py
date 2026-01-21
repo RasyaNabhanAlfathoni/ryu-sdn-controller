@@ -62,7 +62,7 @@ class CiscoInterfaceDriver:
                     if 'is up' in line and 'line protocol is up' in line:
                         current_data['status'] = 'up'
                     elif 'administratively down' in line:
-                        current_data['status'] = 'admin down'
+                        current_data['status'] = 'down'
                     elif 'is up' in line or 'line protocol is up' in line:
                         current_data['status'] = 'up (partial)'
                 
@@ -149,7 +149,47 @@ class CiscoInterfaceDriver:
                 logger(f"Found {len(interfaces)} interfaces:")
                 for intf in interfaces:
                     logger(f"  - {intf['interface']}: status={intf['status']}, mac={intf['mac_address'][:10]}..., ip={intf['ip_address']}")
-            
+
+            try:
+                if logger:
+                    logger("Getting interface descriptions...")
+
+                desc_output = self.base.execute_command(
+                    "show interface description",
+                    enable_mode=True
+                )
+
+                desc_map = {}
+
+                for line in desc_output.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Skip header
+                    if line.lower().startswith("interface"):
+                        continue
+
+                    # Cisco biasanya pakai spasi banyak sebagai separator
+                    parts = re.split(r'\s{2,}', line)
+
+                    if len(parts) >= 4:
+                        iface = parts[0]
+                        description = parts[3]
+                        desc_map[iface] = description
+
+                        if logger:
+                            logger(f"Description found: {iface} -> {description}")
+
+                # Inject description ke interface list
+                for intf in interfaces:
+                    if intf['interface'] in desc_map:
+                        intf['description'] = desc_map[intf['interface']]
+
+            except Exception as desc_error:
+                if logger:
+                    logger(f"Warning getting descriptions: {str(desc_error)}")
+
             return {
                 'status': 'success',
                 'interfaces': interfaces
@@ -167,127 +207,102 @@ class CiscoInterfaceDriver:
             }
     
     def configure_interface(self, interface_name, params, logger=None):
-        """Configure interface"""
         try:
             if logger:
                 logger(f"Configuring interface {interface_name}...")
-            
-            config_commands = []
-            
-            # Enter interface config mode
-            config_commands.append(f"interface {interface_name}")
-            
-            # Configure description
+
+            # Masuk global config
+            self.base.execute_command("configure terminal", enable_mode=True)
+
+            # Masuk interface
+            self.base.execute_command(f"interface {interface_name}")
+
+            # Description
             if 'description' in params:
-                desc = params['description']
-                config_commands.append(f"description {desc}")
-            
-            # Configure IP address
+                self.base.execute_command(f"description {params['description']}")
+
+            # IP Address
             if 'ip_address' in params and 'subnet_mask' in params:
-                ip_addr = params['ip_address']
-                subnet = params['subnet_mask']
-                config_commands.append(f"ip address {ip_addr} {subnet}")
-            
-            # Configure speed/duplex
-            if 'speed' in params:
-                speed = params['speed']
-                if speed in ['10', '100', '1000', 'auto']:
-                    config_commands.append(f"speed {speed}")
-            
-            if 'duplex' in params:
-                duplex = params['duplex']
-                if duplex in ['full', 'half', 'auto']:
-                    config_commands.append(f"duplex {duplex}")
-            
-            # Configure shutdown/no shutdown
+                self.base.execute_command(
+                    f"ip address {params['ip_address']} {params['subnet_mask']}"
+                )
+
+            # Speed
+            if params.get('speed') in ['10', '100', '1000', 'auto']:
+                self.base.execute_command(f"speed {params['speed']}")
+
+            # Duplex
+            if params.get('duplex') in ['full', 'half', 'auto']:
+                self.base.execute_command(f"duplex {params['duplex']}")
+
+            # Admin status
             if 'admin_status' in params:
                 if params['admin_status'] == 'up':
-                    config_commands.append("no shutdown")
+                    self.base.execute_command("no shutdown")
                 else:
-                    config_commands.append("shutdown")
-            
-            # Exit interface config
-            config_commands.append("exit")
-            
-            # Execute configuration
-            result = self.base.configure_terminal(config_commands)
-            
-            if logger:
-                logger(f"Interface {interface_name} configured successfully")
-            
+                    self.base.execute_command("shutdown")
+
+            # KELUAR DARI CONFIG MODE (PENTING)
+            self.base.execute_command("end")
+
+            # Save config
+            save_result = self.base.save_configuration()
+
             return {
                 'status': 'success',
                 'message': f'Interface {interface_name} configured',
-                'commands': config_commands
+                'save_result': save_result
             }
-            
+
         except Exception as e:
             if logger:
                 logger(f"Error configuring interface: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+            return {'status': 'error', 'error': str(e)}
+
     
     def enable_interface(self, interface_name, logger=None):
-        """Enable interface (no shutdown)"""
         try:
             if logger:
                 logger(f"Enabling interface {interface_name}...")
-            
-            config_commands = [
-                f"interface {interface_name}",
-                "no shutdown",
-                "exit"
-            ]
-            
-            result = self.base.configure_terminal(config_commands)
-            
-            if logger:
-                logger(f"Interface {interface_name} enabled")
-            
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface_name}")
+            self.base.execute_command("no shutdown")
+            self.base.execute_command("end")
+
+            save_result = self.base.save_configuration()
+
             return {
                 'status': 'success',
-                'message': f'Interface {interface_name} enabled'
+                'message': f'Interface {interface_name} enabled',
+                'save_result': save_result
             }
-            
+
         except Exception as e:
             if logger:
                 logger(f"Error enabling interface: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+            return {'status': 'error', 'error': str(e)}
+
     
     def disable_interface(self, interface_name, logger=None):
-        """Disable interface (shutdown)"""
         try:
             if logger:
                 logger(f"Disabling interface {interface_name}...")
-            
-            config_commands = [
-                f"interface {interface_name}",
-                "shutdown",
-                "exit"
-            ]
-            
-            result = self.base.configure_terminal(config_commands)
-            
-            if logger:
-                logger(f"Interface {interface_name} disabled")
-            
+
+            self.base.execute_command("configure terminal", enable_mode=True)
+            self.base.execute_command(f"interface {interface_name}")
+            self.base.execute_command("shutdown")
+            self.base.execute_command("end")
+
+            save_result = self.base.save_configuration()
+
             return {
                 'status': 'success',
-                'message': f'Interface {interface_name} disabled'
+                'message': f'Interface {interface_name} disabled',
+                'save_result': save_result
             }
-            
+
         except Exception as e:
             if logger:
                 logger(f"Error disabling interface: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+            return {'status': 'error', 'error': str(e)}

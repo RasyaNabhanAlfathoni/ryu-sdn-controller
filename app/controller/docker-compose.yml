@@ -5,20 +5,21 @@ services:
     container_name: sdn_controller
     environment:
       CONTROLLER_PORT: 9090
-      SERVER_AGENT_API_PORT: 8500
+      SERVER_AGENT_API_PORT: 8500 # Port Koneksi Server Agent API
       POSTGRES_HOST: 192.168.100.85
       POSTGRES_PORT: 5432
       POSTGRES_DB: sdn_controller
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
-#      WAZUH_API_URL: http://192.168.100.85:55000
-#      WAZUH_USER: admin
-#      WAZUH_PASSWORD: secret
+      WAZUH_API_URL:
+      WAZUH_API_USER:
+      WAZUH_API_PASSWORD:
+      WAZUH_INDEXER_URL:
+      WAZUH_INDEXER_USER:
+      WAZUH_INDEXER_PASSWORD:
       TZ: Asia/Jakarta
-
     ports:
-      - "9090:9090"            # Sesuaikan Port ini dengan CONTROLLER_PORT
-
+      - "9090:9090" # Sesuaikan Port ini dengan CONTROLLER_PORT
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
       interval: 5m
@@ -28,9 +29,9 @@ services:
     volumes:
       - ./snmp:/opt/prometheus
     restart: unless-stopped
-#    networks:                 #  Production
-#      - sdn_network
-    network_mode: host         #  debugging test
+    #    networks:                 #  Production
+    #      - sdn_network
+    network_mode: host #  debugging test
 
 networks:
   sdn_network:

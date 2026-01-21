@@ -94,6 +94,7 @@ class MikrotikAPActions:
             "ap.mikrotik.interface.enable": lambda p, logger: MikroTikAPInterfaceDriver(d).enable_interface(p, logger),
             "ap.mikrotik.interface.comment": lambda p, logger: MikroTikAPInterfaceDriver(d).comment_interface(p, logger),
             "ap.mikrotik.interface.cable_test": lambda p, logger: MikroTikAPInterfaceDriver(d).cable_test(p, logger),
+            "ap.mikrotik.interface.list": lambda p, logger: MikroTikAPInterfaceDriver(d).list_interface(p, logger),
 
             # VLAN Management
             "ap.mikrotik.vlan.add": lambda p, logger: MikroTikAPVlanDriver(d).add_vlan(p, logger),

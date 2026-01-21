@@ -3,14 +3,14 @@ import hashlib
 from ryu.lib import hub
 from database.device_repository import DeviceRepository
 from drivers.snmp_file_manager import SNMPFileManager
+from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 
 
 class AutoDiscoverAPUnifi:
     name = "unifi_auto_discover"
 
-    UNIFI_BASE = "http://192.168.100.85:3000"
-    DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
-    SETTING_ENDPOINT = f"{UNIFI_BASE}/query_range?field=setting"
+    DEVICE_ENDPOINT = f"{UnifiParamikoDriver.UNIFI_BASE}/query_range?field=device"
+    SETTING_ENDPOINT = f"{UnifiParamikoDriver.UNIFI_BASE}/query_range?field=setting"
 
     INTERVAL = 10
 
@@ -79,6 +79,36 @@ class AutoDiscoverAPUnifi:
 
         return False
 
+    # GET REAL DATA FROM SSH/PARAMIKO
+    @classmethod
+    def get_real_device_info_via_ssh(cls, ip: str, username: str, password: str):
+        """Ambil data real dari device via SSH paramiko"""
+        try:
+            driver_config = {
+                "ip": ip,
+                "username": username,
+                "password": password,
+                "device_id": "temp"
+            }
+            
+            driver = UnifiParamikoDriver(driver_config)
+            ssh_info = driver.get_device_info()
+            
+            return {
+                "model": ssh_info.get("model"),
+                "os_version": ssh_info.get("os_version"),
+                "main_ip_address": ssh_info.get("main_ip_address"),
+                "main_mac_address": ssh_info.get("main_mac_address"),
+                "hostname": ssh_info.get("hostname"),
+                "identity": ssh_info.get("identity"),
+                "vendor": ssh_info.get("vendor", "unifi"),
+                "device_type": "access_point",
+                "connected": ssh_info.get("connected", False)
+            }
+        except Exception as e:
+            print(f"[UNIFI-AUTO] SSH failed for {ip}: {e}")
+            return None
+
     # MAIN DISCOVERY
     @classmethod
     def run(cls):
@@ -112,25 +142,25 @@ class AutoDiscoverAPUnifi:
                 )
                 
                 snmp_location = d.get("snmp_location", "unknown")
-                                
 
+                # FIX: Buat data minimal dari API
                 dev = {
                     "device_id": device_id,
 
                     # identity
                     "identity": d.get("name") or "unifi-ap",
                     "hostname": d.get("name") or "unifi-ap",
-                    "serial_number": d.get("external_id"), 
+                    "serial_number": d.get("external_id"),
 
                     # auth
                     "username": username,
                     "password": password,
 
-                    # version
-                    "model": d.get("model"),
-                    "os_version": d.get("version"),
+                    # version (akan diupdate via SSH)
+                    "model": "",  # Kosongkan, akan diisi via SSH
+                    "os_version": "",  # Kosongkan, akan diisi via SSH
 
-                    # network
+                    # network (akan diupdate via SSH)
                     "main_ip_address": d.get("ip"),
                     "main_mac_address": mac,
                     "main_interface": "eth0",
@@ -147,13 +177,29 @@ class AutoDiscoverAPUnifi:
 
 
                 # DB EXISTENCE CHECK
-
                 existing = DeviceRepository.find_by_device_id(device_id)
 
                 # DB DELETED / NEW DEVICE
                 if not existing:
                     cls._snapshot[device_id] = fingerprint
                     print(f"[UNIFI-AUTO] INSERT {device_id}")
+                    
+                    # Ambil data real via SSH sebelum insert
+                    ssh_info = cls.get_real_device_info_via_ssh(
+                        d.get("ip"), username, password
+                    )
+                    
+                    if ssh_info:
+                        # Update dev dengan data real dari SSH
+                        dev.update({
+                            "model": ssh_info.get("model", ""),
+                            "os_version": ssh_info.get("os_version", ""),
+                            "main_ip_address": ssh_info.get("main_ip_address", d.get("ip")),
+                            "main_mac_address": ssh_info.get("main_mac_address", mac),
+                            "hostname": ssh_info.get("hostname", d.get("name") or "unifi-ap"),
+                            "identity": ssh_info.get("identity", d.get("name") or "unifi-ap"),
+                        })
+                    
                     DeviceRepository.insert_network_device(dev)
                     DeviceRepository.insert_access_point(dev)
 
@@ -181,8 +227,23 @@ class AutoDiscoverAPUnifi:
                 cls._snapshot[device_id] = fingerprint
 
                 # UPDATE CHECK
-                if cls.has_changed(existing, dev):
-                    print(f"[UNIFI-AUTO] UPDATE {device_id}")
+                # Ambil data real via SSH untuk update
+                ssh_info = cls.get_real_device_info_via_ssh(
+                    d.get("ip"), username, password
+                )
+                
+                if ssh_info:
+                    # Update dev dengan data real dari SSH
+                    dev.update({
+                        "model": ssh_info.get("model", ""),
+                        "os_version": ssh_info.get("os_version", ""),
+                        "main_ip_address": ssh_info.get("main_ip_address", d.get("ip")),
+                        "main_mac_address": ssh_info.get("main_mac_address", mac),
+                        "hostname": ssh_info.get("hostname", d.get("name") or "unifi-ap"),
+                        "identity": ssh_info.get("identity", d.get("name") or "unifi-ap"),
+                    })
+                    
+                    print(f"[UNIFI-AUTO] UPDATE {device_id} with SSH data: {ssh_info.get('model')} {ssh_info.get('os_version')}")
                     DeviceRepository.update_network_device(device_id, dev)
                     DeviceRepository.update_access_point(device_id, dev)
 

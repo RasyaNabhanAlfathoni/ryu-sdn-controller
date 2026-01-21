@@ -12,7 +12,8 @@ class CiscoSwitchActions:
             modules = [
                 driver.interface, driver.vlan, driver.stp,
                 driver.qos, driver.security, driver.lldp,
-                driver.system, driver.snmp
+                driver.system, driver.snmp, driver.users, 
+                driver.logging
             ]
             
             for module in modules:
@@ -23,148 +24,202 @@ class CiscoSwitchActions:
         
         return {
             # === System & Discovery ===
-            "switch.discovery": lambda p, logger: driver.get_device_info(),
-            "switch.info": lambda p, logger: driver.get_device_info(),
-            "switch.system.info": lambda p, logger: driver.system.get_system_info(logger),
-            "switch.test.connection": lambda p, logger: driver.test_connection(),
+            "switch.cisco.discovery": lambda p, logger: driver.get_device_info(),
+            "switch.cisco.info": lambda p, logger: driver.get_device_info(),
+            "switch.cisco.system.info": lambda p, logger: driver.system.get_system_info(logger),
+            "switch.cisco.test.connection": lambda p, logger: driver.test_connection(),
             
             # === Interface Management ===
-            "switch.interface.list": lambda p, logger: driver.interface.get_interfaces(logger),
-            "switch.interface.configure": lambda p, logger: driver.interface.configure_interface(
+            "switch.cisco.interface.list": lambda p, logger: driver.interface.get_interfaces(logger),
+            "switch.cisco.interface.configure": lambda p, logger: driver.interface.configure_interface(
                 p['interface'], p, logger
             ),
-            "switch.interface.enable": lambda p, logger: driver.interface.enable_interface(
+            "switch.cisco.interface.enable": lambda p, logger: driver.interface.enable_interface(
                 p['interface'], logger
             ),
-            "switch.interface.disable": lambda p, logger: driver.interface.disable_interface(
+            "switch.cisco.interface.disable": lambda p, logger: driver.interface.disable_interface(
                 p['interface'], logger
             ),
             
             # === VLAN Management ===
-            "switch.vlan.list": lambda p, logger: driver.vlan.get_vlans(logger),
-            "switch.vlan.create": lambda p, logger: driver.vlan.create_vlan(
+            "switch.cisco.vlan.list": lambda p, logger: driver.vlan.get_vlans(logger),
+            "switch.cisco.vlan.create": lambda p, logger: driver.vlan.create_vlan(
                 p['vlan_id'], p.get('name'), logger
             ),
-            "switch.vlan.delete": lambda p, logger: driver.vlan.delete_vlan(
+            "switch.cisco.vlan.delete": lambda p, logger: driver.vlan.delete_vlan(
                 p['vlan_id'], logger
             ),
-            "switch.vlan.assign.access": lambda p, logger: driver.vlan.assign_vlan_access(
+            "switch.cisco.vlan.assign.access": lambda p, logger: driver.vlan.assign_vlan_access(
                 p['interface'], p['vlan_id'], logger
             ),
-            "switch.vlan.assign.trunk": lambda p, logger: CiscoSwitchActions._assign_vlan_trunk(driver, p, logger),
+            "switch.cisco.vlan.assign.trunk": lambda p, logger: CiscoSwitchActions._assign_vlan_trunk(driver, p, logger),
             
             # === STP Management ===
-            "switch.stp.info": lambda p, logger: driver.stp.get_stp_info(logger),
-            "switch.stp.enable": lambda p, logger: driver.stp.enable_stp(logger),
-            "switch.stp.disable": lambda p, logger: driver.stp.disable_stp(logger),
-            "switch.stp.set.priority": lambda p, logger: driver.stp.set_bridge_priority(
-                p['priority'], p.get('vlan'), logger
+            "switch.cisco.stp.info": lambda p, logger: driver.stp.get_stp_info(logger),
+            "switch.cisco.stp.enable": lambda p, logger: driver.stp.enable_stp(logger),
+            "switch.cisco.stp.vlan.enable": lambda p, logger: driver.stp.enable_stp_vlan(
+                p['vlan'], logger
             ),
-            "switch.stp.portfast": lambda p, logger: driver.stp.configure_portfast(
+            "switch.cisco.stp.vlan.disable": lambda p, logger: driver.stp.disable_stp_vlan(
+                p['vlan'], logger
+            ),
+            "switch.cisco.stp.vlan.priority": lambda p, logger: driver.stp.set_bridge_priority(
+                p['priority'], p['vlan'], logger
+            ),
+            "switch.cisco.stp.interface.portfast": lambda p, logger: driver.stp.configure_portfast(
                 p.get('interface'), logger
             ),
             
             # === LLDP Management ===
-            "switch.lldp.neighbors": lambda p, logger: driver.lldp.get_lldp_neighbors(logger),
-            "switch.lldp.enable": lambda p, logger: driver.lldp.enable_lldp(
+            "switch.cisco.lldp.neighbors": lambda p, logger: driver.lldp.get_lldp_neighbors(logger),
+            "switch.cisco.lldp.enable": lambda p, logger: driver.lldp.enable_lldp(
                 p.get('interface'), logger
             ),
-            "switch.lldp.disable": lambda p, logger: driver.lldp.disable_lldp(
+            "switch.cisco.lldp.disable": lambda p, logger: driver.lldp.disable_lldp(
                 p.get('interface'), logger
             ),
-            "switch.lldp.status": lambda p, logger: driver.lldp.get_lldp_status(logger),
+            "switch.cisco.lldp.status": lambda p, logger: driver.lldp.get_lldp_status(logger),
             
             # === QoS Management ===
-            "switch.qos.rate.limit": lambda p, logger: driver.qos.set_rate_limit(
+            "switch.cisco.qos.rate.limit": lambda p, logger: driver.qos.set_rate_limit(
                 p['interface'], p['rate_kbps'], p.get('direction', 'both'), logger
             ),
-            "switch.qos.policy.create": lambda p, logger: driver.qos.create_qos_policy(
+            "switch.cisco.qos.get.rate.limit": lambda p, logger: driver.qos.get_rate_limit(
+                p.get("interface"), logger
+            ),
+            "switch.cisco.qos.policy.create": lambda p, logger: driver.qos.create_qos_policy(
                 p['policy_name'], p.get('class_maps', {}), logger
             ),
-            "switch.qos.policy.apply": lambda p, logger: driver.qos.apply_qos_policy(
+            "switch.cisco.qos.policy.apply": lambda p, logger: driver.qos.apply_qos_policy(
                 p['interface'], p['policy_name'], p.get('direction', 'input'), logger
             ),
-            "switch.qos.policies.list": lambda p, logger: driver.qos.get_qos_status(logger),
+            "switch.cisco.qos.policies.list": lambda p, logger: driver.qos.get_qos_status(logger),
             
             # === Security ===
-            "switch.security.enable": lambda p, logger: driver.security.enable_port_security(
-                p['interface'], p.get('max_mac', 1), p.get('violation', 'shutdown'), logger
+            "switch.cisco.security.enable": lambda p, logger: driver.security.enable_port_security(
+                p['interface'], p.get('max_mac', 1), p.get('violation', 'restrict'), logger
             ),
-            "switch.security.disable": lambda p, logger: driver.security.disable_port_security(
+            "switch.cisco.security.disable": lambda p, logger: driver.security.disable_port_security(
                 p['interface'], logger
             ),
-            "switch.security.sticky.mac": lambda p, logger: driver.security.enable_sticky_mac(
+            "switch.cisco.security.sticky.mac": lambda p, logger: driver.security.enable_sticky_mac(
                 p['interface'], logger
             ),
-            "switch.security.static.mac": lambda p, logger: driver.security.add_static_mac(
+            "switch.cisco.security.static.mac": lambda p, logger: driver.security.add_static_mac(
                 p['interface'], p['mac_address'], p.get('vlan', 1), logger
             ),
-            "switch.security.status": lambda p, logger: driver.security.get_port_security_status(
+            "switch.cisco.security.status": lambda p, logger: driver.security.get_port_security_status(
                 p.get('interface'), logger
             ),
-            "switch.security.clear": lambda p, logger: driver.security.clear_port_security(
+            "switch.cisco.security.clear": lambda p, logger: driver.security.clear_port_security(
                 p['interface'], logger
             ),
             
             # === SNMP Management ===
-            "switch.snmp.config.get": lambda p, logger: driver.snmp.get_snmp_info(p, logger),
-            "switch.snmp.config.edit": lambda p, logger: driver.snmp.configure_snmp(p, logger),
-            "switch.snmp.community.list": lambda p, logger: driver.snmp.list_communities(p, logger),
-            "switch.snmp.community.add": lambda p, logger: driver.snmp.add_community(p, logger),
-            "switch.snmp.community.edit": lambda p, logger: driver.snmp.edit_community(p, logger),
-            "switch.snmp.community.delete": lambda p, logger: driver.snmp.delete_community(p, logger),
-            "switch.snmp.enable": lambda p, logger: driver.snmp.enable_snmp(p, logger),
-            "switch.snmp.disable": lambda p, logger: driver.snmp.disable_snmp(p, logger),
+            "switch.cisco.snmp.config.get": lambda p, logger: driver.snmp.get_snmp_info(p, logger),
+            "switch.cisco.snmp.config.edit": lambda p, logger: driver.snmp.configure_snmp(p, logger),
+            "switch.cisco.snmp.community.list": lambda p, logger: driver.snmp.list_communities(p, logger),
+            "switch.cisco.snmp.community.add": lambda p, logger: driver.snmp.add_community(p, logger),
+            "switch.cisco.snmp.community.edit": lambda p, logger: driver.snmp.edit_community(p, logger),
+            "switch.cisco.snmp.community.delete": lambda p, logger: driver.snmp.delete_community(p, logger),
+            "switch.cisco.snmp.enable": lambda p, logger: driver.snmp.enable_snmp(p, logger),
+            "switch.cisco.snmp.disable": lambda p, logger: driver.snmp.disable_snmp(p, logger),
+
+            # === Users Management ===
+            "switch.cisco.users.list": lambda p, logger: driver.users.get_user_list(logger),
+            "switch.cisco.user.create": lambda p, logger: driver.users.create_user(
+                p['username'], p['password'], p.get('privilege_level', 1), logger
+            ),
+            "switch.cisco.user.update.password": lambda p, logger: driver.users.update_user_password(
+                p['username'], p['new_password'], logger
+            ),
+            "switch.cisco.user.update.privilege": lambda p, logger: driver.users.update_user_privilege(
+                p['username'], p['privilege_level'], logger
+            ),
+            "switch.cisco.user.delete": lambda p, logger: driver.users.delete_user(
+                p['username'], logger
+            ),
+
+            # === Logging Management
+            "switch.cisco.logging.status": lambda p, logger: driver.logging.get_logging_status(logger),
+            "switch.cisco.logging.syslog.configure": lambda p, logger: driver.logging.configure_syslog(
+                syslog_server=p['syslog_server'],
+                facility=p.get('facility', 'local7'),
+                severity=p.get('severity', 'informational'),
+                port=p.get('port', 514),
+                protocol=p.get('protocol', 'udp'),
+                logger=logger
+            ),
+            "switch.cisco.logging.syslog.enable": lambda p, logger: (driver.logging.enable_syslog(logger)),
+            "switch.cisco.logging.syslog.disable": lambda p, logger: driver.logging.disable_syslog(logger),
+            "switch.cisco.logging.severity.set": lambda p, logger: driver.logging.set_logging_severity(
+                p['severity'], logger
+            ),
             
-            # === Configuration ===
-            "switch.config.backup": lambda p, logger: CiscoSwitchActions._backup_config(driver, p, logger),
-            "switch.config.save": lambda p, logger: driver.system.save_config(logger),
-            "switch.config.running": lambda p, logger: driver.system.get_running_config(logger),
-            "switch.reboot": lambda p, logger: driver.system.reboot(logger),
-            
-            # === Monitoring ===
-            "switch.monitoring.enable": lambda p, logger: CiscoSwitchActions._enable_monitoring(driver, p, logger),
+            # === System Configuration ===
+            "switch.cisco.system.config.get": lambda p, logger: driver.system.get_running_config(logger),
+            "switch.cisco.system.identity.set": lambda p, logger: driver.system.set_identity(
+                p['hostname'],
+                logger
+            ),
+            "switch.cisco.system.reboot": lambda p, logger: driver.system.reboot(logger=logger,
+                confirm=p.get("confirm", False),
+                user=p.get("user", "unknown")
+            ),
         }
     
     # === Helper Methods ===
     
     @staticmethod
     def _assign_vlan_trunk(driver, params, logger):
-        """Assign VLAN trunk configuration via SSH"""
-        interface = params['interface']
-        native_vlan = params.get('native_vlan', 1)
-        allowed_vlans = params.get('allowed_vlans', 'all')
-        
-        config_commands = [
-            f"interface {interface}",
-            "switchport mode trunk",
-            f"switchport trunk native vlan {native_vlan}",
-            f"switchport trunk allowed vlan {allowed_vlans}",
-            "exit"
-        ]
-        
         try:
-            result = driver.base.execute_command(config_commands)
-            
+            interface = params['interface']
+            native_vlan = params.get('native_vlan', 1)
+            allowed_vlans = params.get('allowed_vlans', 'all')
+
+            if isinstance(allowed_vlans, list):
+                allowed_vlans = ",".join(map(str, allowed_vlans))
+
             if logger:
-                logger(f"Configured trunk on {interface}: native {native_vlan}, allowed {allowed_vlans}")
-            
+                logger(f"Configuring trunk on {interface}")
+
+            driver.base.execute_command("configure terminal", enable_mode=True)
+            driver.base.execute_command(f"interface {interface}", enable_mode=True)
+            driver.base.execute_command("switchport mode trunk", enable_mode=True)
+            driver.base.execute_command(f"switchport trunk native vlan {native_vlan}", enable_mode=True)
+            driver.base.execute_command(f"switchport trunk allowed vlan {allowed_vlans}", enable_mode=True)
+            driver.base.execute_command("exit", enable_mode=True)
+            driver.base.execute_command("end", enable_mode=True)
+
+            # Verifikasi Commandnya
+            verify = driver.base.execute_command(
+                "show interface trunk",
+                enable_mode=True
+            )
+
+            if interface not in verify:
+                raise Exception("Trunk configuration verification failed")
+
+            driver.base.execute_command("write memory", enable_mode=True)
+
+            if logger:
+                logger(f"Trunk successfully configured on {interface}")
+
             return {
-                'status': 'success',
-                'message': f'Trunk configured on {interface}',
-                'interface': interface,
-                'native_vlan': native_vlan,
-                'allowed_vlans': allowed_vlans,
-                'commands': config_commands
+                "status": "success",
+                "interface": interface,
+                "mode": "trunk",
+                "native_vlan": native_vlan,
+                "allowed_vlans": allowed_vlans
             }
-            
+
         except Exception as e:
             if logger:
-                logger(f"Error configuring trunk: {str(e)}")
-            
+                logger(f"Error configuring trunk on {interface}: {e}")
+
             return {
-                'status': 'error',
-                'error': str(e)
+                "status": "error",
+                "error": str(e)
             }
     
     @staticmethod
@@ -184,7 +239,7 @@ class CiscoSwitchActions:
                         "device_id": driver.config.get('device_id', 'unknown'),
                         "ip": driver.config['ip'],
                         "module": "cisco",
-                        "device_name": device_info.get('hostname', 'Cisco-Switch'),
+                        "device_name": device_info.get('identity', 'Cisco-Switch'),
                         "community": params['community'],
                         "location": params.get('location', 'Unknown')
                     })
@@ -201,105 +256,6 @@ class CiscoSwitchActions:
         except Exception as e:
             if logger:
                 logger(f"Error configuring SNMP: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
-    
-    @staticmethod
-    def _backup_config(driver, params, logger):
-        """Backup switch configuration via SSH"""
-        try:
-            # Get running config via SSH
-            config = driver.base.execute_command("show running-config", enable_mode=True)
-            
-            # Save to file or return as string
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            
-            if logger:
-                logger(f"Configuration backed up at {timestamp}")
-            
-            return {
-                'status': 'success',
-                'message': 'Configuration backed up',
-                'timestamp': timestamp,
-                'config_size': len(config),
-                'config_preview': config[:500]  # Preview 500 characters
-            }
-            
-        except Exception as e:
-            if logger:
-                logger(f"Error backing up config: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
-    
-    @staticmethod
-    def _restore_config(driver, params, logger):
-        """Restore configuration (placeholder)"""
-        try:
-            if logger:
-                logger("Restore configuration feature not yet implemented for SSH")
-            
-            return {
-                'status': 'warning',
-                'message': 'Restore feature not yet implemented for SSH driver',
-                'note': 'Use console connection for configuration restore'
-            }
-            
-        except Exception as e:
-            if logger:
-                logger(f"Error in restore config: {str(e)}")
-            
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
-    
-    @staticmethod
-    def _enable_monitoring(driver, params, logger):
-        """Enable monitoring features"""
-        actions = []
-        
-        try:
-            # Enable SNMP
-            if params.get('enable_snmp', True):
-                snmp_params = {
-                    'community': params.get('snmp_community', 'public'),
-                    'location': params.get('location', 'Unknown'),
-                    'contact': params.get('contact', 'Admin')
-                }
-                result = driver.snmp.configure_snmp(snmp_params, logger)
-                if result.get('status') == 'success':
-                    actions.append('SNMP enabled')
-            
-            # Enable LLDP
-            if params.get('enable_lldp', True):
-                result = driver.lldp.enable_lldp(logger=logger)
-                if result.get('status') == 'success':
-                    actions.append('LLDP enabled')
-            
-            # Enable STP
-            if params.get('enable_stp', True):
-                result = driver.stp.enable_stp(logger=logger)
-                if result.get('status') == 'success':
-                    actions.append('STP enabled')
-            
-            if logger:
-                logger(f"Enabled monitoring features: {', '.join(actions)}")
-            
-            return {
-                'status': 'success',
-                'message': 'Monitoring features enabled',
-                'actions': actions
-            }
-            
-        except Exception as e:
-            if logger:
-                logger(f"Error enabling monitoring: {str(e)}")
             
             return {
                 'status': 'error',

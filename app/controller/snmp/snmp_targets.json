@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "targets": [
+      "192.168.100.94"
+    ],
+    "labels": {
+      "id": "dev_c229440fcf",
+      "module": "mikrotik",
+      "device_name": "TESTING",
+      "location": "Unknown",
+      "community": "public"
+    }
+  },
+  {
+    "targets": [
+      "192.168.100.1"
+    ],
+    "labels": {
+      "id": "dev_459d674005",
+      "module": "mikrotik",
+      "device_name": "MikroTik",
+      "location": "Unknown",
+      "community": "public"
+    }
+  }
+]

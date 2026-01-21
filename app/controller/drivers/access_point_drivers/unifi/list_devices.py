@@ -1,10 +1,10 @@
 import requests
+from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 
 class UnifiAPListDevices:
     name = "list_devices"
 
-    UNIFI_BASE = "http://192.168.100.85:3000"
-    ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
+    ENDPOINT = f"{UnifiParamikoDriver.UNIFI_BASE}/query_range?field=device"
 
     @staticmethod
     def run(logger=None):

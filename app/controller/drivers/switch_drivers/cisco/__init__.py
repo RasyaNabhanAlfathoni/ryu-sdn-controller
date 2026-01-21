@@ -7,6 +7,8 @@ from .security import CiscoSecurityDriver
 from .lldp import CiscoLLDPDriver
 from .system import CiscoSystemDriver
 from .snmp import CiscoSnmpDriver
+from .users import CiscoUserManagement
+from .logging import CiscoLoggingManagement
 import re
 
 class CiscoSSHDriver:
@@ -36,6 +38,8 @@ class CiscoSSHDriver:
         self.security = CiscoSecurityDriver(config)
         self.lldp = CiscoLLDPDriver(config)
         self.snmp = CiscoSnmpDriver(config) 
+        self.users = CiscoUserManagement(config)
+        self.logging = CiscoLoggingManagement(config)
         
         # Set base reference untuk semua modules
         self._init_modules()
@@ -44,7 +48,8 @@ class CiscoSSHDriver:
         """Set base reference untuk semua modules"""
         modules = [
             self.system, self.interface, self.vlan, self.stp,
-            self.qos, self.security, self.lldp, self.snmp
+            self.qos, self.security, self.lldp, self.snmp,
+            self.users, self.logging 
         ]
         
         for module in modules:

@@ -13,18 +13,58 @@ from drivers.router_drivers.mikrotik.queues import RouterOSQueuesDriver
 from drivers.router_drivers.mikrotik.firewall import RouterOSFirewallDriver
 from drivers.router_drivers.mikrotik.netwatch import RouterOSNetwatchDriver
 from drivers.router_drivers.mikrotik.logging import RouterOSLoggingDriver
-from drivers.router_drivers.mikrotik.reset import RouterOSResetDriver
+
+# Wireless Drivers
+from drivers.router_drivers.mikrotik.wireless.interface import MikroTikRouterWirelessInterfaceDriver
+from drivers.router_drivers.mikrotik.wireless.wireless_scan import MikroTikRouterWirelessScan
+from drivers.router_drivers.mikrotik.wireless.registration import MikroTikRouterWirelessRegistrationDriver
+
+# SNMP File Manager
 from drivers.snmp_file_manager import SNMPFileManager
 
 class MikrotikRouterActions:
-
     @staticmethod
     def get_actions(d):
 
         return {
+            # Wireless Interface Management
+            "router.mikrotik.wireless.interface.list": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).list(p, logger),
+            "router.mikrotik.wireless.interface.enable": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).enable(p, logger),
+            "router.mikrotik.wireless.interface.disable": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).disable(p, logger),
+            "router.mikrotik.wireless.interface.add": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).add_interface(p, logger),
+            "router.mikrotik.wireless.interface.edit": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).edit_interface(p, logger),
+            "router.mikrotik.wireless.interface.delete": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).delete_interface(p, logger),
+            "router.mikrotik.wireless.interface.parameters": lambda p, logger: MikroTikRouterWirelessInterfaceDriver(d).get_available_parameters(p, logger),
+
+            # Wireless Security Profiles
+            "router.mikrotik.wireless.security_profile.list": lambda p, logger: MikroTikRouterWirelessSecurityDriver(d).list(p, logger),
+            "router.mikrotik.wireless.security_profile.add": lambda p, logger: MikroTikRouterWirelessSecurityDriver(d).add_profile(p, logger),
+            "router.mikrotik.wireless.security_profile.edit": lambda p, logger: MikroTikRouterWirelessSecurityDriver(d).edit_profile(p, logger),
+            "router.mikrotik.wireless.security_profile.delete": lambda p, logger: MikroTikRouterWirelessSecurityDriver(d).delete_profile(p, logger),
+
+            # Wireless Registration Table
+            "router.mikrotik.wireless.registration.list": lambda p, logger: MikroTikRouterWirelessRegistrationDriver(d).registration_list(p, logger),
+            "router.mikrotik.wireless.registration.reset": lambda p, logger: MikroTikRouterWirelessRegistrationDriver(d).reset(p, logger),
+            "router.mikrotik.wireless.registration.client_details": lambda p, logger: MikroTikRouterWirelessRegistrationDriver(d).get_client_details(p, logger),
+            "router.mikrotik.wireless.registration.interface_clients": lambda p, logger: MikroTikRouterWirelessRegistrationDriver(d).get_interface_clients(p, logger),
+
+            # Reset / Backup / Reboot
+            "router.mikrotik.reset.backup": lambda p, logger: MikroTikRouterResetDriver(d).backup_configuration(p, logger),
+            "router.mikrotik.reset.restore": lambda p, logger: MikroTikRouterResetDriver(d).restore_configuration(p, logger),
+            "router.mikrotik.reset.export": lambda p, logger: MikroTikRouterResetDriver(d).export_configuration(p, logger),
+            "router.mikrotik.reset.execute": lambda p, logger: MikroTikRouterResetDriver(d).reset_configuration(p, logger),
+            "router.mikrotik.reset.reboot": lambda p, logger: MikroTikRouterResetDriver(d).reboot_device(p, logger),
+            "router.mikrotik.reset.list_backups": lambda p, logger: MikroTikRouterResetDriver(d).list_backups(p, logger),
+            "router.mikrotik.reset.delete_backup": lambda p, logger: MikroTikRouterResetDriver(d).delete_backup(p, logger),
+            "router.mikrotik.reset.get_form": lambda p, logger: MikroTikRouterResetDriver(d).get_reset_options_form(p, logger),
+            "router.mikrotik.reset.factory": lambda p, logger: MikroTikRouterResetDriver(d).factory_reset(p, logger),
+
+            # Wireless Scan
+            "router.mikrotik.wireless.scan": lambda p, logger: MikroTikRouterWirelessScan.scan(d, p, logger),
+
             # IP Address Management
             "router.mikrotik.ip.address.add": lambda p, logger: RouterOSIpDriver(d).add_address(p, logger),
-            "router.mikrotik.ip.address.delete": lambda p, logger: RouterOSIpDriver(d).delete_address(p, logger),
+            "router.mikrotik.ip.address.delete": lambda p, logger: RouterOSIpDriver(d).remove_address(p, logger),
             "router.mikrotik.ip.address.edit": lambda p, logger: RouterOSIpDriver(d).edit_address(p, logger),
             "router.mikrotik.ip.address.disable": lambda p, logger: RouterOSIpDriver(d).disable_address(p, logger),
             "router.mikrotik.ip.address.enable": lambda p, logger: RouterOSIpDriver(d).enable_address(p, logger),
@@ -44,7 +84,8 @@ class MikrotikRouterActions:
             "router.mikrotik.interface.enable": lambda p, logger: RouterOSInterfaceDriver(d).enable_interface(p, logger),
             "router.mikrotik.interface.comment": lambda p, logger: RouterOSInterfaceDriver(d).comment_interface(p, logger),
             "router.mikrotik.interface.cable_test": lambda p, logger: RouterOSInterfaceDriver(d).cable_test(p, logger),
-            
+            "router.mikrotik.interface.list": lambda p, logger: RouterOSInterfaceDriver(d).list_interface(p, logger),
+
             # VLAN Management
             "router.mikrotik.vlan.add": lambda p, logger: RouterOSVlanDriver(d).add_vlan(p, logger),
             "router.mikrotik.vlan.edit": lambda p, logger: RouterOSVlanDriver(d).edit_vlan(p, logger),
@@ -207,17 +248,7 @@ class MikrotikRouterActions:
             "router.mikrotik.logging.rule.enable":    lambda p, logger: RouterOSLoggingDriver(d).rule_enable(p, logger),
             "router.mikrotik.logging.rule.disable":   lambda p, logger: RouterOSLoggingDriver(d).rule_disable(p, logger),
 
-            # Reset / Backup / Reboot
-            "router.mikrotik.reset.backup": lambda p, logger: RouterOSResetDriver(d).backup_configuration(p, logger),
-            "router.mikrotik.reset.restore": lambda p, logger: RouterOSResetDriver(d).restore_configuration(p, logger),
-            "router.mikrotik.reset.export": lambda p, logger: RouterOSResetDriver(d).export_configuration(p, logger),
-            "router.mikrotik.reset.execute": lambda p, logger: RouterOSResetDriver(d).reset_configuration(p, logger),
-            "router.mikrotik.reset.reboot": lambda p, logger: RouterOSResetDriver(d).reboot_device(p, logger),
-            "router.mikrotik.reset.list_backups": lambda p, logger: RouterOSResetDriver(d).list_backups(p, logger),
-            "router.mikrotik.reset.delete_backup": lambda p, logger: RouterOSResetDriver(d).delete_backup(p, logger),
-            "router.mikrotik.reset.get_form": lambda p, logger: RouterOSResetDriver(d).get_reset_options_form(p, logger),
-            "router.mikrotik.reset.factory": lambda p, logger: RouterOSResetDriver(d).factory_reset(p, logger),
-
             # Identity / Routing
             "router.mikrotik.identity.set": lambda p, logger: d.set_identity(p),
+            "router.mikrotik.reboot":       lambda p, logger: d.reboot(p),
         }

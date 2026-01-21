@@ -3,7 +3,6 @@ from contextlib import contextmanager
 import psycopg2
 import psycopg2.pool
 
-
 class DBConnection:
     __pool = None
 
@@ -12,16 +11,16 @@ class DBConnection:
         DBConnection.__pool = psycopg2.pool.SimpleConnectionPool(
             minconn=1,
             maxconn=15,
-            host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_PORT", 5432)),
-            user=os.getenv("POSTGRES_USER", "postgres"),
-            password=os.getenv("POSTGRES_PASSWORD", ""),
-            database=os.getenv("POSTGRES_DB", "postgres"),
+            host="localhost",
+            port="5432",
+            user="admin",
+            password="admin",
+            database="sdn_controller",
             connect_timeout=5 
         )
 
         print(
-            f"🗄️ PostgreSQL pool initialized "
+            f"PostgreSQL pool initialized "
             f"({os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')})"
         )
 

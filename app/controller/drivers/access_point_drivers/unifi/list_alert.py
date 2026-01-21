@@ -1,10 +1,10 @@
 import requests
+from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 
 class UnifiAPListAlert:
     name = "list.alert"
 
-    UNIFI_BASE = "http://192.168.100.85:3000"
-    ENDPOINT = f"{UNIFI_BASE}/query_range?field=alert"
+    ENDPOINT = f"{UnifiParamikoDriver.UNIFI_BASE}/query_range?field=alert"
 
     @staticmethod
     def run(logger=None):
