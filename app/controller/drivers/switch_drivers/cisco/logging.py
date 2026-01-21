@@ -11,6 +11,84 @@ class CiscoLoggingManagement:
     def set_base(self, base):
         """Set base SSH connection"""
         self.base = base
+
+    def detect_management_interface(self, logger=None):
+        """Detect management interface automatically"""
+        try:
+            if logger:
+                logger("Detecting management interface...")
+            
+            # Cek IP interface brief untuk interface dengan IP yang sama dengan device
+            ip_brief = self.base.execute_command("show ip interface brief", enable_mode=True)
+            
+            management_ip = None
+            mgmt_interface = None
+            
+            # Dapatkan IP management dari konfigurasi atau hostname
+            running_config = self.base.execute_command("show running-config", enable_mode=True)
+            
+            # Cari interface dengan IP address
+            interface_pattern = r'interface\s+(\S+)\s*\n(?:[ \t].*\n)*[ \t]*ip\s+address\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)'
+            interfaces = re.findall(interface_pattern, running_config, re.IGNORECASE)
+            
+            for intf, ip, mask in interfaces:
+                if ip:  # Jika ada IP
+                    mgmt_interface = intf
+                    management_ip = ip
+                    if logger:
+                        logger(f"Found interface {intf} with IP {ip}")
+                    break
+            
+            # Kalau tidak ditemukan, cari VLAN interface
+            if not mgmt_interface:
+                vlan_pattern = r'interface\s+(Vlan\d+)\s*\n(?:[ \t].*\n)*[ \t]*ip\s+address\s+'
+                vlan_match = re.search(vlan_pattern, running_config, re.IGNORECASE)
+                if vlan_match:
+                    mgmt_interface = vlan_match.group(1)
+                    if logger:
+                        logger(f"Found VLAN interface {mgmt_interface}")
+            
+            # Fallback ke interface yang terhubung
+            if not mgmt_interface:
+                int_status = self.base.execute_command("show interface status", enable_mode=True)
+                lines = int_status.split('\n')
+                
+                for line in lines:
+                    line = line.strip()
+                    if not line or 'Port' in line:
+                        continue
+                    
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        interface = parts[0]
+                        status = parts[2].lower() if len(parts) > 3 else ''
+                        
+                        # Cari interface fisik yang connected
+                        if (status == 'connected' and 
+                            any(x in interface.lower() for x in ['ethernet', 'fast', 'gigabit', 'ten'])):
+                            mgmt_interface = interface
+                            if logger:
+                                logger(f"Using connected interface {interface} as management")
+                            break
+            
+            return {
+                'status': 'success',
+                'interface': mgmt_interface,
+                'ip_address': management_ip,
+                'detected': True if mgmt_interface else False
+            }
+            
+        except Exception as e:
+            error_msg = f"Error detecting management interface: {str(e)}"
+            if logger:
+                logger(error_msg)
+            self.logger.error(error_msg)
+            
+            return {
+                'status': 'error',
+                'error': str(e),
+                'interface': None
+            }
     
     def get_logging_status(self, logger=None):
         """Get current logging configuration"""
@@ -45,11 +123,21 @@ class CiscoLoggingManagement:
                 'error': str(e)
             }
     
-    def configure_syslog(self, syslog_server, facility='local7', severity='informational', port=514, protocol='udp', logger=None):
+    def configure_syslog(self, syslog_server, facility='local7', severity='informational', port=1511, 
+                         protocol='udp', logger=None):
         """Configure syslog server with port support"""
         try:
             if logger:
                 logger(f"Configuring syslog to {syslog_server}:{port}/{protocol}")
+
+            detection = self.detect_management_interface(logger)
+            if detection['status'] == 'success' and detection['interface']:
+                source_interface = detection['interface']
+                if logger:
+                    logger(f"Auto-detected management interface: {source_interface}")
+            else:
+                if logger:
+                    logger("Warning: Could not auto-detect management interface") 
 
             severity_levels = {
                 'emergencies': 0,
@@ -76,6 +164,9 @@ class CiscoLoggingManagement:
                 )
             else:
                 self.base.execute_command(f"logging host {syslog_server}", enable_mode=True)
+
+            if source_interface:
+                self.base.execute_command(f"logging source-interface {source_interface}", enable_mode=True)
 
             self.base.execute_command(f"logging trap {severity_num}", enable_mode=True)
             self.base.execute_command(f"logging facility {facility}", enable_mode=True)

@@ -55,6 +55,9 @@ from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 # === Loki Driver ===
 from drivers.loki_api import LokiAPI
 
+# === Hash Password ===
+from drivers.utils.password_hash import PasswordHasher
+
 API_INSTANCE_NAME = 'northbound_api'
 
 # Ini sesuaikan dengan secret key nya
@@ -1029,8 +1032,9 @@ class NorthboundApi(ControllerBase):
                     unique_components = [device_type, serial]
                 else: 
                     serial = device_data.get('serial_number', device_data.get('serial_number', 'unknown'))
+                    mgmt_ip = device_data.get("main_ip_address", device_data.get("ip", "no_ip"))
                     device_type = device_data.get("device_type", "unknown_type")
-                    unique_components = [device_type, serial]
+                    unique_components = [device_type, serial, mgmt_ip]
                 
                 unique_str = "_".join(str(c) for c in unique_components)
                 hash_digest = hashlib.sha256(unique_str.encode()).hexdigest()[:10]
@@ -1188,13 +1192,16 @@ class NorthboundApi(ControllerBase):
                     data["snmp_target_status"] = "skipped (access_point)"
 
             elif is_cisco:
-                # Pakai CiscoSSHDriver untuk mendapatkan data REAL dari device
+                # Pakai CiscoSSHDriver untuk mendapatkan data device
                 try:
+                    # Hash password untuk disimpan di database
+                    plain_password = data.get("password", "")
+
                     # Buat driver untuk test connection
                     cisco_driver = CiscoSSHDriver({
                         "ip": data['ip'],
                         "username": data.get("username", "admin"),
-                        "password": data.get("password", ""),
+                        "password": plain_password,
                         "enable": True,
                         "device_id": ""  # Akan diisi nanti
                     })
@@ -1237,7 +1244,7 @@ class NorthboundApi(ControllerBase):
                         "vendor": "Cisco",
                         "device_type": "switch",
                         "username": data.get("username", "admin"),
-                        "password": data.get("password", ""),
+                        "password": plain_password,
                         "identity": info.get('identity', info.get('hostname', f"cisco-{data['ip']}")),
                         "os_version": info.get('os_version', info.get('ios_version', 'Unknown')),
                         "model": info.get('model', 'Unknown'),
@@ -1248,6 +1255,37 @@ class NorthboundApi(ControllerBase):
                         "connected": True,
                         "last_seen": to_postgresql_datetime(time.time()),
                     })
+                    try:
+                        # Default logging configuration
+                        syslog_server = os.environ.get("SYSLOG_SERVER", "127.0.0.1")
+                        logging_config = {
+                            "syslog_server": syslog_server,
+                            "facility": "local7",
+                            "severity": "informational",
+                            "port": 1511,
+                            "protocol": "udp"
+                        }
+                        
+                        # Configure logging automatically
+                        logging_result = cisco_driver.logging.configure_logging(
+                            **logging_config,
+                            logger=self.core.logger.info
+                        )
+                        
+                        if logging_result.get('status') != 'success':
+                            self.core.logger.warning(f"Logging configuration failed: {logging_result}")
+                            data["logging_configured"] = False
+                            data["logging_error"] = logging_result.get('error', 'Unknown error')
+                        else:
+                            data["logging_configured"] = True
+                            data["logging_details"] = logging_result
+                            self.core.logger.info(f"Auto-configured logging for Cisco switch {device_id}")
+                            
+                    except Exception as logging_err:
+                        self.core.logger.error(f"Logging setup error: {logging_err}")
+                        data["logging_configured"] = False
+                        data["logging_error"] = str(logging_err)
+                        
                     try:
                         # Gunakan driver yang sama untuk konfigurasi SNMP
                         cisco_snmp_config = {
@@ -2000,6 +2038,77 @@ class NorthboundApi(ControllerBase):
         except Exception as e:
             self.core.logger.error(f"Error getting device {device_id}: {e}")
             return self._resp(req, json.dumps({"error": str(e)}), 500)
+
+    # === Device Management - DELETE ===
+    @route('devices', '/devices/{device_id}', methods=['DELETE'])
+    def delete_device(self, req, device_id, **kwargs):
+        """Delete a device by ID from database and memory registry"""
+        if not _check_api_key(req):
+            return self._resp(req, json.dumps({"status": "error", "error": "unauthorized"}), status=401)
+        
+        try:
+            try:
+                db_device = DeviceRepository.find_by_device_id(device_id)
+                if not db_device:
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": f"Device {device_id} not found in database"
+                    }), 404)
+                
+                device_type = db_device.get("device_type", "unknown")
+                
+                # Hapus dari network_devices table
+                DeviceRepository.delete_device(device_id)
+                
+                self.core.logger.info(f"Deleted device {device_id} (type: {device_type}) from database")
+                
+            except Exception as db_error:
+                self.core.logger.error(f"Database deletion failed for {device_id}: {db_error}")
+                return self._resp(req, json.dumps({
+                    "status": "error",
+                    "error": f"Database deletion failed: {str(db_error)}"
+                }), 500)
+            
+            # Hapus dari memory registry
+            try:
+                if hasattr(self.core, 'devices'):
+                    if device_id in self.core.devices.db:
+                        del self.core.devices.db[device_id]
+                        self.core.logger.info(f"Deleted device {device_id} from memory registry")
+            except Exception as mem_error:
+                self.core.logger.warning(f"Memory registry deletion failed: {mem_error}")
+                # Continue karena database deletion sudah sukses
+            
+            # Hapus dari SNMP targets
+            try:
+                snmp_manager = SNMPFileManager()
+                snmp_manager.delete_device(device_id)
+                self.core.logger.info(f"Deleted device {device_id} from SNMP targets")
+            except Exception as snmp_error:
+                self.core.logger.warning(f"SNMP target deletion failed: {snmp_error}")
+                # Continue karena device sudah dihapus dari database
+            
+            # Hapus dari Server targets
+            try:
+                if device_type == "server":
+                    self.core.server_file_manager.delete_device(device_id)
+                    self.core.logger.info(f"Removed device {device_id} from Prometheus targets")
+            except Exception as prom_error:
+                self.core.logger.warning(f"Prometheus target removal failed: {prom_error}")
+            
+            return self._resp(req, json.dumps({
+                "status": "success",
+                "message": f"Device {device_id} deleted successfully",
+                "device_id": device_id,
+                "device_type": device_type
+            }))
+            
+        except Exception as e:
+            self.core.logger.error(f"Device deletion failed for {device_id}: {e}")
+            return self._resp(req, json.dumps({
+                "status": "error",
+                "error": str(e)
+            }), 500)
     
     @route('devices', '/devices/{did}/heartbeat', methods=['POST'])
     def heartbeat(self, req, did, **kwargs):

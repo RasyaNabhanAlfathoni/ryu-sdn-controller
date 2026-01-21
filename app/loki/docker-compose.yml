@@ -29,8 +29,8 @@ services:
     ports:
       - "1510:1510/udp" # Syslog dari routers
       - "1510:1510/tcp"
-      - "1511:1511/udp" # Syslog dari switch devices
-      - "1511:1511/tcp"
+      - "1513:1513/udp" # Syslog dari switch devices
+      - "1513:1513/tcp"
       - "1512:1512/udp" # Syslog dari AP devices
       - "1512:1512/tcp"
       - "2514:2514/udp" # Syslog dari servers
@@ -38,3 +38,16 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Jakarta
+
+  syslogng:
+    image: balabit/syslog-ng:latest
+    container_name: syslog-ng
+    ports:
+      - "1511:1511/udp"
+    volumes:
+      - ./syslog-ng/cisco.conf:/etc/syslog-ng/syslog-ng.conf
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Jakarta
+      - PORT_IN=1511 # Default port listening
+      - PORT_OUT=1513 # Default port forward ke promtail
