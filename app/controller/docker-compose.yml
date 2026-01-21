@@ -4,22 +4,22 @@ services:
     build: .
     container_name: sdn_controller
     environment:
-      CONTROLLER_PORT: 9090
+      CONTROLLER_PORT: 9090 # Port Ryu Controller
       SERVER_AGENT_API_PORT: 8500 # Port Koneksi Server Agent API
-      POSTGRES_HOST: 192.168.221.133
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: sdn_controller
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
-      WAZUH_API_URL:
-      WAZUH_API_USER:
-      WAZUH_API_PASSWORD:
-      WAZUH_INDEXER_URL:
-      WAZUH_INDEXER_USER:
-      WAZUH_INDEXER_PASSWORD:
-      LOKI_URL:
-      SYSLOG_SERVER: 192.168.221.133
-      PASSWORD_ENCRYPTION_KEY: T6xlIWsVK6Oit9l1CQhHBtJDMPuLsDaV0Vjj20Bpcvw=
+      POSTGRES_HOST: 192.168.221.133 # IP/HOST dari Postgresql DB
+      POSTGRES_PORT: 5432 # Port Postgresql DB
+      POSTGRES_DB: sdn_controller # Nama DB
+      POSTGRES_USER: admin # User DB
+      POSTGRES_PASSWORD: admin # Password User DB
+      WAZUH_API_URL: # URL Wazuh Manager API
+      WAZUH_API_USER: # Username Wazuh Manager API
+      WAZUH_API_PASSWORD: # Password Wazuh Manager API
+      WAZUH_INDEXER_URL: # URL Wazuh Indexer
+      WAZUH_INDEXER_USER: # Username Wazuh Indexer
+      WAZUH_INDEXER_PASSWORD: # Password Wazuh INdexer
+      LOKI_URL: # URL Loki
+      SYSLOG_SERVER: 192.168.221.133 # URL Syslog Server alias Loki-Promtail
+      PASSWORD_ENCRYPTION_KEY: T6xlIWsVK6Oit9l1CQhHBtJDMPuLsDaV0Vjj20Bpcvw= # Key Enkripsi Password Kredensial Devices
       TZ: Asia/Jakarta
     ports:
       - "9090:9090" # Sesuaikan Port ini dengan CONTROLLER_PORT

@@ -55,9 +55,6 @@ from drivers.wazuh_drivers.wazuh_indexer import WazuhIndexerAPI
 # === Loki Driver ===
 from drivers.loki_api import LokiAPI
 
-# === Hash Password ===
-from drivers.utils.password_hash import PasswordHasher
-
 API_INSTANCE_NAME = 'northbound_api'
 
 # Ini sesuaikan dengan secret key nya
