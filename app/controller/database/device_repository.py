@@ -1,4 +1,5 @@
 from database.db_connection import DBConnection
+from drivers.utils.password_encrypt import PasswordCrypto
 import json
 import datetime
 import psycopg2.extras
@@ -553,6 +554,9 @@ class DeviceRepository:
         with DBConnection.get_conn() as conn:
             cursor = conn.cursor()
             try:
+                plain_password = dev.get("password", "")
+                encrypted_password = PasswordCrypto.encrypt(plain_password)
+
                 sql = """
                     INSERT INTO switchs
                     (device_id, username, password, identity, os_version,
@@ -567,7 +571,7 @@ class DeviceRepository:
                 cursor.execute(sql, (
                     dev["device_id"],
                     dev.get("username", "admin"),
-                    dev.get("password", ""),
+                    encrypted_password,
                     dev.get("identity", "unknown"),
                     dev.get("os_version", "unknown"),
                     dev.get("model", ""),
@@ -594,6 +598,53 @@ class DeviceRepository:
         with DBConnection.get_conn() as conn:
             cursor = conn.cursor()
             try:
+                # 1. CEK PASSWORD LAMA DARI DATABASE
+                existing_password = ""
+                try:
+                    check_cursor = conn.cursor(
+                        cursor_factory=psycopg2.extras.RealDictCursor
+                    )
+                    check_cursor.execute(
+                        "SELECT password FROM switchs WHERE device_id = %s", 
+                        (device_id,)
+                    )
+                    result = check_cursor.fetchone()
+                    if result:
+                        existing_password = result['password']
+                    check_cursor.close()
+                except Exception as e:
+                    print(f"[UPDATE] Error getting existing password: {e}")
+                
+                # 2. TENTUKAN PASSWORD YANG AKAN DISIMPAN
+                new_password = dev.get("password", "")
+                
+                if new_password:  # Ada password baru di request
+                    # Cek apakah password baru sudah encrypted
+                    is_encrypted = False
+                    try:
+                        # Simple check: encrypted password biasanya base64 dan panjang
+                        if new_password and len(new_password) > 30:
+                            # Coba decode base64
+                            import base64
+                            base64.b64decode(new_password)
+                            is_encrypted = True
+                    except:
+                        is_encrypted = False
+                    
+                    if is_encrypted:
+                        # Jika sudah encrypted, pakai langsung
+                        password_to_save = new_password
+                    elif new_password == existing_password:
+                        # Jika sama dengan yang lama, pakai yang lama
+                        password_to_save = existing_password
+                    else:
+                        # Encrypt password baru
+                        password_to_save = PasswordCrypto.encrypt(new_password)
+                else:
+                    # Tidak ada password baru di request, pakai yang lama
+                    password_to_save = existing_password
+                
+                # 3. UPDATE KE DATABASE
                 sql = """
                     UPDATE switchs 
                     SET username=%s, password=%s, identity=%s, os_version=%s,
@@ -606,7 +657,7 @@ class DeviceRepository:
 
                 cursor.execute(sql, (
                     dev.get("username", "admin"),
-                    dev.get("password", ""),
+                    password_to_save,  # PASSWORD YANG SUDAH DIPROSES
                     dev.get("identity", "unknown"),
                     dev.get("os_version", "unknown"),
                     dev.get("model", ""),
@@ -621,7 +672,14 @@ class DeviceRepository:
                 ))
 
                 conn.commit()
+                print(f"[UPDATE] Switch {device_id} updated successfully")
 
+            except Exception as e:
+                print(f"[UPDATE] Error updating switch {device_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                conn.rollback()
+                raise
             finally:
                 cursor.close()
 

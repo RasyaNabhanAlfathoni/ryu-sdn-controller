@@ -19,6 +19,7 @@ services:
       WAZUH_INDEXER_PASSWORD:
       LOKI_URL:
       SYSLOG_SERVER: 192.168.221.133
+      PASSWORD_ENCRYPTION_KEY: T6xlIWsVK6Oit9l1CQhHBtJDMPuLsDaV0Vjj20Bpcvw=
       TZ: Asia/Jakarta
     ports:
       - "9090:9090" # Sesuaikan Port ini dengan CONTROLLER_PORT
