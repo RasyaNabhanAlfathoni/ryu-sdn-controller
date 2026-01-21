@@ -38,6 +38,7 @@ class MikrotikRouterActions:
             "router.mikrotik.ip.pool.list": lambda p, logger: RouterOSIpPoolDriver(d).list_pool(p, logger),
 
             # Interface Management
+            "router.mikrotik.interface.add": lambda p, logger: RouterOSInterfaceDriver(d).add_interface(p, logger),
             "router.mikrotik.interface.edit": lambda p, logger: RouterOSInterfaceDriver(d).edit_interface(p, logger),
             "router.mikrotik.interface.disable": lambda p, logger: RouterOSInterfaceDriver(d).disable_interface(p, logger),
             "router.mikrotik.interface.enable": lambda p, logger: RouterOSInterfaceDriver(d).enable_interface(p, logger),

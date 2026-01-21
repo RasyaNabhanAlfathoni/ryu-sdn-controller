@@ -7,6 +7,72 @@ class RouterOSInterfaceDriver:
         """
         self.core = core_driver
 
+    def add_interface(self, p, logger=print):
+        """
+        Add logical interface (vlan, bridge, vrrp, bonding, dll).
+
+        Minimal contract:
+        {
+            "type": "vlan|bridge|vrrp|bonding|..."
+            "name": "interface-name",
+            ... other params based on type ...
+        }
+        """
+        pool, api = self.core.get_api()
+        try:
+            iface_type = p.get("type")
+            if not iface_type:
+                raise Exception("Missing interface type")
+
+                resource_map = {
+                    "vlan": "/interface/vlan",
+                    "bridge": "/interface/bridge",
+                    "bonding": "/interface/bonding",
+                    "vrrp": "/interface/vrrp",
+                    "vxlan": "/interface/vxlan",
+                    "veth": "/interface/veth",
+                    "eoip": "/interface/eoip",
+                    "gre": "/interface/gre",
+                    "wireguard": "/interface/wireguard",
+                    "macsec": "/interface/macsec",
+                    "pppoe-client": "/interface/pppoe-client",
+                    "pppoe-server": "/interface/pppoe-server",
+                    "l2tp-client": "/interface/l2tp-client",
+                    "l2tp-server": "/interface/l2tp-server",
+                    "sstp-client": "/interface/sstp-client",
+                    "sstp-server": "/interface/sstp-server",
+                    "pptp-client": "/interface/pptp-client",
+                    "pptp-server": "/interface/pptp-server",
+                }
+
+            if iface_type not in resource_map:
+                raise Exception(f"Unsupported interface type: {iface_type}")
+
+            res = api.get_resource(resource_map[iface_type])
+
+            payload = {k: v for k, v in p.items() if k != "type"}
+
+            if "name" not in payload:
+                raise Exception("Interface name is required")
+
+            res.add(**payload)
+
+            logger(f" Added {iface_type} interface: {payload.get('name')}")
+
+            return {
+                "type": iface_type,
+                "name": payload.get("name"),
+                "status": "created"
+            }
+
+        except Exception as e:
+            logger(f" Add interface failed: {str(e)}")
+            raise Exception(f"Failed to add interface: {str(e)}")
+
+        finally:
+            pool.disconnect()
+
+
     def edit_interface(self, p, logger=print):
         """
         Ganti nama interface.
