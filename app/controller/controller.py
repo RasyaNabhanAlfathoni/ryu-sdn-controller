@@ -337,95 +337,46 @@ class Orchestrator(app_manager.RyuApp):
             return False
         
     def check_switch_health(self, device):
-        """Check jika Cisco switch Paramiko accessible"""
+        """Health check Cisco switch"""
+        import socket
+        import subprocess
+        import platform
+
         try:
             device_id = device.get('device_id')
-            self.logger.info(f"Health checking Cisco switch: {device_id}")
-            
-            # Gunakan DeviceRepository untuk ambil data
+            self.logger.info(f"Checking Cisco switch: {device_id}")
+
+            # Ambil IP dari DB, fallback ke param
             try:
-                # Ambil data FRESH dari database
                 db_device = DeviceRepository.find_switch(device_id)
-                
-                if not db_device:
-                    self.logger.error(f"Switch {device_id} not found in database")
-                    return False
-                    
-                # Gunakan data dari database
-                ip_address = db_device.get('main_ip_address')
-                username = db_device.get('username')
-                password = db_device.get('password')
-                
-            except Exception as db_err:
-                self.logger.error(f"Database error for {device_id}: {db_err}")
-                # Fallback ke data dari parameter
+                ip_address = db_device.get('main_ip_address') if db_device else device.get('main_ip_address')
+            except Exception as e:
+                self.logger.warning(f"DB error, fallback param: {e}")
                 ip_address = device.get('main_ip_address')
-                username = device.get('username')
-                password = device.get('password')
-            
-            # Validasi data
+
             if not ip_address:
                 self.logger.error(f"No IP address for device {device_id}")
                 return False
-            if not username:
-                self.logger.warning(f"No username for Cisco device {device_id}, using default")
-            if not password:
-                self.logger.warning(f"No password configured for Cisco device {device_id}")
-                return False
-            
-            # trim whitespace
-            password = str(password).strip()
-            
-            # VALIDASI FINAL SEBELUM BUAT DRIVER
-            if not password:
-                self.logger.error(f"Empty password after trimming for {device_id}")
-                return False
-            
-            # **BUAT DRIVER DENGAN KONFIG YANG BENAR**
+
+            # =========================
+            # TCP PORT 22 CHECK
+            # =========================
+            self.logger.info(f"TCP check {ip_address}:22")
+
             try:
-                driver_config = {
-                    "ip": ip_address,
-                    "username": username,
-                    "password": password,
-                    "enable": True,  # Cisco biasanya butuh enable mode
-                    "device_id": device_id,
-                    "port": 22  # default SSH port
-                }
-                
-                self.logger.info(f"Creating CiscoSSHDriver with config: IP={ip_address}, User={username}")
-                
-                driver = CiscoSSHDriver(driver_config)
-                
-                # Coba get device info
-                self.logger.info(f"Testing connection to {ip_address}...")
-                info = driver.get_device_info()
-                
-                # Disconnect bersih
-                try:
-                    driver.disconnect()
-                except:
-                    pass
-                
-                connected = info.get('connected', False)
-                
-                if connected:
-                    return True
-                else:
-                    return False
-                    
-            except ValueError as e:
-                # Invalid config
-                self.logger.error(f"Invalid config for Cisco health check {device_id}: {e}")
-                return False
-            except Exception as e:
-                # Connection failed
-                self.logger.error(f"Cisco health check connection failed for {device_id}: {e}")
-                import traceback
-                self.logger.error(traceback.format_exc())
-                return False
-                
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                sock.connect((ip_address, 22))
+                sock.close()
+
+                self.logger.info(f"{device_id} UP (TCP 22 reachable)")
+                return True
+
+            except Exception as tcp_err:
+                self.logger.warning(f"TCP 22 failed: {tcp_err}")
+
         except Exception as e:
-            self.logger.error(f"Switch health check failed for {device.get('device_id', 'unknown')}: {e}")
+            self.logger.error(f"Switch health check fatal error: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
             return False

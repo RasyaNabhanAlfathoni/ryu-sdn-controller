@@ -101,6 +101,8 @@ class CiscoSSHBase:
             ]
             
             self._transport.start_client()
+
+            self._transport.set_keepalive(0)
             
             # Authentication
             self._transport.auth_password(
