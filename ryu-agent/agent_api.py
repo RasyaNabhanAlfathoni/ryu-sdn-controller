@@ -130,7 +130,6 @@ def get_routing_table():
         log_message(f"Error in get_routing_table: {e}")
         return jsonify({"error": str(e)}), 500
     
-
 @app.route('/api/network/routing/add', methods=['POST'])
 def add_route():
     # Add static route

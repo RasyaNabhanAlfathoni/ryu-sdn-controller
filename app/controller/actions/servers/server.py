@@ -8,7 +8,7 @@ class ServerActions:
     def get_actions(d, wazuh_api=None):
         return {
             # ================= NETWORK MANAGEMENT =================
-            # Interface actions dengan auto-update
+            # Interface actions
             "server.network.ip.add": lambda p, logger: ServerActions._simple_auto_update(
                 d, "add_ip", p, logger,
                 lambda: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
@@ -43,14 +43,25 @@ class ServerActions:
                 "interface"
             ),
             
-            # Network info actions (tanpa auto-update)
+            # Network info actions
             "server.network.interface.list": lambda p, logger: d.list_interfaces(logger=logger),
             "server.network.interface.info": lambda p, logger: d.get_ip_info(p.get("iface"), logger=logger),
             "server.network.port_scan": lambda p, logger: d.port_scan(p.get("target"), p.get("ports"), logger=logger),
             "server.network.routing_table": lambda p, logger: d.get_routing_table(logger=logger),
-            
+            "server.network.routing_add": lambda p, logger: d.add_route(
+                network=p.get("network"),
+                gateway=p.get("gateway"),
+                interface=p.get("interface"),
+                logger=logger
+            ),
+            "server.network.routing_delete": lambda p, logger: d.delete_route(
+                network=p.get("network"),
+                gateway=p.get("gateway"),
+                interface=p.get("interface"),
+                logger=logger
+            ),
             # ================= FIREWALL MANAGEMENT =================
-            # UFW actions dengan auto-update
+            # UFW actions
             "server.firewall.ufw.enable": lambda p, logger: ServerActions._simple_auto_update(
                 d, "ufw_enable", p, logger,
                 lambda: d.ufw_enable(logger=logger),
@@ -87,7 +98,7 @@ class ServerActions:
                 "firewall"
             ),
             
-            # Firewalld actions dengan auto-update
+            # Firewalld actions
             "server.firewall.firewalld.enable": lambda p, logger: ServerActions._simple_auto_update(
                 d, "firewalld_enable", p, logger,
                 lambda: d.firewalld_enable(logger=logger),
@@ -147,7 +158,7 @@ class ServerActions:
                 "firewall"
             ),
             
-            # NAT actions dengan auto-update
+            # NAT actions
             "server.firewall.nat.list": lambda p, logger: ServerActions._simple_auto_update(
                 d, "get_nat_rules", p, logger,
                 lambda: d.get_nat_rules(logger=logger),
