@@ -127,7 +127,6 @@ class LokiAPI:
                         "timestamp": log_time.strftime('%Y-%m-%d %H:%M:%S'),
                         "message": log_line,
                         "hostname": stream.get("hostname", "unknown"),
-                        "device_id": stream.get("device_id", "unknown"),
                         "level": extracted_level,
                         "job": stream.get("job", "unknown"),
                         "component": stream.get("component", "unknown"),
