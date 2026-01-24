@@ -31,7 +31,6 @@ from actions.routers.mikrotik import MikrotikRouterActions
 # === Switch Driver  ===
 from drivers.switch_drivers.cisco import CiscoSSHDriver
 from actions.switchs.cisco import CiscoSwitchActions
-from drivers.switch_drivers.ruijie.auto_discover import AutoDiscoverRuijie
 from actions.switchs.ruijie.global_actions import RuijieSwitchGlobalActions
 from actions.switchs.ruijie.device_actions import RuijieSwitchActions
 from drivers.switch_drivers.ruijie.ruijie_cloud import RuijieCloudDriver
@@ -110,11 +109,6 @@ class Orchestrator(app_manager.RyuApp):
 
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
-
-        # ruijie auto discovery (BACKGROUND THREAD)
-        self.ruijie_discover_thread = hub.spawn(
-            AutoDiscoverRuijie.loop
-        )
 
         # unifi auto discovery (BACKGROUND THREAD)
         self.unifi_discover_thread = hub.spawn(
@@ -222,6 +216,9 @@ class Orchestrator(app_manager.RyuApp):
                     elif device_type == 'switch' and southbound == 'paramiko':
                         # Test koneksi ke Cisco Paramiko SSH
                         is_active = self.check_switch_health(device)
+                    elif device_type == 'switch' and southbound == 'ruijie_cloud':
+                        # Test koneksi ke Ruijie Cloud
+                        is_active = self.check_switch_ruijie_health(device)
                     elif device_type == 'access_point' and southbound == 'paramiko':
                         # Test koneksi ke Paramiko
                         is_active = self.check_access_point_health(device)
@@ -379,6 +376,22 @@ class Orchestrator(app_manager.RyuApp):
             self.logger.error(f"Switch health check fatal error: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+            return False
+
+    def check_switch_ruijie_health(self, device):
+        try:
+            driver = RuijieCloudDriver(device)
+
+            connected, message = driver.test_connection()
+
+            self.logger.info(
+                f"Ruijie {device.get('device_id')} health: {message}"
+            )
+
+            return connected
+
+        except Exception as e:
+            self.logger.error(f"Ruijie health check failed: {e}")
             return False
 
     def check_access_point_health(self, device):
@@ -969,6 +982,7 @@ class NorthboundApi(ControllerBase):
             is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
             is_cisco = southbound_type in ["cisco", "paramiko"]
             is_unifi = southbound_type in ["unifi", "paramiko"]
+            is_ruijie = southbound_type in ["ruijie", "ruijie_cloud"]
             
             # === GENERATE CONSISTENT DEVICE ID ===
             def generate_device_id(device_data, registration_mode):
@@ -1003,6 +1017,9 @@ class NorthboundApi(ControllerBase):
             elif is_unifi:
                 device_type = "access_point" 
                 registration_mode = "paramiko_discovery"
+            elif is_ruijie:
+                device_type = "switch"
+                registration_mode = "ruijie_cloud_discovery"
             else:
                 return self._resp(req, json.dumps({
                     "status": "error", 
@@ -1088,23 +1105,21 @@ class NorthboundApi(ControllerBase):
 
             # === HANDLE MIKROTIK/ACTIVE DISCOVERY REGISTRATION ===
             elif is_mikrotik:
-                # Test connection first
                 info = self.core.detect_vendor(data)
-                
+
                 if not info.get("connected", False):
                     return self._resp(req, json.dumps({
                         "status": "error",
-                        "error": "Unable to connect to device or detect vendor",
+                        "error": "Unable to connect to MikroTik device",
                         "details": info
                     }), 400)
-                
+
+                detected_device_type = info.get("device_type", "router")
                 device_id = generate_device_id(data, registration_mode)
                 data["id"] = device_id
                 data["device_id"] = device_id
                 data.update(info)
-                detected_device_type = info.get("device_type", "router")
-                
-                # Map MikroTik specific fields
+
                 data.update({
                     "status": "active",
                     "southbound": "routeros_api",
@@ -1119,25 +1134,48 @@ class NorthboundApi(ControllerBase):
                     "main_mac_address": info.get("mac-address"),
                     "main_interface": info.get("main_interface"),
                     "device_type": detected_device_type,
+                    "connected": True
                 })
+                try:
+                    driver = RouterOSApiDriver({
+                        "ip": data.get("ip"),
+                        "username": data.get("username", "admin"),
+                        "password": data.get("password", ""),
+                        "device_id": device_id
+                    })
 
-                # AUTO ADD TO SNMP TARGETS (jika bukan access point)
-                if detected_device_type != "access_point":
-                    try:
-                        snmp = SNMPFileManager()
-                        snmp.add_device({
-                            "device_id": device_id,
-                            "ip": data["ip"],
-                            "module": "mikrotik",  # Module khusus Mikrotik
-                            "device_name": info.get("identity") or data.get("hostname", device_id),
-                            "location": data.get("location", "Unknown"),
-                            "community": data.get("snmp_community", "public")
-                        })
-                        data["snmp_target_status"] = "success"
-                    except Exception as e:
-                        data["snmp_target_status"] = f"failed: {str(e)}"
-                else:
-                    data["snmp_target_status"] = "skipped (access_point)"
+                    if driver.name == "routeros_api":
+                        self.core.logger.info(
+                            f"[SNMP-AUTO] configuring SNMP on RouterOS {data.get('ip')}"
+                        )
+
+                        driver.auto_configured_snmp(
+                            logger=self.core.logger.info
+                        )
+
+                        data["snmp_auto_config"] = "success"
+
+                except Exception as e:
+                    self.core.logger.warning(
+                        f"[SNMP-AUTO] failed on {data.get('ip')}: {e}"
+                    )
+                    data["snmp_auto_config"] = f"failed: {e}"
+                try:
+                    snmp = SNMPFileManager()
+
+                    snmp.add_device({
+                        "device_id": device_id,
+                        "ip": data["ip"],
+                        "module": "mikrotik",
+                        "device_name": data.get("identity") or device_id,
+                        "location": data.get("location", "Unknown"),
+                        "community": data.get("snmp_community", "public")
+                    })
+
+                    data["snmp_target_status"] = "success"
+
+                except Exception as e:
+                    data["snmp_target_status"] = f"failed: {str(e)}"
 
             elif is_cisco:
                 # Pakai CiscoSSHDriver untuk mendapatkan data device
@@ -1312,6 +1350,50 @@ class NorthboundApi(ControllerBase):
                     "device_type": "access_point",
                     "southbound": "paramiko",
                     "vendor": "unifi",
+                    "identity": info.get("identity"),
+                    "main_ip_address": info.get("main_ip_address") or data.get("ip"),
+                    "main_mac_address": info.get("main_mac_address"),
+                    "status": "active",
+                    "connected": True
+                })
+
+                # AUTO ADD TO SNMP TARGETS
+                try:
+                    snmp = SNMPFileManager()
+                    snmp.add_device({
+                        "device_id": device_id,
+                        "ip": data["ip"],
+                        "module": info.get("vendor", "Unknown").lower(),
+                        "device_name": info.get("identity") or data.get("hostname", device_id),
+                        "location": data.get("location", "Unknown")
+                    })
+                except Exception as e:
+                    data["snmp_target_status"] = f"failed: {str(e)}"
+
+            # === HANDLE RUIJIE ===
+            elif is_ruijie:
+                # === CONNECT & COLLECT INFO ===
+                driver = RuijieCloudDriver(data)
+                info = driver.get_device_info()
+
+                if not info.get("connected"):
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": "Unable to connect to Ruijie device"
+                    }), 400)
+
+                # === GENERATE DEVICE ID ===
+                device_id = generate_device_id(data, registration_mode)
+                data["id"] = device_id
+                data["device_id"] = device_id
+
+                # === MERGE INFO ===
+                data.update(info)
+
+                data.update({
+                    "device_type": info.get("device_type", "switch"),
+                    "southbound": "ruijie_cloud",
+                    "vendor": "ruijie",
                     "identity": info.get("identity"),
                     "main_ip_address": info.get("main_ip_address") or data.get("ip"),
                     "main_mac_address": info.get("main_mac_address"),
