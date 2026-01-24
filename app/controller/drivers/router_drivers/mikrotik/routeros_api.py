@@ -204,9 +204,6 @@ class RouterOSApiDriver:
             "enabled": "yes",
             "trap-community": "public",
             "trap-version": "1",
-            "trap-generators": "temp-exception",
-            "trap-interfaces": "all",
-            "vrf": "main"
         }, logger=logger)
 
         snmp.add_community({

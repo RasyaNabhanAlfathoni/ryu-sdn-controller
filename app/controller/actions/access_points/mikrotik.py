@@ -14,11 +14,13 @@ from drivers.access_point_drivers.mikrotik.firewall import MikroTikAPFirewallDri
 from drivers.access_point_drivers.mikrotik.netwatch import MikroTikAPNetwatchDriver
 from drivers.access_point_drivers.mikrotik.logging import MikroTikAPLoggingDriver
 from drivers.access_point_drivers.mikrotik.reset import MikroTikAPResetDriver
+from drivers.access_point_drivers.mikrotik.bridge import MikroTikAPBridgeDriver
 
 # Wireless Drivers
 from drivers.access_point_drivers.mikrotik.wireless.interface import MikroTikAPWirelessInterfaceDriver
 from drivers.access_point_drivers.mikrotik.wireless.wireless_scan import MikroTikAPWirelessScan
 from drivers.access_point_drivers.mikrotik.wireless.registration import MikroTikAPWirelessRegistrationDriver
+from drivers.access_point_drivers.mikrotik.wireless.security_profiles import MikroTikAPWirelessSecurityDriver
 
 # SNMP File Manager
 from drivers.snmp_file_manager import SNMPFileManager
@@ -95,6 +97,27 @@ class MikrotikAPActions:
             "ap.mikrotik.interface.comment": lambda p, logger: MikroTikAPInterfaceDriver(d).comment_interface(p, logger),
             "ap.mikrotik.interface.cable_test": lambda p, logger: MikroTikAPInterfaceDriver(d).cable_test(p, logger),
             "ap.mikrotik.interface.list": lambda p, logger: MikroTikAPInterfaceDriver(d).list_interface(p, logger),
+
+            # Bridge Management
+            "ap.mikrotik.bridge.add": lambda p, logger: MikroTikAPBridgeDriver(d).add_bridge(p, logger),
+            "ap.mikrotik.bridge.edit": lambda p, logger: MikroTikAPBridgeDriver(d).edit_bridge(p, logger),
+            "ap.mikrotik.bridge.enable": lambda p, logger: MikroTikAPBridgeDriver(d).enable_bridge(p, logger),
+            "ap.mikrotik.bridge.disable": lambda p, logger: MikroTikAPBridgeDriver(d).disable_bridge(p, logger),
+            "ap.mikrotik.bridge.delete": lambda p, logger: MikroTikAPBridgeDriver(d).delete_bridge(p, logger),
+            "ap.mikrotik.bridge.list": lambda p, logger: MikroTikAPBridgeDriver(d).list_bridge(p, logger),
+            "ap.mikrotik.bridge.port.add":     lambda p, logger: MikroTikAPBridgeDriver(d).add_port(p, logger),
+            "ap.mikrotik.bridge.port.edit":    lambda p, logger: MikroTikAPBridgeDriver(d).edit_port(p, logger),
+            "ap.mikrotik.bridge.port.enable":  lambda p, logger: MikroTikAPBridgeDriver(d).enable_port(p, logger),
+            "ap.mikrotik.bridge.port.disable": lambda p, logger: MikroTikAPBridgeDriver(d).disable_port(p, logger),
+            "ap.mikrotik.bridge.port.delete":  lambda p, logger: MikroTikAPBridgeDriver(d).delete_port(p, logger),
+            "ap.mikrotik.bridge.port.list":    lambda p, logger: MikroTikAPBridgeDriver(d).list_ports(p, logger),
+            "ap.mikrotik.bridge.vlan.add":     lambda p, logger: MikroTikAPBridgeDriver(d).add_vlan(p, logger),
+            "ap.mikrotik.bridge.vlan.edit":    lambda p, logger: MikroTikAPBridgeDriver(d).edit_vlan(p, logger),
+            "ap.mikrotik.bridge.vlan.enable":  lambda p, logger: MikroTikAPBridgeDriver(d).enable_vlan(p, logger),
+            "ap.mikrotik.bridge.vlan.disable": lambda p, logger: MikroTikAPBridgeDriver(d).disable_vlan(p, logger),
+            "ap.mikrotik.bridge.vlan.delete":  lambda p, logger: MikroTikAPBridgeDriver(d).delete_vlan(p, logger),
+            "ap.mikrotik.bridge.vlan.list":    lambda p, logger: MikroTikAPBridgeDriver(d).vlan_list(p, logger),
+            "ap.mikrotik.bridge.vlan.mvrp.list":    lambda p, logger: MikroTikAPBridgeDriver(d).mvrp_list(p, logger),
 
             # VLAN Management
             "ap.mikrotik.vlan.add": lambda p, logger: MikroTikAPVlanDriver(d).add_vlan(p, logger),

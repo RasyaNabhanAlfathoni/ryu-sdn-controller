@@ -9,6 +9,8 @@ import psutil
 import subprocess
 import json
 import datetime
+import argparse
+import os
 
 app = Flask(__name__)
 
@@ -814,6 +816,23 @@ def health(detailed=False):
             "error": str(e)
         }
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Agent API Server')
+    parser.add_argument('--port', type=int, default=8081)
+    parser.add_argument('--host', type=str, default='0.0.0.0')
+    parser.add_argument('--debug', action='store_true')
+    return parser.parse_args()
+
 if __name__ == '__main__':
-    print("Starting Agent API on http://0.0.0.0:8081")
-    app.run(host='0.0.0.0', port=8081, debug=False)
+    args = parse_arguments()
+
+    port = int(os.environ.get('AGENT_API_PORT', args.port))
+    host = os.environ.get('AGENT_API_HOST', args.host)
+
+    env_debug = os.environ.get('AGENT_DEBUG')
+    debug = args.debug if env_debug is None else env_debug.lower() == 'true'
+
+    print(f"Starting Agent API on http://{host}:{port}")
+    print(f"Debug mode: {debug}")
+
+    app.run(host=host, port=port, debug=debug)

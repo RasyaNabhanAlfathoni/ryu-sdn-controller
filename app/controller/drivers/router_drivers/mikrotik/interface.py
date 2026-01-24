@@ -153,6 +153,8 @@ class RouterOSInterfaceDriver:
 
     def list_interface(self, p=None, logger=print):
         """
+        List semua interface RouterOS.
+
         Return:
         [
             {

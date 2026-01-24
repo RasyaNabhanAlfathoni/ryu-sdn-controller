@@ -13,11 +13,14 @@ from drivers.router_drivers.mikrotik.queues import RouterOSQueuesDriver
 from drivers.router_drivers.mikrotik.firewall import RouterOSFirewallDriver
 from drivers.router_drivers.mikrotik.netwatch import RouterOSNetwatchDriver
 from drivers.router_drivers.mikrotik.logging import RouterOSLoggingDriver
+from drivers.router_drivers.mikrotik.reset import MikroTikRouterResetDriver
+from drivers.router_drivers.mikrotik.bridge import RouterOSBridgeDriver
 
 # Wireless Drivers
 from drivers.router_drivers.mikrotik.wireless.interface import MikroTikRouterWirelessInterfaceDriver
 from drivers.router_drivers.mikrotik.wireless.wireless_scan import MikroTikRouterWirelessScan
 from drivers.router_drivers.mikrotik.wireless.registration import MikroTikRouterWirelessRegistrationDriver
+from drivers.router_drivers.mikrotik.wireless.security_profiles import MikroTikRouterWirelessSecurityDriver
 
 # SNMP File Manager
 from drivers.snmp_file_manager import SNMPFileManager
@@ -85,6 +88,27 @@ class MikrotikRouterActions:
             "router.mikrotik.interface.comment": lambda p, logger: RouterOSInterfaceDriver(d).comment_interface(p, logger),
             "router.mikrotik.interface.cable_test": lambda p, logger: RouterOSInterfaceDriver(d).cable_test(p, logger),
             "router.mikrotik.interface.list": lambda p, logger: RouterOSInterfaceDriver(d).list_interface(p, logger),
+
+            # Bridge Management
+            "router.mikrotik.bridge.add": lambda p, logger: RouterOSBridgeDriver(d).add_bridge(p, logger),
+            "router.mikrotik.bridge.edit": lambda p, logger: RouterOSBridgeDriver(d).edit_bridge(p, logger),
+            "router.mikrotik.bridge.enable": lambda p, logger: RouterOSBridgeDriver(d).enable_bridge(p, logger),
+            "router.mikrotik.bridge.disable": lambda p, logger: RouterOSBridgeDriver(d).disable_bridge(p, logger),
+            "router.mikrotik.bridge.delete": lambda p, logger: RouterOSBridgeDriver(d).delete_bridge(p, logger),
+            "router.mikrotik.bridge.list": lambda p, logger: RouterOSBridgeDriver(d).list_bridge(p, logger),
+            "router.mikrotik.bridge.port.add":     lambda p, logger: RouterOSBridgeDriver(d).add_port(p, logger),
+            "router.mikrotik.bridge.port.edit":    lambda p, logger: RouterOSBridgeDriver(d).edit_port(p, logger),
+            "router.mikrotik.bridge.port.enable":  lambda p, logger: RouterOSBridgeDriver(d).enable_port(p, logger),
+            "router.mikrotik.bridge.port.disable": lambda p, logger: RouterOSBridgeDriver(d).disable_port(p, logger),
+            "router.mikrotik.bridge.port.delete":  lambda p, logger: RouterOSBridgeDriver(d).delete_port(p, logger),
+            "router.mikrotik.bridge.port.list":    lambda p, logger: RouterOSBridgeDriver(d).list_ports(p, logger),
+            "router.mikrotik.bridge.vlan.add":     lambda p, logger: RouterOSBridgeDriver(d).add_vlan(p, logger),
+            "router.mikrotik.bridge.vlan.edit":    lambda p, logger: RouterOSBridgeDriver(d).edit_vlan(p, logger),
+            "router.mikrotik.bridge.vlan.enable":  lambda p, logger: RouterOSBridgeDriver(d).enable_vlan(p, logger),
+            "router.mikrotik.bridge.vlan.disable": lambda p, logger: RouterOSBridgeDriver(d).disable_vlan(p, logger),
+            "router.mikrotik.bridge.vlan.delete":  lambda p, logger: RouterOSBridgeDriver(d).delete_vlan(p, logger),
+            "router.mikrotik.bridge.vlan.list":    lambda p, logger: RouterOSBridgeDriver(d).vlan_list(p, logger),
+            "router.mikrotik.bridge.vlan.mvrp.list":    lambda p, logger: RouterOSBridgeDriver(d).mvrp_list(p, logger),
 
             # VLAN Management
             "router.mikrotik.vlan.add": lambda p, logger: RouterOSVlanDriver(d).add_vlan(p, logger),
