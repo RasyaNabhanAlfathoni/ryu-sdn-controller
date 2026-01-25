@@ -1,4 +1,3 @@
-from drivers.switch_drivers.ruijie.auto_discover import AutoDiscoverRuijie
 from drivers.switch_drivers.ruijie.network_group import RuijieNetworkGroupsAPI
 from drivers.switch_drivers.ruijie.voucher import RuijieVoucherManagementAPI
 from drivers.switch_drivers.ruijie.auth_account import RuijieAuthAccountManagementAPI
@@ -8,13 +7,14 @@ from drivers.switch_drivers.ruijie.client_information import RuijieClientInforma
 from drivers.switch_drivers.ruijie.user_group import RuijieUserGroupManagementAPI
 from drivers.switch_drivers.ruijie.wifi_management import RuijieWiFiManagementAPI
 from drivers.switch_drivers.ruijie.traffic_statistics import RuijieTrafficStatisticsAPI
+from drivers.switch_drivers.ruijie.ruijie_cloud import RuijieCloudDriver
 
 class RuijieSwitchGlobalActions:
 
     @staticmethod
     def get_actions(d):
 
-        token = AutoDiscoverRuijie.ACCESS_TOKEN
+        token = RuijieCloudDriver.ACCESS_TOKEN
 
         return {
             "list.network.group.ruijie": lambda p, logger: (

@@ -188,7 +188,7 @@ class CiscoSwitchActions:
                 syslog_server=p['syslog_server'],
                 facility=p.get('facility', 'local7'),
                 severity=p.get('severity', 'informational'),
-                port=p.get('port', 514),
+                port=p.get('port', 1511),
                 protocol=p.get('protocol', 'udp'),
                 logger=logger
             ),

@@ -6,6 +6,7 @@ from datetime import datetime
 import threading
 from queue import Queue
 import socket
+import base64 
 
 class CiscoSSHBase:
     """SSH base class untuk Cisco"""
@@ -17,8 +18,57 @@ class CiscoSSHBase:
         self.connected = False
         self.lock = threading.Lock()
         self._capabilities = None
-        self._transport = None
+        self._transport = None  # Tambahkan transport reference
+        self._decrypt_password_if_needed()
 
+    def _decrypt_password_if_needed(self):
+        """Decrypt password jika terenkripsi"""
+        password = self.config.get('password', '')
+        
+        if not password:
+            print(f"[SSH-BASE] No password provided in config")
+            return
+        
+        # Cek apakah password terenkripsi
+        if self._is_encrypted(password):
+            print(f"[SSH-BASE] Password appears to be encrypted, attempting to decrypt...")
+            
+            try:
+                # Try decrypt dengan utility
+                from drivers.utils.password_encrypt import PasswordCrypto
+                decrypted = PasswordCrypto.decrypt(password)
+                
+                if decrypted:
+                    self.config['password'] = decrypted
+                    print(f"[SSH-BASE] Password decrypted successfully")
+                else:
+                    print(f"[SSH-BASE] Failed to decrypt password (might be bcrypt hash)")
+                    
+            except ImportError as e:
+                print(f"[SSH-BASE] Cannot import PasswordCrypto: {e}")
+                
+        else:
+            print(f"[SSH-BASE] Password is plain text")
+    
+    def _is_encrypted(self, text: str) -> bool:
+        """Cek apakah text terenkripsi"""
+        if not text:
+            return False
+        
+        # Base64 encoded (encrypted text biasanya base64)
+        try:
+            decoded = base64.b64decode(text.encode())
+            # Encrypted text biasanya panjang (> 16 bytes)
+            return len(decoded) > 16
+        except:
+            pass
+        
+        # Bcrypt hash (format: $2b$...)
+        if text.startswith('$2'):
+            return True  # Ini hash, bukan encrypted, tapi tetap perlu penanganan khusus
+            
+        return False
+        
     def connect(self):
         try:
             print(f"[SSH-BASE] Connecting to {self.config['ip']}:{self.config.get('port', 22)}")
@@ -46,8 +96,10 @@ class CiscoSSHBase:
             ]
 
             self._transport.start_client()
-            self._transport.set_keepalive(10)
 
+            self._transport.set_keepalive(0)
+            
+            # Authentication
             self._transport.auth_password(
                 username=str(username),
                 password=str(password)

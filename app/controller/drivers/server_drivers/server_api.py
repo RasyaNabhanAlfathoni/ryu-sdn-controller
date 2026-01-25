@@ -237,6 +237,36 @@ class ServerAPI:
     def get_routing_table(self, logger=None):
         """Get routing table"""
         return self._call_agent("/api/network/routing", logger=logger)
+
+    def add_route(self, network, gateway=None, interface=None, logger=None):
+        """Add static route"""
+        data = {"network": network}
+        if gateway:
+            data["gateway"] = gateway
+        if interface:
+            data["interface"] = interface
+        
+        return self._call_agent(
+            "/api/network/routing/add", 
+            method="POST", 
+            data=data,
+            logger=logger
+        )
+
+    def delete_route(self, network, gateway=None, interface=None, logger=None):
+        """Delete static route"""
+        data = {"network": network}
+        if gateway:
+            data["gateway"] = gateway
+        if interface:
+            data["interface"] = interface
+        
+        return self._call_agent(
+            "/api/network/routing/delete", 
+            method="POST", 
+            data=data,
+            logger=logger
+        )
     
     
     # === Firewall UFW Management Methods ===

@@ -1,12 +1,12 @@
 import requests
 from database.device_repository import DeviceRepository
+from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 
 class UnifiAPStatusControllerDevice:
     # HARUS DOT STYLE
     name = "status.control.device"
 
-    UNIFI_BASE = "http://192.168.100.85:3000"
-    DEVICE_ENDPOINT = f"{UNIFI_BASE}/query_range?field=device"
+    DEVICE_ENDPOINT = f"{UnifiParamikoDriver.UNIFI_BASE}/query_range?field=device"
 
 
     # GLOBAL ACTION

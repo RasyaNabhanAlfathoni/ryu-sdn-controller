@@ -150,3 +150,48 @@ class MikroTikAPInterfaceDriver:
 
         finally:
             pool.disconnect()
+
+    def list_interface(self, p=None, logger=print):
+        """
+        Return:
+        [
+            {
+                "id": "*1",
+                "name": "ether1",
+                "type": "ether",
+                "mtu": "1500",
+                "mac_address": "DC:2C:6E:XX:XX:XX",
+                "running": "true",
+                "disabled": "false",
+                "comment": "Uplink ISP"
+            }
+        ]
+        """
+        pool, api = self.core.get_api()
+        try:
+            res = api.get_resource('/interface')
+            data = res.get()
+
+            out = []
+            for item in data:
+                row = dict(item)
+
+                # normalize ID
+                row["id"] = item.get(".id") or item.get("id")
+
+                # normalize fields
+                row["name"] = item.get("name")
+                row["type"] = item.get("type")
+                row["mtu"] = item.get("mtu")
+                row["mac_address"] = item.get("mac-address")
+                row["running"] = item.get("running")
+                row["disabled"] = item.get("disabled")
+                row["comment"] = item.get("comment")
+
+                out.append(row)
+
+            logger("interface.list completed")
+            return out
+
+        finally:
+            pool.disconnect()

@@ -31,7 +31,6 @@ from actions.routers.mikrotik import MikrotikRouterActions
 # === Switch Driver  ===
 from drivers.switch_drivers.cisco import CiscoSSHDriver
 from actions.switchs.cisco import CiscoSwitchActions
-from drivers.switch_drivers.ruijie.auto_discover import AutoDiscoverRuijie
 from actions.switchs.ruijie.global_actions import RuijieSwitchGlobalActions
 from actions.switchs.ruijie.device_actions import RuijieSwitchActions
 from drivers.switch_drivers.ruijie.ruijie_cloud import RuijieCloudDriver
@@ -110,11 +109,6 @@ class Orchestrator(app_manager.RyuApp):
 
         self.queue = hub.Queue()
         self.worker = hub.spawn(self.worker_loop)
-
-        # ruijie auto discovery (BACKGROUND THREAD)
-        self.ruijie_discover_thread = hub.spawn(
-            AutoDiscoverRuijie.loop
-        )
 
         # unifi auto discovery (BACKGROUND THREAD)
         self.unifi_discover_thread = hub.spawn(
@@ -222,6 +216,9 @@ class Orchestrator(app_manager.RyuApp):
                     elif device_type == 'switch' and southbound == 'paramiko':
                         # Test koneksi ke Cisco Paramiko SSH
                         is_active = self.check_switch_health(device)
+                    elif device_type == 'switch' and southbound == 'ruijie_cloud':
+                        # Test koneksi ke Ruijie Cloud
+                        is_active = self.check_switch_ruijie_health(device)
                     elif device_type == 'access_point' and southbound == 'paramiko':
                         # Test koneksi ke Paramiko
                         is_active = self.check_access_point_health(device)
@@ -337,97 +334,64 @@ class Orchestrator(app_manager.RyuApp):
             return False
         
     def check_switch_health(self, device):
-        """Check jika Cisco switch Paramiko accessible"""
+        """Health check Cisco switch"""
+        import socket
+        import subprocess
+        import platform
+
         try:
             device_id = device.get('device_id')
-            self.logger.info(f"Health checking Cisco switch: {device_id}")
-            
-            # Gunakan DeviceRepository untuk ambil data
+            self.logger.info(f"Checking Cisco switch: {device_id}")
+
+            # Ambil IP dari DB, fallback ke param
             try:
-                # Ambil data FRESH dari database
                 db_device = DeviceRepository.find_switch(device_id)
-                
-                if not db_device:
-                    self.logger.error(f"Switch {device_id} not found in database")
-                    return False
-                    
-                # Gunakan data dari database
-                ip_address = db_device.get('main_ip_address')
-                username = db_device.get('username')
-                password = db_device.get('password')
-                
-            except Exception as db_err:
-                self.logger.error(f"Database error for {device_id}: {db_err}")
-                # Fallback ke data dari parameter
+                ip_address = db_device.get('main_ip_address') if db_device else device.get('main_ip_address')
+            except Exception as e:
+                self.logger.warning(f"DB error, fallback param: {e}")
                 ip_address = device.get('main_ip_address')
-                username = device.get('username')
-                password = device.get('password')
-            
-            # Validasi data
+
             if not ip_address:
                 self.logger.error(f"No IP address for device {device_id}")
                 return False
-            if not username:
-                self.logger.warning(f"No username for Cisco device {device_id}, using default")
-            if not password:
-                self.logger.warning(f"No password configured for Cisco device {device_id}")
-                return False
-            
-            # trim whitespace
-            password = str(password).strip()
-            
-            # VALIDASI FINAL SEBELUM BUAT DRIVER
-            if not password:
-                self.logger.error(f"Empty password after trimming for {device_id}")
-                return False
-            
-            # **BUAT DRIVER DENGAN KONFIG YANG BENAR**
+
+            # =========================
+            # TCP PORT 22 CHECK
+            # =========================
+            self.logger.info(f"TCP check {ip_address}:22")
+
             try:
-                driver_config = {
-                    "ip": ip_address,
-                    "username": username,
-                    "password": password,
-                    "enable": True,  # Cisco biasanya butuh enable mode
-                    "device_id": device_id,
-                    "port": 22  # default SSH port
-                }
-                
-                self.logger.info(f"Creating CiscoSSHDriver with config: IP={ip_address}, User={username}")
-                
-                driver = CiscoSSHDriver(driver_config)
-                
-                # Coba get device info
-                self.logger.info(f"Testing connection to {ip_address}...")
-                info = driver.get_device_info()
-                
-                # Disconnect bersih
-                try:
-                    driver.disconnect()
-                except:
-                    pass
-                
-                connected = info.get('connected', False)
-                
-                if connected:
-                    return True
-                else:
-                    return False
-                    
-            except ValueError as e:
-                # Invalid config
-                self.logger.error(f"Invalid config for Cisco health check {device_id}: {e}")
-                return False
-            except Exception as e:
-                # Connection failed
-                self.logger.error(f"Cisco health check connection failed for {device_id}: {e}")
-                import traceback
-                self.logger.error(traceback.format_exc())
-                return False
-                
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                sock.connect((ip_address, 22))
+                sock.close()
+
+                self.logger.info(f"{device_id} UP (TCP 22 reachable)")
+                return True
+
+            except Exception as tcp_err:
+                self.logger.warning(f"TCP 22 failed: {tcp_err}")
+
         except Exception as e:
-            self.logger.error(f"Switch health check failed for {device.get('device_id', 'unknown')}: {e}")
+            self.logger.error(f"Switch health check fatal error: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+            return False
+
+    def check_switch_ruijie_health(self, device):
+        try:
+            driver = RuijieCloudDriver(device)
+
+            connected, message = driver.test_connection()
+
+            self.logger.info(
+                f"Ruijie {device.get('device_id')} health: {message}"
+            )
+
+            return connected
+
+        except Exception as e:
+            self.logger.error(f"Ruijie health check failed: {e}")
             return False
 
     def check_access_point_health(self, device):
@@ -1030,6 +994,7 @@ class NorthboundApi(ControllerBase):
             is_mikrotik = southbound_type in ["mikrotik", "routeros_api"]
             is_cisco = southbound_type in ["cisco", "paramiko"]
             is_unifi = southbound_type in ["unifi", "paramiko"]
+            is_ruijie = southbound_type in ["ruijie", "ruijie_cloud"]
             
             if is_server:
                 device_type = "server"
@@ -1043,6 +1008,9 @@ class NorthboundApi(ControllerBase):
             elif is_unifi:
                 device_type = "access_point"
                 registration_mode = "paramiko_discovery"
+            elif is_ruijie:
+                device_type = "switch"
+                registration_mode = "ruijie_cloud_discovery"
             else:
                 return self._resp(req, json.dumps({
                     "status": "error", 
@@ -1220,7 +1188,7 @@ class NorthboundApi(ControllerBase):
             elif is_mikrotik:
                 # Test connection to Mikrotik device
                 info = self.core.detect_vendor(data)
-                
+
                 if not info.get("connected", False):
                     return self._resp(req, json.dumps({
                         "status": "error",
@@ -1258,7 +1226,7 @@ class NorthboundApi(ControllerBase):
                     cisco_driver = CiscoSSHDriver({
                         "ip": data['ip'],
                         "username": data.get("username", "admin"),
-                        "password": data.get("password", ""),
+                        "password": plain_password,
                         "enable": True,
                         "device_id": device_id
                     })
@@ -1278,7 +1246,7 @@ class NorthboundApi(ControllerBase):
                         "vendor": "Cisco",
                         "device_type": "switch",
                         "username": data.get("username", "admin"),
-                        "password": data.get("password", ""),
+                        "password": plain_password,
                         "identity": info.get('identity', info.get('hostname', f"cisco-{data['ip']}")),
                         "os_version": info.get('os_version', info.get('ios_version', 'Unknown')),
                         "model": info.get('model', 'Unknown'),
@@ -1970,6 +1938,77 @@ class NorthboundApi(ControllerBase):
         except Exception as e:
             self.core.logger.error(f"Error getting device {device_id}: {e}")
             return self._resp(req, json.dumps({"error": str(e)}), 500)
+
+    # === Device Management - DELETE ===
+    @route('devices', '/devices/{device_id}', methods=['DELETE'])
+    def delete_device(self, req, device_id, **kwargs):
+        """Delete a device by ID from database and memory registry"""
+        if not _check_api_key(req):
+            return self._resp(req, json.dumps({"status": "error", "error": "unauthorized"}), status=401)
+        
+        try:
+            try:
+                db_device = DeviceRepository.find_by_device_id(device_id)
+                if not db_device:
+                    return self._resp(req, json.dumps({
+                        "status": "error",
+                        "error": f"Device {device_id} not found in database"
+                    }), 404)
+                
+                device_type = db_device.get("device_type", "unknown")
+                
+                # Hapus dari network_devices table
+                DeviceRepository.delete_device(device_id)
+                
+                self.core.logger.info(f"Deleted device {device_id} (type: {device_type}) from database")
+                
+            except Exception as db_error:
+                self.core.logger.error(f"Database deletion failed for {device_id}: {db_error}")
+                return self._resp(req, json.dumps({
+                    "status": "error",
+                    "error": f"Database deletion failed: {str(db_error)}"
+                }), 500)
+            
+            # Hapus dari memory registry
+            try:
+                if hasattr(self.core, 'devices'):
+                    if device_id in self.core.devices.db:
+                        del self.core.devices.db[device_id]
+                        self.core.logger.info(f"Deleted device {device_id} from memory registry")
+            except Exception as mem_error:
+                self.core.logger.warning(f"Memory registry deletion failed: {mem_error}")
+                # Continue karena database deletion sudah sukses
+            
+            # Hapus dari SNMP targets
+            try:
+                snmp_manager = SNMPFileManager()
+                snmp_manager.delete_device(device_id)
+                self.core.logger.info(f"Deleted device {device_id} from SNMP targets")
+            except Exception as snmp_error:
+                self.core.logger.warning(f"SNMP target deletion failed: {snmp_error}")
+                # Continue karena device sudah dihapus dari database
+            
+            # Hapus dari Server targets
+            try:
+                if device_type == "server":
+                    self.core.server_file_manager.delete_device(device_id)
+                    self.core.logger.info(f"Removed device {device_id} from Prometheus targets")
+            except Exception as prom_error:
+                self.core.logger.warning(f"Prometheus target removal failed: {prom_error}")
+            
+            return self._resp(req, json.dumps({
+                "status": "success",
+                "message": f"Device {device_id} deleted successfully",
+                "device_id": device_id,
+                "device_type": device_type
+            }))
+            
+        except Exception as e:
+            self.core.logger.error(f"Device deletion failed for {device_id}: {e}")
+            return self._resp(req, json.dumps({
+                "status": "error",
+                "error": str(e)
+            }), 500)
     
     @route('devices', '/devices/{did}/heartbeat', methods=['POST'])
     def heartbeat(self, req, did, **kwargs):

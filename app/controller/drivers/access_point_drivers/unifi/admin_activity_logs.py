@@ -1,10 +1,9 @@
 import requests
+from drivers.access_point_drivers.unifi.paramiko import UnifiParamikoDriver
 
 class UnifiAPAdminActivityLogs:
     name = "admin_activity_logs"
-
-    UNIFI_BASE = "http://192.168.100.85:3000"
-    ENDPOINT = f"{UNIFI_BASE}/query_range?field=admin_activity_log"
+    ENDPOINT = f"{UnifiParamikoDriver.UNIFI_BASE}/query_range?field=admin_activity_log"
 
     @staticmethod
     def run(logger=None):

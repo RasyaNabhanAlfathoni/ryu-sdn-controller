@@ -91,3 +91,54 @@ class ServerFileManager:
                 return json.load(f)
         except:
             return []
+        
+    def delete_device(self, device_id):
+        """Remove a device from server targets JSON file"""
+        try:
+            # Baca file targets
+            with open(self.targets_file, 'r') as f:
+                targets = json.load(f)
+            
+            # Hitung target sebelum
+            initial_count = len(targets)
+            
+            # Filter out device dengan device_id yang sesuai
+            filtered_targets = [
+                target for target in targets 
+                if target.get("labels", {}).get("device_id") != device_id
+            ]
+            
+            # Cek apakah ada perubahan
+            if len(filtered_targets) == initial_count:
+                print(f"Device {device_id} not found in server targets")
+                return False
+            
+            # Tulis kembali ke file
+            with open(self.targets_file, 'w') as f:
+                json.dump(filtered_targets, f, indent=2)
+            
+            removed_count = initial_count - len(filtered_targets)
+            print(f"Removed {removed_count} target(s) for device {device_id} from server_targets.json")
+            
+            # Restart Prometheus jika diperlukan
+            # self.restart_prometheus()
+            
+            return True
+            
+        except FileNotFoundError:
+            print(f"Server targets file not found: {self.targets_file}")
+            return False
+        except json.JSONDecodeError:
+            print(f"Invalid JSON in {self.targets_file}")
+            return False
+        except Exception as e:
+            print(f"Error deleting device {device_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        
+    # def restart_prometheus(self):
+    #     try:
+    #         subprocess.run(["docker", "restart", "prometheus"], check=True)
+    #     except Exception as e:
+    #         raise Exception(f"Failed to restart prometheus: {str(e)}")

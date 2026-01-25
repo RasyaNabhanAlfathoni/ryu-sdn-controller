@@ -3,6 +3,7 @@ import time
 
 class UnifiParamikoDriver:
     name = "paramiko"
+    UNIFI_BASE = "http://11.11.11.11:3000"
 
     def __init__(self, device_info):
         self.dev = device_info

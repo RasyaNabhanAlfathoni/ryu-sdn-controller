@@ -1,3 +1,4 @@
+from drivers.access_point_drivers.mikrotik.snmp import MikroTikAPSNMPDriver
 from routeros_api import RouterOsApiPool
 from librouteros import connect
 
@@ -176,3 +177,32 @@ class RouterOSApiDriver:
             return True, ident
         finally:
             pool.disconnect()
+
+    def auto_configured_snmp(self, logger=print):
+        """
+        Auto provision SNMP default on MikroTik
+        """
+
+        logger(f"[SNMP-AUTO] Configuring SNMP on {self.host}")
+
+        snmp = MikroTikAPSNMPDriver(self)
+
+        snmp.edit_snmp_config({
+            "enabled": "yes",
+            "trap-community": "public",
+            "trap-version": "1",
+            "trap-generators": "temp-exception",
+            "trap-interfaces": "all",
+            "vrf": "main"
+        }, logger=logger)
+
+        snmp.add_community({
+            "name": "public",
+            "addresses": "::/0",
+            "security": "none",
+            "read-access": "yes",
+            "write-access": "no",
+            "comment": "Auto configured by SDN Controller"
+        }, logger=logger)
+
+        logger("[SNMP-AUTO] MikroTik SNMP configured successfully")

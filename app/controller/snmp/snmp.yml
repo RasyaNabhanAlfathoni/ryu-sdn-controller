@@ -17,6 +17,12 @@ auths:
     # auth_protocol: MD5
     # priv_protocol: DES
     version: 2
+  mikrotik_public:
+    community: public
+    # security_level: noAuthNoPriv
+    # auth_protocol: MD5
+    # priv_protocol: DES
+    version: 2
 modules:
   mikrotik:
     walk:
@@ -430,85 +436,78 @@ modules:
 
   cisco:
     walk:
-      # Standard MIB
       - 1.3.6.1.2.1.1 # system
-      - 1.3.6.1.2.1.2 # interfaces
-      - 1.3.6.1.2.1.17 # bridge
-      - 1.3.6.1.2.1.31 # ifXTable
-      - 1.3.6.1.2.1.47 # entity (hardware info)
-
-      # Cisco Enterprise
-      - 1.3.6.1.4.1.9
-      - 1.3.6.1.4.1.9.9.23 # VLAN name
-      - 1.3.6.1.4.1.9.9.46 # VLAN info
-
+      - 1.3.6.1.2.1.2
+      - 1.3.6.1.2.1.31
+      - 1.3.6.1.4.1.9.2.1
     metrics:
-      # ======================
-      # SYSTEM INFORMATION
-      - name: cisco_system_description
+      - name: SystemDescription
         oid: 1.3.6.1.2.1.1.1.0
         type: DisplayString
-
-      - name: cisco_system_uptime
+      - name: SystemUptime
         oid: 1.3.6.1.2.1.1.3.0
         type: gauge
-        help: Uptime perangkat (timeticks)
-
-      - name: cisco_system_name
+      - name: SystemName
         oid: 1.3.6.1.2.1.1.5.0
         type: DisplayString
-
-      - name: cisco_device_status
+      - name: PhysicalDescription
+        oid: 1.3.6.1.2.1.47.1.1.1.1.2.1
+        type: DisplayString
+        help: Spesifikasi fisik perangkat / interface
+      - name: HardwareModel
+        oid: 1.3.6.1.2.1.47.1.1.1.1.13.1
+        type: DisplayString
+      - name: SoftwareVersion
+        oid: 1.3.6.1.2.1.47.1.1.1.1.9.1
+        type: DisplayString
+      - name: SerialNumber
+        oid: 1.3.6.1.2.1.47.1.1.1.1.11.1
+        type: DisplayString
+      - name: CiscoDeviceStatus
         oid: 1.3.6.1.4.1.9.2.1.2.0
         type: gauge
         help: Status perangkat Cisco (vendor specific)
-
-      - name: cisco_hostname
-        oid: 1.3.6.1.2.1.47.1.1.1.1.7.1
-        type: DisplayString
-
-      - name: cisco_short_description
-        oid: 1.3.6.1.2.1.47.1.1.1.1.2.1
-        type: DisplayString
-
-      - name: cisco_hardware_model
-        oid: 1.3.6.1.2.1.47.1.1.1.1.13.1
-        type: DisplayString
-
-      - name: cisco_software_version
-        oid: 1.3.6.1.2.1.47.1.1.1.1.9.1
-        type: DisplayString
-
-      - name: cisco_serial_number
-        oid: 1.3.6.1.2.1.47.1.1.1.1.11.1
-        type: DisplayString
-
-      - name: cisco_base_mac
+      - name: DeviceBaseMac
         oid: 1.3.6.1.2.1.17.1.1.0
         type: OctetString
         help: MAC address utama perangkat
-
-      # ======================
-      # INTERFACE INFORMATION
-      - name: cisco_interface_name
+      - name: InterfaceName
         oid: 1.3.6.1.2.1.31.1.1.1.1
         type: DisplayString
         indexes:
           - labelname: ifIndex
             type: gauge
-
-      - name: cisco_interface_type
+      - name: InterfaceType
         oid: 1.3.6.1.2.1.2.2.1.3
         type: gauge
-        help: Tipe interface (6=ethernet, 135=vlan)
+        help: 6=ethernet, 135=vlan, dll
         indexes:
           - labelname: ifIndex
             type: gauge
-
-      - name: cisco_interface_status
+      - name: InterfaceStatus
         oid: 1.3.6.1.2.1.2.2.1.8
         type: gauge
         help: 1=up, 2=down
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+      - name: InterfaceSpeed
+        oid: 1.3.6.1.2.1.2.2.1.5
+        type: gauge
+        help: Kecepatan interface (bps)
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+      - name: InterfaceMAC
+        oid: 1.3.6.1.2.1.2.2.1.6
+        type: OctetString
+        indexes:
+          - labelname: ifIndex
+            type: gauge
+      - name: ifHCInOctets
+        oid: 1.3.6.1.2.1.31.1.1.1.6
+        type: counter
+        help: Total bytes diterima
         indexes:
           - labelname: ifIndex
             type: gauge
@@ -517,72 +516,43 @@ modules:
             labelname: ifName
             oid: 1.3.6.1.2.1.31.1.1.1.1
             type: DisplayString
-
-      - name: cisco_interface_speed
-        oid: 1.3.6.1.2.1.2.2.1.5
-        type: gauge
-        help: Kecepatan interface (bps)
-        indexes:
-          - labelname: ifIndex
-            type: gauge
-
-      - name: cisco_interface_mac
-        oid: 1.3.6.1.2.1.2.2.1.6
-        type: OctetString
-        indexes:
-          - labelname: ifIndex
-            type: gauge
-
-      - name: cisco_if_in_bytes
-        oid: 1.3.6.1.2.1.2.2.1.10
-        type: counter
-        help: Incoming bytes (since boot)
-        indexes:
-          - labelname: ifIndex
-            type: gauge
-
-      - name: cisco_if_out_bytes
-        oid: 1.3.6.1.2.1.2.2.1.16
-        type: counter
-        help: Outgoing bytes (since boot)
-        indexes:
-          - labelname: ifIndex
-            type: gauge
-
-      - name: cisco_if_in_packets
-        oid: 1.3.6.1.2.1.2.2.1.11
-        type: counter
-        indexes:
-          - labelname: ifIndex
-            type: gauge
-
-      - name: cisco_if_out_packets
-        oid: 1.3.6.1.2.1.2.2.1.17
-        type: counter
-        indexes:
-          - labelname: ifIndex
-            type: gauge
-
-      - name: cisco_if_bits_sent
+      - name: ifHCOutOctets
         oid: 1.3.6.1.2.1.31.1.1.1.10
-        type: counter64
-        help: Bits sent (high capacity)
+        type: counter
+        help: Total bytes dikirim
         indexes:
           - labelname: ifIndex
             type: gauge
-
-      # ======================
-      # VLAN INFORMATION
-      - name: cisco_vlan_id
+        lookups:
+          - labels: [ifIndex]
+            labelname: ifName
+            oid: 1.3.6.1.2.1.31.1.1.1.1
+            type: DisplayString
+      - name: CiscoVlanId
         oid: 1.3.6.1.4.1.9.9.46.1.3.1.1.4
         type: gauge
         indexes:
           - labelname: vlanIndex
             type: gauge
-
-      - name: cisco_vlan_name
-        oid: 1.3.6.1.4.1.9.9.23.1.2.1.1.7
+      - name: CiscoVlanName
+        oid: 1.3.6.1.4.1.9.9.46.1.3.1.1.18
         type: DisplayString
         indexes:
           - labelname: vlanIndex
             type: gauge
+      - name: CiscoProcessCpu
+        oid: 1.3.6.1.4.1.9.9.48.1.1.1
+        type: gauge
+        help: Informasi process / CPU Cisco
+      - name: CiscoCpuLoad
+        oid: 1.3.6.1.4.1.9.2.1.56.0
+        type: gauge
+        help: CPU utilization Cisco IOS (1m)
+      - name: CiscoMemoryUsed
+        oid: 1.3.6.1.4.1.9.2.1.8.0
+        type: gauge
+        help: Used memory Cisco IOS
+      - name: CiscoMemoryFree
+        oid: 1.3.6.1.4.1.9.2.1.9.0
+        type: gauge
+        help: Free memory Cisco IOS

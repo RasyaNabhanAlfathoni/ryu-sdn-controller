@@ -2,8 +2,14 @@ import yaml, json, subprocess, os
 
 class SNMPFileManager:
     def __init__(self):
-        BASE_PROM_DIR = os.getenv("PROMETHEUS_DIR", "/home/student/ryu/ryu/prometheus")
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+        BASE_PROM_DIR = os.getenv(
+            "PROMETHEUS_DIR",
+            os.path.join(BASE_DIR, "../snmp")
+        )
+
+        BASE_PROM_DIR = os.path.abspath(BASE_PROM_DIR)
         self.snmp_yml_path = os.path.join(BASE_PROM_DIR, "snmp.yml")
         self.snmp_targets_path = os.path.join(BASE_PROM_DIR, "snmp_targets.json")
 
@@ -44,7 +50,11 @@ class SNMPFileManager:
         with open(self.snmp_targets_path, "r") as f:
             targets = json.load(f)
 
-        new_targets = [t for t in targets if t["id"] != device_id]
+        new_targets = [
+            t for t in targets 
+            if t.get("labels", {}).get("id") != device_id
+        ]
+
 
         if len(new_targets) == len(targets):
             raise Exception(f"Device ID {device_id} not found")
@@ -62,7 +72,7 @@ class SNMPFileManager:
         found = False
 
         for t in targets:
-            if t["id"] == device_id:
+            if t.get("labels", {}).get("id") == device_id:
                 if "ip" in new_data:
                     t["targets"] = [new_data["ip"]]
                 if "module" in new_data:

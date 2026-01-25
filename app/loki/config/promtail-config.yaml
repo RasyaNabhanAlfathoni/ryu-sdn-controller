@@ -1,6 +1,7 @@
 server:
   http_listen_port: 9080
   grpc_listen_port: 0
+  log_level: debug
 
 positions:
   filename: /tmp/positions.yaml
@@ -36,7 +37,7 @@ scrape_configs:
         target_label: "hostname"
 
       - source_labels: ["__syslog_message_severity"]
-        target_label: "syslog_severity"
+        target_label: "level"
 
       - source_labels: ["__syslog_message_facility"]
         target_label: "syslog_facility"
@@ -60,14 +61,14 @@ scrape_configs:
         target_label: "hostname"
 
       - source_labels: ["__syslog_message_severity"]
-        target_label: "syslog_severity"
+        target_label: "level"
 
       - source_labels: ["__syslog_message_facility"]
         target_label: "syslog_facility"
 
   - job_name: switch-syslog
     syslog:
-      listen_address: 0.0.0.0:1511
+      listen_address: 0.0.0.0:1513
       listen_protocol: udp
       idle_timeout: 60s
       syslog_format: rfc3164
@@ -84,7 +85,7 @@ scrape_configs:
         target_label: "hostname"
 
       - source_labels: ["__syslog_message_severity"]
-        target_label: "syslog_severity"
+        target_label: "level"
 
       - source_labels: ["__syslog_message_facility"]
         target_label: "syslog_facility"

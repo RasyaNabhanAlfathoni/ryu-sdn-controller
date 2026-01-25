@@ -18,3 +18,4 @@ fastapi
 uvicorn
 jinja2
 ncclient
+pycryptodome
