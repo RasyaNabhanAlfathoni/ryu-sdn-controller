@@ -38,3 +38,4 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Jakarta
+    network_mode: host

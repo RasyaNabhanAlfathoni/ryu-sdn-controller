@@ -127,7 +127,6 @@ class LokiAPI:
                         "timestamp": log_time.strftime('%Y-%m-%d %H:%M:%S'),
                         "message": log_line,
                         "hostname": stream.get("hostname", "unknown"),
-                        "device_id": stream.get("device_id", "unknown"),
                         "level": extracted_level,
                         "job": stream.get("job", "unknown"),
                         "component": stream.get("component", "unknown"),
@@ -144,48 +143,67 @@ class LokiAPI:
         return result
     
     def search_logs(self, params: Dict, logger=None) -> Dict:
-        """
-        Search logs dengan keyword
-        
-        Args:
-            params: Dictionary dengan parameter:
-                - keyword: Required search keyword
-                - device_id: Optional filter by device
-                - device_type: Optional filter by device type
-                - limit: Optional (default: 100)
-                - hours: Optional (default: 24)
-            logger: Optional logger function
-        """
         if logger:
             logger(f"Searching logs with params: {params}")
-        
-        keyword = params.get("keyword", "")
-        if not keyword:
-            return {"status": "error", "error": "Search keyword required"}
-        
-        # Build label filters
+
         label_filters = []
-        
+
+        # ===== WAJIB =====
+        job = params.get("job")
+        job_match = params.get("job_match", "=")
+
+        if not job:
+            return {
+                "status": "error",
+                "error": "job is required for Loki query"
+            }
+
+        if job_match == "=":
+            label_filters.append(f'job="{job}"')
+        else:
+            label_filters.append(f'job=~"{job}"')
+
+        # ===== OPTIONAL =====
+        hostname = params.get("hostname")
+        if hostname:
+            label_filters.append(f'hostname="{hostname}"')
+
         device_id = params.get("device_id")
         if device_id:
             label_filters.append(f'device_id="{device_id}"')
-        
-        device_type = params.get("device_type")
-        if device_type:
-            label_filters.append(f'component="{device_type}"')
-        
-        # Build query
-        if label_filters:
-            label_query = "{" + ",".join(label_filters) + "}"
+
+        level = params.get("level")
+
+        label_query = "{" + ",".join(label_filters) + "}"
+
+        pipeline = []
+
+        if level:
+            # match severity OR detected_level
+            pipeline.append(
+                f'|~ "(?i)severity={level}|detected_level={level}"'
+            )
+
+        keyword = params.get("keyword")
+        if keyword:
+            pipeline.append(f'|= "{keyword}"')
+
+        query = " ".join([label_query] + pipeline)
+
+
+        label_query = "{" + ",".join(label_filters) + "}"
+
+        keyword = params.get("keyword")
+        if keyword:
             query = f'{label_query} |= "{keyword}"'
         else:
-            query = f'{{}} |= "{keyword}"'
-        
+            query = label_query
+
         limit = params.get("limit", 100)
         hours = params.get("hours", 24)
-        
+
         return self.query_range(query, limit=limit, hours=hours)
-    
+
     def health(self, params: Dict = None, logger=None) -> Dict:
         """Check Loki health"""
         try:
