@@ -13,7 +13,7 @@ from drivers.router_drivers.mikrotik.queues import RouterOSQueuesDriver
 from drivers.router_drivers.mikrotik.firewall import RouterOSFirewallDriver
 from drivers.router_drivers.mikrotik.netwatch import RouterOSNetwatchDriver
 from drivers.router_drivers.mikrotik.logging import RouterOSLoggingDriver
-from drivers.router_drivers.mikrotik.reset import MikroTikRouterResetDriver
+from drivers.router_drivers.mikrotik.reset import RouterOSResetDriver
 from drivers.router_drivers.mikrotik.bridge import RouterOSBridgeDriver
 
 # Wireless Drivers
