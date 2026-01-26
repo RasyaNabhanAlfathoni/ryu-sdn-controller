@@ -272,7 +272,7 @@ class MikrotikRouterActions:
             "router.mikrotik.logging.rule.enable":    lambda p, logger: RouterOSLoggingDriver(d).rule_enable(p, logger),
             "router.mikrotik.logging.rule.disable":   lambda p, logger: RouterOSLoggingDriver(d).rule_disable(p, logger),
 
-            # Identity / Routing
-            "router.mikrotik.identity.set": lambda p, logger: d.set_identity(p),
-            "router.mikrotik.reboot":       lambda p, logger: d.reboot(p),
+            # Identity / Update Management
+            "router.mikrotik.identity.set": lambda p, logger: d.set_identity(p, logger),
+            "router.mikrotik.device.update":  lambda p, logger: d.update_device(p, logger),
         }
