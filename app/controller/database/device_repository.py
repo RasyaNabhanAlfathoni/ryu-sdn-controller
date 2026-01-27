@@ -339,6 +339,66 @@ class DeviceRepository:
                 cursor.close()
 
     # ============================
+    # UPDATE SERVER PARTIAL (Untuk update field yg diperlukan aja)
+    # ============================
+    @staticmethod
+    def update_server_partial(device_id, update_data):
+        """Update server dengan partial data"""
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                # Build dynamic SQL query berdasarkan field yang ada
+                fields = []
+                values = []
+                
+                # Field yang diperbolehkan untuk diupdate
+                allowed_fields = [
+                    "hostname", "main_username", "os_version", "architecture",
+                    "architecture_bits", "processor_type", "vendor", "serial_number",
+                    "main_ip_address", "main_mac_address", "main_interface",
+                    "southbound", "status", "virtualization"
+                ]
+                
+                # Filter hanya field yang ada di update_data dan di allowed_fields
+                for field in allowed_fields:
+                    if field in update_data:
+                        fields.append(f"{field}=%s")
+                        values.append(update_data[field])
+                
+                # Tambahkan timestamp
+                fields.append("updated_at=NOW()")
+                fields.append("last_seen=NOW()")
+                
+                # Jika ada field yang akan diupdate
+                if fields:
+                    sql = f"""
+                        UPDATE servers 
+                        SET {', '.join(fields)}
+                        WHERE device_id=%s
+                    """
+                    
+                    # Tambahkan device_id ke values
+                    values.append(device_id)
+                    
+                    cursor.execute(sql, values)
+                    conn.commit()
+                    
+                    print(f"[DB-PARTIAL-UPDATE] Updated {len(fields)-2} fields for server {device_id}")
+                    return True
+                else:
+                    print(f"[DB-PARTIAL-UPDATE] No fields to update for server {device_id}")
+                    return False
+                    
+            except Exception as e:
+                print(f"[DB-PARTIAL-UPDATE-ERROR] Failed to update server {device_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    # ============================
     # GET SERVER ID
     # ============================
     @staticmethod

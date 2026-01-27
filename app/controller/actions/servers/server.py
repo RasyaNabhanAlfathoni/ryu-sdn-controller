@@ -1,6 +1,7 @@
 from drivers.server_drivers.server_api import ServerAPI
 from drivers.wazuh_drivers.wazuh_api import WazuhAPI
 from database.device_repository import DeviceRepository
+import datetime
 
 class ServerActions:
 
@@ -9,18 +10,10 @@ class ServerActions:
         return {
             # ================= NETWORK MANAGEMENT =================
             # Interface actions
-            "server.network.ip.add": lambda p, logger: ServerActions._simple_auto_update(
-                d, "add_ip", p, logger,
-                lambda: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-                "interface"
-            ),
-            "server.network.ip.remove": lambda p, logger: ServerActions._simple_auto_update(
-                d, "del_ip", p, logger,
-                lambda: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
-                "interface"
-            ),
-            "server.network.interface.configure": lambda p, logger: ServerActions._simple_auto_update(
-                d, "configure_interface", p, logger,
+            "server.network.ip.add": lambda p, logger: d.add_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+            "server.network.ip.remove": lambda p, logger: d.del_ip(p.get("iface"), p.get("ip_cidr"), logger=logger),
+            "server.network.interface.configure": lambda p, logger: ServerActions._configure_interface_with_guard(
+                d, p, logger,
                 lambda: d.configure_interface(
                     iface=p.get("iface"), 
                     ip_cidr=p.get("ip_cidr"),
@@ -30,18 +23,10 @@ class ServerActions:
                     dhcp=p.get("dhcp", False),
                     logger=logger
                 ),
-                "interface"
             ),
-            "server.network.interface.enable": lambda p, logger: ServerActions._simple_auto_update(
-                d, "enable_interface", p, logger,
-                lambda: d.enable_interface(p.get("iface"), logger=logger),
-                "interface"
-            ),
-            "server.network.interface.disable": lambda p, logger: ServerActions._simple_auto_update(
-                d, "disable_interface", p, logger,
-                lambda: d.disable_interface(p.get("iface"), logger=logger),
-                "interface"
-            ),
+
+            "server.network.interface.enable": lambda p, logger: d.enable_interface(p.get("iface"), logger=logger),
+            "server.network.interface.disable": lambda p, logger: d.disable_interface(p.get("iface"), logger=logger),
             
             # Network info actions
             "server.network.interface.list": lambda p, logger: d.list_interfaces(logger=logger),
@@ -62,118 +47,46 @@ class ServerActions:
             ),
             # ================= FIREWALL MANAGEMENT =================
             # UFW actions
-            "server.firewall.ufw.enable": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_enable", p, logger,
-                lambda: d.ufw_enable(logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.disable": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_disable", p, logger,
-                lambda: d.ufw_disable(logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.reload": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_reload", p, logger,
-                lambda: d.ufw_reload(logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.reset": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_reset", p, logger,
-                lambda: d.ufw_reset(logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.allow": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_allow", p, logger,
-                lambda: d.ufw_allow(p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.deny": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_deny", p, logger,
-                lambda: d.ufw_deny(p.get("port_proto"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.ufw.delete": lambda p, logger: ServerActions._simple_auto_update(
-                d, "ufw_delete", p, logger,
-                lambda: d.ufw_delete(p.get("rule"), logger=logger),
-                "firewall"
-            ),
+            "server.firewall.ufw.enable": lambda p, logger: d.ufw_enable(logger=logger),
+            "server.firewall.ufw.disable": lambda p, logger: d.ufw_disable(logger=logger),
+            "server.firewall.ufw.reload": lambda p, logger: d.ufw_reload(logger=logger),
+            "server.firewall.ufw.reset": lambda p, logger: d.ufw_reset(logger=logger),
+            "server.firewall.ufw.allow": lambda p, logger: d.ufw_allow(p.get("port_proto"), logger=logger),
+            "server.firewall.ufw.deny": lambda p, logger: d.ufw_deny(p.get("port_proto"), logger=logger),
+            "server.firewall.ufw.delete": lambda p, logger: d.ufw_delete(p.get("rule"), logger=logger),
             
             # Firewalld actions
-            "server.firewall.firewalld.enable": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewalld_enable", p, logger,
-                lambda: d.firewalld_enable(logger=logger),
-                "firewall"
+            "server.firewall.firewalld.enable": lambda p, logger: d.firewalld_enable(logger=logger),
+            "server.firewall.firewalld.disable": lambda p, logger: d.firewalld_disable(logger=logger),
+            "server.firewall.firewalld.reload": lambda p, logger: d.firewall_reload(logger=logger),
+            "server.firewall.firewalld.add_port": lambda p, logger: d.firewall_add_port(
+                p.get("port_proto"), 
+                p.get("zone", "public"),
+                logger=logger
             ),
-            "server.firewall.firewalld.disable": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewalld_disable", p, logger,
-                lambda: d.firewalld_disable(logger=logger),
-                "firewall"
+            "server.firewall.firewalld.remove_port": lambda p, logger: d.firewall_remove_port(
+                p.get("port_proto"),
+                p.get("zone", "public"),
+                logger=logger
             ),
-            "server.firewall.firewalld.reload": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewall_reload", p, logger,
-                lambda: d.firewall_reload(logger=logger),
-                "firewall"
+            "server.firewall.firewalld.enable_masquerade": lambda p, logger: d.firewall_enable_masquerade(
+                p.get("zone", "public"),
+                logger=logger
             ),
-            "server.firewall.firewalld.add_port": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewall_add_port", p, logger,
-                lambda: d.firewall_add_port(
-                    p.get("port_proto"), 
-                    p.get("zone", "public"),  # Default zonenya public
-                    logger=logger
-                ),
-                "firewall"
+            "server.firewall.firewalld.disable_masquerade": lambda p, logger: d.firewall_disable_masquerade(
+                p.get("zone", "public"),
+                logger=logger
             ),
-            "server.firewall.firewalld.remove_port": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewall_remove_port", p, logger,
-                lambda: d.firewall_remove_port(
-                    p.get("port_proto"),
-                    p.get("zone", "public"),  # Default zonenya public
-                    logger=logger
-                ),
-                "firewall"
-            ),
-            "server.firewall.firewalld.enable_masquerade": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewall_enable_masquerade", p, logger,
-                lambda: d.firewall_enable_masquerade(
-                    p.get("zone", "public"),  # Default zonenya public
-                    logger=logger
-                ),
-                "firewall"
-            ),
-            "server.firewall.firewalld.disable_masquerade": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewall_disable_masquerade", p, logger,
-                lambda: d.firewall_disable_masquerade(
-                    p.get("zone", "public"),  # Default zonenya public
-                    logger=logger
-                ),
-                "firewall"
-            ),
-            "server.firewall.firewalld.command": lambda p, logger: ServerActions._simple_auto_update(
-                d, "firewall_cmd", p, logger,
-                lambda: d.firewall_cmd(
-                    p.get("args"),
-                    p.get("zone"),
-                    logger=logger
-                ),
-                "firewall"
+            "server.firewall.firewalld.command": lambda p, logger: d.firewall_cmd(
+                p.get("args"),
+                p.get("zone"),
+                logger=logger
             ),
             
             # NAT actions
-            "server.firewall.nat.list": lambda p, logger: ServerActions._simple_auto_update(
-                d, "get_nat_rules", p, logger,
-                lambda: d.get_nat_rules(logger=logger),
-                "firewall"
-            ),
-            "server.firewall.nat.add": lambda p, logger: ServerActions._simple_auto_update(
-                d, "setup_nat", p, logger,
-                lambda: d.setup_nat(p.get("interface"), logger=logger),
-                "firewall"
-            ),
-            "server.firewall.nat.clear": lambda p, logger: ServerActions._simple_auto_update(
-                d, "clear_nat", p, logger,
-                lambda: d.clear_nat(logger=logger),
-                "firewall"
-            ),
+            "server.firewall.nat.list": lambda p, logger: d.get_nat_rules(logger=logger),
+            "server.firewall.nat.add": lambda p, logger: d.setup_nat(p.get("interface"), logger=logger),
+            "server.firewall.nat.clear": lambda p, logger: d.clear_nat(logger=logger),
             
             # Firewall info actions (tanpa auto-update)
             "server.firewall.ufw.status": lambda p, logger: d.ufw_status(logger=logger),
@@ -183,9 +96,13 @@ class ServerActions:
             "server.firewall.status": lambda p, logger: d.status_all(logger=logger),
             "server.firewall.detect_type": lambda p, logger: d.detect_firewall(logger=logger),
             "server.system.hostname.get": lambda p, logger: d.get_hostname(logger=logger),
-            "server.system.hostname.set": lambda p, logger: d.set_hostname(
-                hostname=p.get("hostname"),
-                logger=logger
+            "server.system.hostname.set": lambda p, logger: ServerActions._simple_auto_update(
+                d, "set_hostname", p, logger,
+                lambda: d.set_hostname(
+                    hostname=p.get("hostname"),
+                    logger=logger
+                ),
+                "hostname"
             ),
             "server.system.reboot": lambda p, logger: d.reboot(
                 delay_seconds=p.get("delay_seconds", 0),
@@ -280,10 +197,10 @@ class ServerActions:
     @staticmethod
     def _simple_auto_update(driver, action_name, params, logger, action_func, update_type):
         """Simple auto-update ke database setelah action"""
-        # 1. Execute action dulu
+        # Execute action dulu
         result = action_func()
         
-        # 2. Try to update database (jangan ganggu jika gagal)
+        # Coba update database
         try:
             device_id = getattr(driver, 'device_id', None) or params.get("device_id")
             
@@ -291,103 +208,89 @@ class ServerActions:
                 logger(f"[AUTO-UPDATE] No device_id, skipping update")
                 return result
             
-            if update_type == "firewall":
-                # Get current firewall status
-                firewall_status = driver.status_all(logger=logger)
-                if firewall_status:
-                    # Simple update ke database
-                    DeviceRepository.update_server_firewall_state(
-                        device_id=device_id,
-                        firewall_state=firewall_status
-                    )
-                    logger(f"[AUTO-UPDATE] Firewall state updated in DB")
+            if update_type == "hostname":
+                # Extract hostname dari result
+                hostname = ""
+                
+                if action_name == "set_hostname":
+                    hostname = params.get("hostname", "")
+                
+                if hostname:
+                    logger(f"[AUTO-UPDATE] Detected hostname: {hostname}")
                     
-            elif update_type == "interface":
-                # Get interface name dari params
-                iface = params.get("iface")
-                if iface:
-                    # DEBUG: Tunggu sebentar agar interface configuration settle
-                    import time
-                    time.sleep(5)  # Tunggu 5 detik
-                    
-                    logger(f"[AUTO-UPDATE] Getting interface info for {iface} after action")
-                    
-                    # Get current interface info
-                    interface_info = driver.get_ip_info(iface, logger=logger)
-                    
-                    # DEBUG: Cek data yang dikembalikan
-                    logger(f"[AUTO-UPDATE] Interface info from agent: {interface_info}")
-                    logger(f"[AUTO-UPDATE] Type: {type(interface_info)}")
-                    
-                    if interface_info:
-                        # Perbaiki jika data tidak lengkap
-                        if isinstance(interface_info, dict):
-                            if "status" not in interface_info or interface_info["status"] == "unknown":
-                                logger(f"[AUTO-UPDATE] Status not found in response, detecting...")
+                    # Update hostname ke database
+                    try:
+                        # Dapatkan data server saat ini
+                        current_data = DeviceRepository.find_by_device_id(device_id)
+                        if current_data:
+                            current_hostname = current_data.get('hostname', '')
+                            
+                            # Cek apakah hostname berubah
+                            if hostname and hostname != current_hostname:
+                                update_data = {
+                                    "hostname": hostname,
+                                    "status": "active",
+                                    "last_seen": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                }
                                 
-                                # Coba deteksi status berdasarkan action yang baru dilakukan
-                                if action_name == "enable_interface":
-                                    interface_info["status"] = "up"
-                                elif action_name == "disable_interface":
-                                    interface_info["status"] = "down"
-                                else:
-                                    # Default: unknown
-                                    interface_info["status"] = "unknown"
-                                    
-                            # Jika address kosong, tapi ada IP di params, gunakan itu
-                            if not interface_info.get("address") and "ip_cidr" in params:
-                                try:
-                                    # Extract IP dari ip_cidr
-                                    ip_cidr = params["ip_cidr"]
-                                    ip_address = ip_cidr.split("/")[0]
-                                    interface_info["address"] = ip_address
-                                    logger(f"[AUTO-UPDATE] Using IP from params: {ip_address}")
-                                    
-                                    # Hitung netmask dari CIDR
-                                    cidr_prefix = int(ip_cidr.split("/")[1]) if "/" in ip_cidr else 24
-                                    # Convert prefix to netmask
-                                    mask = (0xffffffff << (32 - cidr_prefix)) & 0xffffffff
-                                    netmask = f"{(mask >> 24) & 0xff}.{(mask >> 16) & 0xff}.{(mask >> 8) & 0xff}.{mask & 0xff}"
-                                    interface_info["netmask"] = netmask
-                                    logger(f"[AUTO-UPDATE] Calculated netmask: {netmask}")
-                                except Exception as e:
-                                    logger(f"[AUTO-UPDATE] Error extracting IP from params: {e}")
-                            
-                            # Hitung broadcast jika tidak ada
-                            if "address" in interface_info and "netmask" in interface_info:
-                                try:
-                                    import ipaddress
-                                    ip_addr = interface_info["address"]
-                                    netmask = interface_info["netmask"]
-                                    
-                                    # Convert netmask to prefix
-                                    if "." in netmask:
-                                        prefix = sum(bin(int(x)).count('1') for x in netmask.split('.'))
-                                    else:
-                                        prefix = int(netmask)
-                                    
-                                    cidr = f"{ip_addr}/{prefix}"
-                                    network = ipaddress.IPv4Network(cidr, strict=False)
-                                    interface_info["ip_broadcast"] = str(network.broadcast_address)
-                                    logger(f"[AUTO-UPDATE] Calculated broadcast: {interface_info['ip_broadcast']}")
-                                except Exception as e:
-                                    logger(f"[AUTO-UPDATE] Cannot calculate broadcast: {e}")
-                                    interface_info["ip_broadcast"] = ""
-                            
-                            # Simple update ke database
-                            success = DeviceRepository.update_interface_state(
-                                device_id=device_id,
-                                interface_name=iface,
-                                interface_data=interface_info
-                            )
-                            logger(f"[AUTO-UPDATE] Interface {iface} update {'success' if success else 'failed'} in DB")
-                        else:
-                            logger(f"[AUTO-UPDATE] Interface info is not a dict: {type(interface_info)}")
-                    else:
-                        logger(f"[AUTO-UPDATE] No interface info returned from agent")
+                                DeviceRepository.update_server_partial(device_id, update_data)
+                                logger(f"[AUTO-UPDATE] Hostname updated in DB: {current_hostname} -> {hostname}")
+                            else:
+                                logger(f"[AUTO-UPDATE] Hostname unchanged: {hostname}")
+                    except Exception as e:
+                        logger(f"[AUTO-UPDATE-WARNING] Failed to update hostname: {e}")
             
         except Exception as e:
             # Jangan throw error, cukup log
             logger(f"[AUTO-UPDATE-WARNING] {e}")
         
         return result
+
+    @staticmethod
+    def _configure_interface_with_guard(driver, params, logger, action_func):
+        """Prevention in IP pada main_interface"""
+        device_id = getattr(driver, 'device_id', None) or params.get("device_id")
+        iface = params.get("iface")
+        ip_cidr = params.get("ip_cidr")
+        
+        if not device_id or not iface or not ip_cidr:
+            return action_func()
+        
+        try:
+            current_data = DeviceRepository.find_by_device_id(device_id)
+            if not current_data:
+                return action_func()
+            
+            main_iface = current_data.get("main_interface")
+            main_ip = current_data.get("main_ip_address")
+            
+            if main_ip:
+                new_ip = ip_cidr.split("/")[0]
+                
+                if iface == main_iface and new_ip != main_ip:
+                    logger(
+                        f"[GUARD] BLOCKED: Attempt to change MAIN interface "
+                        f"{iface} IP {main_ip} -> {new_ip}"
+                    )
+                    # Return error
+                    return {
+                        "success": False,
+                        "error": "Changing IP of main interface is not allowed. Please re-register or reconnect the device manually.",
+                        "blocked": True,
+                        "details": {
+                            "interface": iface,
+                            "current_ip": main_ip,
+                            "attempted_ip": new_ip
+                        }
+                    }
+        except Exception as e:
+            logger(f"[GUARD-WARNING] {e}")
+            # Jika guard gagal, tetap block untuk safety
+            return {
+                "success": False,
+                "error": f"Guard check failed: {str(e)}",
+                "blocked": True
+            }
+        
+        # Hanya eksekusi jika tidak diblokir
+        return action_func()

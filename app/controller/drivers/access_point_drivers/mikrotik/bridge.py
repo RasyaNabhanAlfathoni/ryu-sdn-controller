@@ -1,8 +1,7 @@
 from librouteros import connect
 from routeros_api import RouterOsApiPool
 
-
-class MikrotikAPBridgeDriver:
+class MikroTikAPBridgeDriver:
     name = "routerosapi_bridge"
 
     def __init__(self, dev):

@@ -282,5 +282,6 @@ class MikrotikAPActions:
             "ap.mikrotik.logging.rule.disable":   lambda p, logger: MikroTikAPLoggingDriver(d).rule_disable(p, logger),
 
             # Identity / Routing
-            "ap.mikrotik.identity.set": lambda p, logger: d.set_identity(p),
+            "ap.mikrotik.identity.set": lambda p, logger: d.set_identity(p, logger),
+            "ap.mikrotik.device.update": lambda p, logger: d.update_device(p, logger),
         }

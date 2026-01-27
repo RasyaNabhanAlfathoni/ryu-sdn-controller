@@ -1,4 +1,5 @@
 from drivers.access_point_drivers.mikrotik.snmp import MikroTikAPSNMPDriver
+from database.device_repository import DeviceRepository
 from routeros_api import RouterOsApiPool
 from librouteros import connect
 
@@ -159,11 +160,22 @@ class RouterOSApiDriver:
         except Exception as e:
             raise Exception(f"[API v1 & v2 FAILED] Cannot read RouterOS: {e}")
 
-    def set_identity(self, p, logger=print):
+    def set_identity(self, p, logger=None):
         pool, api = self.get_api()
         try:
             api.get_resource('/system/identity').set(name=p["name"])
-            logger(f"identity set -> {p['name']}")
+            if logger:
+                logger(f"identity set on device -> {p['name']}")
+            old = DeviceRepository.find_by_device_id(self.dev["device_id"])
+            if not old:
+                if logger:
+                    logger("[DB] access point not found, skip db update")
+                return
+            old["identity"] = p["name"]
+            DeviceRepository.update_access_point(self.dev["device_id"], old)
+            if logger:
+                logger(f"[DB] identity updated -> {p['name']}")
+
         finally:
             pool.disconnect()
 
@@ -173,8 +185,16 @@ class RouterOSApiDriver:
     def test_connection(self):
         pool, api = self.get_api()
         try:
-            ident = api.get_resource('/system/identity').get()[0]["name"]
-            return True, ident
+            identity = api.get_resource('/system/identity').get()[0]["name"]
+
+            rb = api.get_resource('/system/routerboard').get()
+            serial = rb[0].get("serial-number", "UNKNOWN") if rb else "UNKNOWN"
+
+            return True, {
+                "identity": identity,
+                "serial-number": serial
+            }
+
         finally:
             pool.disconnect()
 
@@ -206,3 +226,67 @@ class RouterOSApiDriver:
         }, logger=logger)
 
         logger("[SNMP-AUTO] MikroTik SNMP configured successfully")
+
+    def update_device(self, p, logger=None):
+        old = DeviceRepository.find_by_device_id(self.dev["device_id"])
+        if not old:
+            raise Exception("device not found in database")
+
+        new_ip = p.get("ip") or old["main_ip_address"]
+        new_user = p.get("username") or old["username"]
+        new_pw = p.get("password") or old["password"]
+
+        if ("username" in p) ^ ("password" in p):
+            raise Exception("username and password must be updated together")
+
+        if logger:
+            logger(f"[UPDATE] trying connect to {new_ip}")
+
+        test_dev = {
+            **old,
+            "ip": new_ip,
+            "username": new_user,
+            "password": new_pw
+        }
+        test_driver = RouterOSApiDriver(test_dev)
+
+        ok, conn_info = test_driver.test_connection()
+
+        if not ok:
+            raise Exception("cannot connect using new credentials")
+
+        new_serial = conn_info.get("serial-number")
+        identity = conn_info.get("identity")
+
+        old_serial = old.get("serial-number")
+
+        status = "success"
+
+        if old_serial and new_serial and old_serial != new_serial:
+            status = "warning"
+            if logger:
+                logger(
+                    f"[WARNING] connected to different device "
+                    f"(old serial={old_serial}, new serial={new_serial})"
+                )
+        else:
+            if logger:
+                logger("[OK] connected to same device")
+
+        old["main_ip_address"] = new_ip
+        old["username"] = new_user
+        old["password"] = new_pw
+        old["identity"] = identity
+        old["serial-number"] = new_serial
+
+        DeviceRepository.update_router(old["device_id"], old)
+
+        if logger:
+            logger("[DB] device info updated")
+
+        return {
+            "status": status,
+            "connected_identity": identity,
+            "serial_old": old_serial,
+            "serial_new": new_serial
+        }

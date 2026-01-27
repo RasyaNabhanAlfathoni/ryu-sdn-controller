@@ -246,8 +246,9 @@ class Orchestrator(app_manager.RyuApp):
         
         try:
             # Coba akses endpoint health agent
+            server_api = os.getenv('SERVER_AGENT_API_PORT')
             response = requests.get(
-                f"http://{ip_address}:8081/health",
+                f"http://{ip_address}:{server_api}/health",
                 timeout=5
             )
             return response.status_code == 200
