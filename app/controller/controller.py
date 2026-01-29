@@ -1249,7 +1249,7 @@ class NorthboundApi(ControllerBase):
                             "syslog_server": syslog_server,
                             "facility": "local7",
                             "severity": "informational",
-                            "port": 1511,
+                            "port": 15111,
                             "protocol": "udp"
                         }
                         

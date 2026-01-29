@@ -123,7 +123,7 @@ class CiscoLoggingManagement:
                 'error': str(e)
             }
     
-    def configure_syslog(self, syslog_server, facility='local7', severity='informational', port=1511, 
+    def configure_syslog(self, syslog_server, facility='local7', severity='informational', port=15111, 
                          protocol='udp', logger=None):
         """Configure syslog server with port support"""
         try:

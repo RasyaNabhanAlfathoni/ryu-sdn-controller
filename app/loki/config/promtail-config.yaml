@@ -68,7 +68,7 @@ scrape_configs:
 
   - job_name: switch-syslog
     syslog:
-      listen_address: 0.0.0.0:1513
+      listen_address: 0.0.0.0:1511
       listen_protocol: udp
       idle_timeout: 60s
       syslog_format: rfc3164
