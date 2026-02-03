@@ -8,6 +8,16 @@ class RouterOSSNMPDriver:
 
     def __init__(self, core_driver):
         self.core = core_driver
+       
+    # =====================================================
+    # HELPER
+    # ===================================================== 
+    
+
+    def _normalize_bool(self, v):
+        if isinstance(v, bool):
+            return "yes" if v else "no"
+        return v
 
     # =====================================================
     # SNMP GLOBAL CONFIG
@@ -116,7 +126,9 @@ class RouterOSSNMPDriver:
                 logger(f"Community '{p['name']}' already exists. Skipping add.")
                 return
 
-            res.add(**p)
+            payload = {k: self._normalize_bool(v) for k, v in p.items()}
+            res.add(**payload)
+
             logger(f"Added SNMP community: {p['name']}")
         except Exception as e:
             logger(f"Add community failed: {str(e)}")
@@ -133,7 +145,11 @@ class RouterOSSNMPDriver:
                 raise Exception(f"Community '{p['name']}' not found")
 
             record_id = recs[0].get(".id") or recs[0].get("id")
-            update = {k: v for k, v in p.items() if k != "name"}
+            update = {
+                k: self._normalize_bool(v)
+                for k, v in p.items()
+                if k != "name"
+            }
 
             res.set(numbers=record_id, **update)
             logger(f"Updated SNMP community '{p['name']}'")

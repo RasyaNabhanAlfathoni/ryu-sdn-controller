@@ -89,6 +89,7 @@ class MikrotikRouterActions:
             "router.mikrotik.interface.comment": lambda p, logger: RouterOSInterfaceDriver(d).comment_interface(p, logger),
             "router.mikrotik.interface.cable_test": lambda p, logger: RouterOSInterfaceDriver(d).cable_test(p, logger),
             "router.mikrotik.interface.list": lambda p, logger: RouterOSInterfaceDriver(d).list_interface(p, logger),
+            "router.mikrotik.interface.context.get": lambda p, logger: RouterOSInterfaceDriver(d).get_interface_context(p, logger),
 
             # Bridge Management
             "router.mikrotik.bridge.add": lambda p, logger: RouterOSBridgeDriver(d).add_bridge(p, logger),

@@ -3,64 +3,70 @@ class RouterOSDhcpServerDriver:
 
     def __init__(self, core_driver):
         self.core = core_driver
-        
+            
     def add_server(self, p, logger=print):
-        """
-        Contoh payload:
-        {
-            "name": "DHCP_LAN1",
-            "interface": "bridge1",
-            "address_pool": "POOL_LAN",
-            "lease_time": "10m",
-            "network": {
-                "address": "192.168.77.0/24",
-                "gateway": "192.168.77.1",
-                "dns_servers": "8.8.8.8,8.8.4.4",
-                "comment": "LAN DHCP network"
-            }
-        }
-        """
         pool, api = self.core.get_api()
         try:
             dhcp_res = api.get_resource('/ip/dhcp-server')
             net_res = api.get_resource('/ip/dhcp-server/network')
+            pool_res = api.get_resource('/ip/pool')
+            addr_res = api.get_resource('/ip/address')
 
-            # === 1️⃣ Cek apakah server dengan nama itu sudah ada
-            existing = dhcp_res.get(name=p["name"])
-            if existing:
-                logger(f"⚠️ DHCP Server '{p['name']}' sudah ada, skip add.")
+            name = p.get("name")
+            interface = p.get("interface")
+            address_pool = p.get("address-pool")
+            lease_time = p.get("lease-time", "10m")
+            authoritative = p.get("authoritative", "yes")
+            disabled = "yes" if p.get("disabled") else "no"
+
+            if not name:
+                raise Exception("name is required")
+            if not interface:
+                raise Exception("interface is required")
+            if not address_pool:
+                raise Exception("address-pool is required")
+
+            if dhcp_res.get(name=name):
+                logger(f"DHCP Server '{name}' already exists, skip add")
                 return
 
-            # === 2️⃣ Buat DHCP network kalau belum ada
-            if "network" in p:
-                net = p["network"]
-                addr = net["address"]
-                existing_net = net_res.get(address=addr)
-                if not existing_net:
-                    net_payload = {
-                        "address": addr,
-                        "gateway": net.get("gateway"),
-                        "dns-server": net.get("dns_servers"),
-                    }
-                    if "comment" in net:
-                        net_payload["comment"] = net["comment"]
-                    net_res.add(**net_payload)
-                    logger(f"🌐 Created DHCP network {addr} gw {net.get('gateway')}")
+            existing_pool = pool_res.get(name=address_pool)
+            if not existing_pool:
+                iface_addrs = addr_res.get(interface=interface)
+                if not iface_addrs:
+                    raise Exception(f"Interface {interface} has no IP address, cannot create pool")
 
-            # === 3️⃣ Tambah DHCP Server
+                addr = iface_addrs[0].get("address")
+                ip, prefix = addr.split("/")
+                if prefix != "24":
+                    raise Exception("Only /24 subnet supported for auto pool")
+
+                base = ip.rsplit(".", 1)[0]
+                start_ip = f"{base}.10"
+                end_ip = f"{base}.254"
+                if ip == start_ip:
+                    start_ip = f"{base}.20"
+
+                pool_res.add(
+                    name=address_pool,
+                    ranges=f"{start_ip}-{end_ip}"
+                )
+                logger(f"Auto-created IP pool {address_pool} {start_ip}-{end_ip}")
+
             payload = {
-                "name": p["name"],
-                "interface": p["interface"],
-                "address-pool": p["address_pool"],
-                "lease-time": p.get("lease_time", "10m"),
-                "disabled": "no"  # <--- FIX di sini (tambah koma)
+                "name": name,
+                "interface": interface,
+                "address-pool": address_pool,
+                "lease-time": lease_time,
+                "authoritative": authoritative,
+                "disabled": disabled
             }
 
             dhcp_res.add(**payload)
-            logger(f"✅ Added DHCP server '{p['name']}' on {p['interface']} with pool {p['address_pool']}")
+            logger(f"Added DHCP server '{name}' on {interface} with pool {address_pool}")
 
         except Exception as e:
-            logger(f"❌ Add DHCP Server failed: {str(e)}")
+            logger(f"Add DHCP Server failed: {str(e)}")
             raise Exception(f"Failed to add DHCP Server: {str(e)}")
         finally:
             pool.disconnect()

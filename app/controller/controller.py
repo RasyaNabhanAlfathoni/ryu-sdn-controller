@@ -1221,43 +1221,49 @@ class NorthboundApi(ControllerBase):
                 })
                 
             elif is_cisco:
-                # Test connection to Cisco switch
                 try:
+                    password = data.get("password", "")
+                    if not password:
+                        return self._resp(req, json.dumps({
+                            "status": "error",
+                            "error": "password is required for Cisco device"
+                        }), 400)
+
                     cisco_driver = CiscoSSHDriver({
-                        "ip": data['ip'],
+                        "ip": data["ip"],
                         "username": data.get("username", "admin"),
-                        "password": plain_password,
+                        "password": password,
                         "enable": True,
                         "device_id": device_id
                     })
-                    
+
                     info = cisco_driver.get_device_info()
-                    
-                    if not info or not isinstance(info, dict) or not info.get('connected', False):
+
+                    if not info or not info.get("connected", False):
                         return self._resp(req, json.dumps({
                             "status": "error",
-                            "error": info.get('error', 'Device not connected') if info else 'Connection failed',
+                            "error": info.get("error", "Cisco device not reachable"),
                             "details": info
                         }), 400)
-                    
+
                     enriched_data.update({
                         "status": "active",
                         "southbound": "paramiko",
                         "vendor": "Cisco",
                         "device_type": "switch",
                         "username": data.get("username", "admin"),
-                        "password": plain_password,
-                        "identity": info.get('identity', info.get('hostname', f"cisco-{data['ip']}")),
-                        "os_version": info.get('os_version', info.get('ios_version', 'Unknown')),
-                        "model": info.get('model', 'Unknown'),
-                        "serial_number": info.get('serial_number', info.get('serial', '')) or normalize_identity(data.get("serial_number", "")),
-                        "main_ip_address": info.get('main_ip_address', data['ip']),
-                        "main_mac_address": info.get('main_mac_address', '') or normalize_identity(data.get("main_mac_address", "")),
-                        "main_interface": info.get('main_interface', 'eth0'),
+                        "password": password,
+                        "identity": info.get("identity", info.get("hostname", f"cisco-{data['ip']}")),
+                        "os_version": info.get("os_version", info.get("ios_version", "Unknown")),
+                        "model": info.get("model", "Unknown"),
+                        "serial_number": info.get("serial_number", ""),
+                        "main_ip_address": info.get("main_ip_address", data["ip"]),
+                        "main_mac_address": info.get("main_mac_address", ""),
+                        "main_interface": info.get("main_interface", "eth0"),
                         "connected": True,
-                        "last_seen": to_postgresql_datetime(time.time()),
+                        "last_seen": to_postgresql_datetime(time.time())
                     })
-                    
+
                 except Exception as e:
                     return self._resp(req, json.dumps({
                         "status": "error",

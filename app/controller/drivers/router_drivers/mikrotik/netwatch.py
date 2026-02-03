@@ -111,7 +111,7 @@ class RouterOSNetwatchDriver:
                 logger("ERROR: netwatch.enable requires id")
                 return
 
-            api.get_resource("/tool/netwatch").set(id=p["id"], disabled="no")
+            api.get_resource("/tool/netwatch").call("enable", {"id": p["id"]})
             logger(f"Enabled netwatch {p['id']}")
         finally:
             pool.disconnect()
@@ -123,7 +123,7 @@ class RouterOSNetwatchDriver:
                 logger("ERROR: netwatch.disable requires id")
                 return
 
-            api.get_resource("/tool/netwatch").set(id=p["id"], disabled="yes")
+            api.get_resource("/tool/netwatch").call("disable", {"id": p["id"]})
             logger(f"Disabled netwatch {p['id']}")
         finally:
             pool.disconnect()

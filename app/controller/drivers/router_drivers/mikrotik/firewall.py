@@ -443,14 +443,24 @@ class RouterOSFirewallDriver:
     def conn_list(self, p=None, logger=print):
         pool, api = self._api()
         try:
-            data = api.get_resource("/ip/firewall/connection").get()
-
+            resource = api.get_resource("/ip/firewall/connection")
+            
+            # Apply filters if provided
+            filters = {}
+            if p:
+                filter_fields = ["protocol", "src-address", "dst-address", "src-port", "dst-port"]
+                for field in filter_fields:
+                    if field in p and p[field]:
+                        filters[field] = p[field]
+            
+            data = resource.get(**filters) if filters else resource.get()
+            
             enriched = []
             for item in data:
                 i = dict(item)
                 i["flags"] = self._build_connection_flags(item)
                 enriched.append(i)
-
+            
             logger("fw.conn.list completed successfully")
             return enriched
         finally:

@@ -81,13 +81,16 @@ class RouterOSApiDriver:
             res = api.get_resource('/system/resource').get()[0]
 
             version = res.get("version")
-            model = api.get_resource('/system/routerboard').get()[0].get("model", "RouterOS")
+            model = "RouterOS"
+            serial = "UNKNOWN"
 
             try:
                 rb = api.get_resource('/system/routerboard').get()[0]
-                serial = rb.get("serial-number", "UNKNOWN")
-            except:
-                serial = "UNKNOWN"
+                model = rb.get("model", model)
+                serial = rb.get("serial-number", serial)
+            except Exception:
+                # CHR / x86 tidak punya routerboard
+                pass
 
             ip_rows = api.get_resource('/ip/address').get()
             matched_iface = None
@@ -135,26 +138,28 @@ class RouterOSApiDriver:
         try:
             api2 = self.get_libapi()
 
-            identity = api2("/system/identity/print")[0].get("name")
-            res = api2("/system/resource/print")[0]
+            identity_row = next(api2("/system/identity/print"), {})
+            identity = identity_row.get("name", "unknown")
 
+            res = next(api2("/system/resource/print"), {})
             version = res.get("version", "UNKNOWN")
-            model = api2("/system/routerboard/print")[0].get("model", "RouterOS")
-            serial = res.get("serial-number", "UNKNOWN")
 
-            # v7 API tidak expose IP-address → interface mapping dibatasi
-            iface_list = None
-            mac = None
+            rb = next(api2("/system/routerboard/print"), {})
+            model = rb.get("model", "RouterOS")
+            serial = rb.get("serial-number", "UNKNOWN")
+
+            device_type = self.detect_device_type(
+                model=model,
+                board=res.get("board-name", "")
+            )
+
             iface = None
-
-            device_type = self.detect_device_type(model=model, board=res.get("board-name", ""))
-
+            mac = None
             try:
-                iface_list = api2("/interface/ethernet/print")
-                if iface_list:
-                    iface = iface_list[0].get("name")
-                    mac = iface_list[0].get("mac-address")
-            except:
+                iface_row = next(api2("/interface/ethernet/print"), {})
+                iface = iface_row.get("name")
+                mac = iface_row.get("mac-address")
+            except StopIteration:
                 pass
 
             return {

@@ -261,3 +261,115 @@ class RouterOSInterfaceDriver:
 
         finally:
             pool.disconnect()
+            
+    def get_interface_context(self, p, logger=print):
+        pool, api = self.core.get_api()
+        try:
+            iface_name = p.get("name")
+            if not iface_name:
+                raise Exception("Interface name is required")
+
+            out = {
+                "name": iface_name,
+                "addresses": [],
+                "networks": [],
+                "pools": [],
+                "suggested_pools": [],
+                "dhcp_servers": []
+            }
+
+            iface_ips = []
+
+            ip_addr_res = api.get_resource('/ip/address')
+            for a in ip_addr_res.get(interface=iface_name):
+                addr = a.get("address")
+                if not addr or "/" not in addr:
+                    continue
+
+                ip, prefix = addr.split("/")
+                net = a.get("network")
+
+                iface_ips.append({
+                    "ip": ip,
+                    "network": net,
+                    "prefix": prefix
+                })
+
+                out["addresses"].append({
+                    "id": a.get(".id"),
+                    "address": addr,
+                    "network": net,
+                    "interface": iface_name
+                })
+
+            dhcp_srv_res = api.get_resource('/ip/dhcp-server')
+            server_pool_map = {}
+
+            for s in dhcp_srv_res.get(interface=iface_name):
+                pool_name = s.get("address-pool")
+                server = {
+                    "id": s.get(".id"),
+                    "name": s.get("name"),
+                    "interface": iface_name,
+                    "address_pool": pool_name,
+                    "lease_time": s.get("lease-time"),
+                    "disabled": s.get("disabled") == "true"
+                }
+                out["dhcp_servers"].append(server)
+                if pool_name:
+                    server_pool_map[pool_name] = True
+
+            pool_res = api.get_resource('/ip/pool')
+            for pitem in pool_res.get():
+                name = pitem.get("name")
+                if name in server_pool_map:
+                    out["pools"].append({
+                        "id": pitem.get(".id"),
+                        "name": name,
+                        "ranges": pitem.get("ranges")
+                    })
+
+            net_res = api.get_resource('/ip/dhcp-server/network')
+            for n in net_res.get():
+                out["networks"].append({
+                    "id": n.get(".id"),
+                    "address": n.get("address"),
+                    "gateway": n.get("gateway"),
+                    "dns_server": n.get("dns-server"),
+                    "comment": n.get("comment")
+                })
+
+            if not iface_ips:
+                logger(f"interface.context loaded for {iface_name} (no IP)")
+                return out
+
+            for addr in iface_ips:
+                if addr["prefix"] != "24":
+                    continue
+
+                ip = addr["ip"]
+                base = ip.rsplit(".", 1)[0]
+
+                gateway = ip
+                start_ip = f"{base}.10"
+                end_ip = f"{base}.254"
+
+                if gateway == start_ip:
+                    start_ip = f"{base}.20"
+
+                out["suggested_pools"].append({
+                    "name": f"POOL_{iface_name}_{base.replace('.', '_')}",
+                    "ranges": f"{start_ip}-{end_ip}",
+                    "network": f"{base}.0/24",
+                    "gateway": gateway
+                })
+
+            logger(f"interface.context loaded for {iface_name}")
+            return out
+
+        except Exception as e:
+            logger(f"interface.context failed: {str(e)}")
+            raise Exception(f"Failed to get interface context: {str(e)}")
+
+        finally:
+            pool.disconnect()
