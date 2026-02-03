@@ -735,7 +735,7 @@ def main():
         t.start()
         
         # Start auto-refresh (OPTIONAL)
-        start_periodic_refresh(device_id)
+        # start_periodic_refresh(device_id)
 
     # Keep running
     try:
