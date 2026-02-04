@@ -1,31 +1,36 @@
 import paramiko
 import time
 
+
 class UnifiParamikoDriver:
     name = "paramiko"
     UNIFI_BASE = "http://11.11.11.11:3000"
 
+    DEFAULT_USER = "ubnt"
+    DEFAULT_PASS = "ubnt"
+
     def __init__(self, device_info):
         self.dev = device_info
         self.host = device_info["ip"]
-        self.username = device_info["username"]
-        self.password = device_info["password"]
+        self.username = device_info.get("username")
+        self.password = device_info.get("password")
         self.client = None
+        self.connected = False
 
     # =====================================================
-    # SSH CONNECT (UniFi / dropbear compatible)
+    # LOW LEVEL CONNECT
     # =====================================================
-    def connect(self):
+    def _connect(self, username, password):
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         self.client.connect(
             hostname=self.host,
-            username=self.username,
-            password=self.password,
+            username=username,
+            password=password,
             look_for_keys=False,
             allow_agent=False,
-            timeout=10,
+            timeout=8,
             disabled_algorithms={
                 "pubkeys": [
                     "rsa-sha2-256",
@@ -44,23 +49,67 @@ class UnifiParamikoDriver:
             }
         )
 
-    def disconnect(self):
-        if self.client:
-            self.client.close()
+    # =====================================================
+    # PUBLIC CONNECT (ACTION MODE)
+    # =====================================================
+    def connect(self):
+        """
+        Digunakan oleh action:
+        reboot, upgrade, inform, dll
+        """
+
+        attempts = [
+            (self.username, self.password),
+            (self.DEFAULT_USER, self.DEFAULT_PASS),
+        ]
+
+        last_error = None
+
+        for user, pw in attempts:
+            if not user or not pw:
+                continue
+
+            try:
+                self._connect(user, pw)
+
+                self.username = user
+                self.password = pw
+                self.connected = True
+
+                return True
+
+            except Exception as e:
+                last_error = e
+                self.disconnect()
+
+        raise Exception(f"[UNIFI SSH FAILED] {last_error}")
 
     # =====================================================
-    # EXEC INTERACTIVE (WAJIB UNTUK UNIFI)
+    # DISCONNECT
+    # =====================================================
+    def disconnect(self):
+        if self.client:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+        self.client = None
+        self.connected = False
+
+    # =====================================================
+    # EXEC INTERACTIVE
     # =====================================================
     def exec_interactive(self, command, wait=1.0):
+        if not self.connected or not self.client:
+            raise Exception("SSH not connected")
+
         channel = self.client.invoke_shell()
         channel.settimeout(5)
 
-        # bersihkan banner login
         time.sleep(0.3)
         if channel.recv_ready():
             channel.recv(65535)
 
-        # kirim command
         channel.send(command + "\n")
         time.sleep(wait)
 
@@ -72,21 +121,12 @@ class UnifiParamikoDriver:
         return output
 
     # =====================================================
-    # PARSE `info` OUTPUT (KHUSUS UNIFI)
+    # PARSE INFO
     # =====================================================
     def _parse_info(self, text):
-        """
-        Model:       UAP-LRv2
-        Version:     4.3.28.11361
-        MAC Address: fc:ec:da:0c:2f:68
-        IP Address:  192.168.100.88
-        Hostname:    UBNT
-        Uptime:      38680 seconds
-        """
         data = {}
 
         for line in text.splitlines():
-            line = line.strip()
             if ":" not in line:
                 continue
 
@@ -109,55 +149,47 @@ class UnifiParamikoDriver:
         return data
 
     # =====================================================
-    # PUBLIC API (dipakai controller)
+    # DISCOVERY MODE
     # =====================================================
     def get_device_info(self):
+        """
+        Stateless discovery:
+        connect → info → disconnect
+        """
+
         try:
             self.connect()
 
             out = self.exec_interactive("info")
-
             if not out or "Model:" not in out:
-                raise Exception("Empty info output")
+                raise Exception("invalid info output")
 
             info = self._parse_info(out)
-
-            print("RAW INFO OUTPUT:\n", out)
-            print("PARSED INFO:", info)
-
             hostname = info.get("hostname")
 
             return {
-                # identity
                 "identity": hostname,
                 "hostname": hostname,
-
-                # device info
                 "model": info.get("model"),
                 "os_version": info.get("os_version"),
-
-                # network (INI SEKARANG AMAN)
                 "main_ip_address": info.get("main_ip_address"),
                 "main_mac_address": info.get("main_mac_address"),
-
-                # metadata
                 "vendor": "unifi",
                 "device_type": "access_point",
-                "connected": True
+                "connected": True,
+                "username": self.username,
+                "password": self.password,
             }
 
-        except Exception as e:
-            raise Exception(f"[UNIFI SSH FAILED] {e}")
-
         finally:
             self.disconnect()
 
+    # =====================================================
+    # QUICK TEST
+    # =====================================================
     def test_connection(self):
         try:
-            self.connect()
-            out = self.exec_interactive("info")
-            return True, out
+            info = self.get_device_info()
+            return True, info
         except Exception as e:
             return False, str(e)
-        finally:
-            self.disconnect()

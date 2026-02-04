@@ -51,6 +51,43 @@ class MikroTikAPDnsDriver:
             pool.disconnect()
 
     # ====================================================
+    # GET DNS CONFIG
+    # ====================================================
+    def get_dns(self, p=None, logger=print):
+        pool, api = self.core.get_api()
+        try:
+            dns_res = api.get_resource('/ip/dns')
+            data = dns_res.get()[0]
+
+            out = {}
+
+            for k, v in data.items():
+                if k.startswith("."):
+                    continue
+
+                key = k.replace("-", "_")
+
+                # yes/no → bool
+                if v in ["yes", "no"]:
+                    out[key] = v == "yes"
+
+                # comma list
+                elif isinstance(v, str) and "," in v:
+                    out[key] = [x for x in v.split(",") if x]
+
+                else:
+                    out[key] = v
+
+            # helper flag
+            out["use_doh"] = bool(out.get("use_doh_server"))
+
+            logger("dns.get full completed")
+            return out
+
+        finally:
+            pool.disconnect()
+
+    # ====================================================
     # FLUSH CACHE
     # ====================================================
     def flush_cache(self, p=None, logger=print):

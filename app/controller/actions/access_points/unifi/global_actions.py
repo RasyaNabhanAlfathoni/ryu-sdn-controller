@@ -17,13 +17,13 @@ class UnifiAccessPointGlobalActions:
     def get_actions(d):
 
         return {
-            "list.sites.unifi": lambda p, logger: UnifiAPListSites.run(logger),
-            "list.devices.unifi": lambda p, logger: UnifiAPListDevices.run(logger),
-            "list.clients.unifi": lambda p, logger: UnifiAPListClients.run(logger),
-            "list.settings.unifi": lambda p, logger: UnifiAPListSettings.run(logger),
-            "admin.activity.logs.unifi": lambda p, logger: UnifiAPAdminActivityLogs.run(logger),
-            "list.network.unifi": lambda p, logger: UnifiAPListNetwork.run(logger),
-            "list.alert.unifi": lambda p, logger: UnifiAPListAlert.run(logger),
-            "list.wlan.unifi": lambda p, logger: UnifiAPListWLAN.run(logger),
-            "unifiap.status.control": lambda p, logger: UnifiAPStatusControllerDevice().run_global(),
+            "ap.unifi.list.sites.unifi": lambda p, logger: UnifiAPListSites.run(logger),
+            "ap.unifi.list.devices.unifi": lambda p, logger: UnifiAPListDevices.run(logger),
+            "ap.unifi.list.clients.unifi": lambda p, logger: UnifiAPListClients.run(logger),
+            "ap.unifi.list.settings.unifi": lambda p, logger: UnifiAPListSettings.run(logger),
+            "ap.unifi.admin.activity.logs.unifi": lambda p, logger: UnifiAPAdminActivityLogs.run(logger),
+            "ap.unifi.list.network.unifi": lambda p, logger: UnifiAPListNetwork.run(logger),
+            "ap.unifi.list.alert.unifi": lambda p, logger: UnifiAPListAlert.run(logger),
+            "ap.unifi.list.wlan.unifi": lambda p, logger: UnifiAPListWLAN.run(logger),
+            "ap.unifi.status.controller.device": lambda p, logger: UnifiAPStatusControllerDevice().run_global(),
         }

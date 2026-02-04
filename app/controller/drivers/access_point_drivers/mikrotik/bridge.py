@@ -1,7 +1,7 @@
 from librouteros import connect
 from routeros_api import RouterOsApiPool
 
-class MikrotikAPBridgeDriver:
+class MikroTikAPBridgeDriver:
     name = "routerosapi_bridge"
 
     def __init__(self, dev):
@@ -35,38 +35,41 @@ class MikrotikAPBridgeDriver:
 
     BRIDGE_FIELDS = {
         6: {
-            "mtu", "arp", "ageing-time",
-            "fast-forward",
-            "igmp-snooping",
-            "dhcp-snooping",
-            "protocol-mode",
-            "priority"
+            "mtu", "arp",
+            "admin-mac", "auto-mac", "igmp-snooping", "name", "region-name",
+            "ageing-time", "comment", "max-hops", "priority", "region-revision",
+            "fast-forward", "max-message-age", "protocol-mode", "transmit-hold-count",
+            "arp-timeout", "forward-delay", "pvid", "vlan-filtering"
         },
         7: {
-            "mtu", "arp", "ageing-time",
-            "igmp-snooping",
-            "protocol-mode",
-            "vlan-filtering",
-            "priority"
+            "add-dhcp-option82", "membership-interval", "admin-mac", "mld-version",
+            "ageing-time", "mtu", "arp", "multicast-querier", "arp-timeout",
+            "multicast-router", "auto-mac", "mvrp", "comment", "name",
+            "dhcp-snooping", "port-cost-mode", "ether-type", "priority",
+            "fast-forward", "protocol-mode", "forward-delay", "pvid",
+            "forward-reserved-addresses", "querier-interval", "frame-types",
+            "query-interval", "igmp-snooping", "query-response-interval",
+            "igmp-version", "region-name", "ingress-filtering", "region-revision",
+            "last-member-interval", "last-member-query-count", "startup-query-count",
+            "startup-query-interval", "max-hops", "transmit-hold-count",
+            "max-learned-entries", "vlan-filtering", "max-message-age"
         }
     }
 
     PORT_FIELDS = {
         6: {
-            "pvid", "frame-types",
-            "ingress-filtering",
-            "horizon",
-            "trusted",
-            "fast-leave",
-            "learn"
+            "auto-isolate", "frame-types", "internal-path-cost", "pvid",
+            "bridge", "horizon", "learn", "restricted-role",
+            "broadcast-flood", "hw", "path-cost", "restricted-tcn",
+            "comment", "ingress-filtering", "point-to-point", "unknown-multicast-flood",
+            "edge", "interface", "priority", "unknown-unicast-flood"
         },
         7: {
-            "pvid", "frame-types",
-            "ingress-filtering",
-            "edge",
-            "point-to-point",
-            "bpdu-guard",
-            "learn"
+            "auto-isolate", "comment", "horizon", "internal-path-cost", "mvrp-registrar-state", "pvid", "trusted",
+            "bpdu-guard", "edge", "hw", "learn", "path-cost", "restricted-role", "unknown-multicast-flood",
+            "bridge", "fast-leave", "ingress-filtering", "multicast-router", "point-to-point", "restricted-tcn",
+            "unknown-unicast-flood", "broadcast-flood", "frame-types", "interface", "mvrp-applicant-state",
+            "priority",  "tag-stacking"
         }
     }
 

@@ -141,6 +141,7 @@ class MikrotikRouterActions:
             # DNS Configuration
             "router.mikrotik.dns.edit": lambda p, logger: RouterOSDnsDriver(d).edit_dns(p, logger),
             "router.mikrotik.dns.flush": lambda p, logger: RouterOSDnsDriver(d).flush_cache(p, logger),
+            "router.mikrotik.dns.get": lambda p, logger: RouterOSDnsDriver(d).get_dns(p, logger),
             "router.mikrotik.dns.static.add": lambda p, logger: RouterOSDnsDriver(d).add_static(p, logger),
             "router.mikrotik.dns.static.edit": lambda p, logger: RouterOSDnsDriver(d).edit_static(p, logger),
             "router.mikrotik.dns.static.enable": lambda p, logger: RouterOSDnsDriver(d).enable_static(p, logger),

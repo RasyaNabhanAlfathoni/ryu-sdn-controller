@@ -4,21 +4,21 @@ class UnifiAPReboot:
     @staticmethod
     def run(driver, logger=print):
 
-        logger(f"[UNIFI] Connecting to {driver.host} as {driver.username}")
+        logger(f"Connecting to {driver.host} as {driver.username}")
 
         try:
             driver.connect()
-            logger("[UNIFI] Connected")
+            logger("Connected")
 
-            logger("[UNIFI] Sending reboot command...")
+            logger("Sending reboot command...")
             out = driver.exec_interactive("reboot")
 
             if out:
                 for line in out.splitlines():
                     logger(f"[UNIFI-OUT] {line}")
 
-            logger("[UNIFI] Reboot command sent")
-            logger("[UNIFI] Device will disconnect shortly")
+            logger("Reboot command sent")
+            logger("Device will disconnect shortly")
 
             return {
                 "status": "rebooting",

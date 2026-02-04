@@ -150,6 +150,7 @@ class MikrotikAPActions:
             # DNS Configuration
             "ap.mikrotik.dns.edit": lambda p, logger: MikroTikAPDnsDriver(d).edit_dns(p, logger),
             "ap.mikrotik.dns.flush": lambda p, logger: MikroTikAPDnsDriver(d).flush_cache(p, logger),
+            "ap.mikrotik.dns.get": lambda p, logger: MikroTikAPDnsDriver(d).get_dns(p, logger),
             "ap.mikrotik.dns.static.add": lambda p, logger: MikroTikAPDnsDriver(d).add_static(p, logger),
             "ap.mikrotik.dns.static.edit": lambda p, logger: MikroTikAPDnsDriver(d).edit_static(p, logger),
             "ap.mikrotik.dns.static.enable": lambda p, logger: MikroTikAPDnsDriver(d).enable_static(p, logger),
