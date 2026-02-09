@@ -18,6 +18,7 @@ class CiscoUserManagement:
                 logger("Fetching user list...")
             
             # Get AAA configuration
+            output = self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command("show running-config | section username", enable_mode=True)
             
             users = []
@@ -31,6 +32,7 @@ class CiscoUserManagement:
                         users.append(user_info)
             
             # Get privilege level information
+            privilege_output = self.base.execute_command("enable", enable_mode=False)
             privilege_output = self.base.execute_command("show privilege", enable_mode=True)
             
             return {
@@ -74,6 +76,7 @@ class CiscoUserManagement:
                 raise ValueError(f"User '{username}' already exists")
             
             # Execute commands to create user
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"username {username} privilege {privilege_level} secret {password}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -116,6 +119,7 @@ class CiscoUserManagement:
                 raise ValueError(f"User '{username}' does not exist")
             
             # Update password
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"username {username} secret {new_password}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -161,6 +165,7 @@ class CiscoUserManagement:
                 raise ValueError(f"User '{username}' does not exist")
             
             # Update privilege
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"username {username} privilege {privilege_level}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -207,6 +212,7 @@ class CiscoUserManagement:
                 raise ValueError(f"User '{username}' does not exist")
 
             # Enter config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
 
             # Send delete command
@@ -228,6 +234,7 @@ class CiscoUserManagement:
             self.base.execute_command("write memory", enable_mode=True)
 
             # Verify deletion
+            verify = self.base.execute_command("enable", enable_mode=False)
             verify = self.base.execute_command(
                 "show running-config | section username",
                 enable_mode=True

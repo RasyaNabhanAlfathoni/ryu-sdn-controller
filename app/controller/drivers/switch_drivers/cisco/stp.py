@@ -12,6 +12,8 @@ class CiscoSTPDriver:
     
     def get_stp_info(self, logger=None):
         try:
+            summary_out = self.base.execute_command("enable", enable_mode=False)
+
             summary_out = self.base.execute_command(
                 "show spanning-tree summary", enable_mode=True
             )
@@ -23,6 +25,7 @@ class CiscoSTPDriver:
             vlan_data = {}
 
             for vlan in vlan_ids:
+                out = self.base.execute_command("enable", enable_mode=False)
                 out = self.base.execute_command(
                     f"show spanning-tree vlan {vlan}",
                     enable_mode=True
@@ -117,7 +120,7 @@ class CiscoSTPDriver:
         for line in lines:
             line = line.strip().lower()
             
-            # **PERBAIKAN: Deteksi STP enabled dari berbagai kondisi**
+            # Deteksi STP enabled dari berbagai kondisi
             # 1. Jika ada "switch is in" mode tertentu, berarti STP enabled
             if 'switch is in' in line:
                 summary['stp_enabled'] = True
@@ -171,6 +174,7 @@ class CiscoSTPDriver:
                 logger("Enabling STP...")
             
             # Masuk ke config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             
             # Enable STP dengan Rapid-PVST
@@ -216,6 +220,7 @@ class CiscoSTPDriver:
                 logger("Disabling STP globally...")
             
             # Masuk ke config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             
             # Disable STP secara global
@@ -252,6 +257,7 @@ class CiscoSTPDriver:
             if logger:
                 logger(f"Enabling STP for VLAN {vlan}")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(
                 f"spanning-tree vlan {vlan} priority 32768",
@@ -275,6 +281,7 @@ class CiscoSTPDriver:
             if logger:
                 logger(f"Disabling STP for VLAN {vlan}")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(
                 f"no spanning-tree vlan {vlan}",
@@ -314,6 +321,7 @@ class CiscoSTPDriver:
                 }
             
             # Masuk ke config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             
             if not vlan:
@@ -359,6 +367,7 @@ class CiscoSTPDriver:
                 logger(f"Configuring PortFast on {interface or 'all'}...")
             
             # Masuk ke config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             
             if interface:
@@ -396,6 +405,7 @@ class CiscoSTPDriver:
             }
         
     def _parse_portfast_config(self):
+        out = self.base.execute_command("enable", enable_mode=False)
         out = self.base.execute_command(
             "show running-config | section ^interface",
             enable_mode=True
@@ -424,6 +434,7 @@ class CiscoSTPDriver:
                 result["interfaces"].append(current_iface)
 
         # Cek global default
+        global_out = self.base.execute_command("enable", enable_mode=False)
         global_out = self.base.execute_command(
             "show running-config | include ^spanning-tree portfast",
             enable_mode=True
@@ -441,6 +452,7 @@ class CiscoSTPDriver:
                 logger(f"Disabling PortFast on {interface or 'all'}...")
             
             # Masuk ke config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             
             if interface:

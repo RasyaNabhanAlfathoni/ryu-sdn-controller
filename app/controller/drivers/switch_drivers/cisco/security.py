@@ -19,7 +19,8 @@ class CiscoSecurityDriver:
         try:
             if logger:
                 logger(f"Enabling port security on {interface}...")
-
+            
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             self.base.execute_command("switchport mode access", enable_mode=True)
@@ -59,6 +60,7 @@ class CiscoSecurityDriver:
             if logger:
                 logger(f"Disabling port security on {interface}...")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             self.base.execute_command("no switchport port-security", enable_mode=True)
@@ -90,6 +92,7 @@ class CiscoSecurityDriver:
             if logger:
                 logger(f"Enabling sticky MAC on {interface}...")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface} ", enable_mode=True)
             self.base.execute_command("switchport port-security mac-address sticky", enable_mode=True)
@@ -128,6 +131,7 @@ class CiscoSecurityDriver:
             else:
                 mac_formatted = mac_address
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             self.base.execute_command(f"switchport port-security mac-address {mac_formatted}", enable_mode=True)
@@ -157,6 +161,7 @@ class CiscoSecurityDriver:
     def get_port_security_status(self, interface=None, logger=None):
         try:
             if interface:
+                output = self.base.execute_command("enable", enable_mode=False)
                 output = self.base.execute_command(
                     f"show port-security interface {interface}",
                     enable_mode=True
@@ -171,6 +176,7 @@ class CiscoSecurityDriver:
             results = []
 
             for iface in interfaces:
+                out = self.base.execute_command("enable", enable_mode=False)
                 out = self.base.execute_command(
                     f"show port-security interface {iface}",
                     enable_mode=True
@@ -214,7 +220,8 @@ class CiscoSecurityDriver:
         try:
             if logger:
                 logger(f"Clearing ALL port security configuration on {interface}...")
-            
+
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             
@@ -268,6 +275,7 @@ class CiscoSecurityDriver:
             self.base.execute_command(f"clear mac address-table interface {interface}", enable_mode=True)
             
             # Reset interface
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             self.base.execute_command("shutdown", enable_mode=True)

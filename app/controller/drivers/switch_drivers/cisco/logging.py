@@ -25,6 +25,7 @@ class CiscoLoggingManagement:
             mgmt_interface = None
             
             # Dapatkan IP management dari konfigurasi atau hostname
+            running_config = self.base.execute_command("enable", enable_mode=False)
             running_config = self.base.execute_command("show running-config", enable_mode=True)
             
             # Cari interface dengan IP address
@@ -97,9 +98,11 @@ class CiscoLoggingManagement:
                 logger("Fetching logging configuration...")
             
             # Get logging configuration
+            output = self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command("show logging", enable_mode=True)
             
             # Get syslog servers if configured
+            syslog_output = self.base.execute_command("enable", enable_mode=False)
             syslog_output = self.base.execute_command("show running-config | include logging", enable_mode=True)
             
             parsed_config = self._parse_logging_output(output, syslog_output)
@@ -155,6 +158,8 @@ class CiscoLoggingManagement:
 
             severity_num = severity_levels[severity.lower()]
 
+            self.base.execute_command("enable", enable_mode=False)
+
             self.base.execute_command("configure terminal", enable_mode=True)
 
             if port != 514:
@@ -192,6 +197,7 @@ class CiscoLoggingManagement:
             if logger:
                 logger("Enabling syslog service")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command("logging on", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -215,6 +221,7 @@ class CiscoLoggingManagement:
                 logger("Disabling syslog...")
             
             # Get current syslog servers
+            output = self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command("show running-config | include logging host", enable_mode=True)
             
             servers = []
@@ -224,6 +231,7 @@ class CiscoLoggingManagement:
                     servers.append(server)
             
             # Remove all syslog servers
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             for server in servers:
                 self.base.execute_command(f"no logging host {server}", enable_mode=True)
@@ -274,6 +282,7 @@ class CiscoLoggingManagement:
             
             severity_num = severity_mapping[severity.lower()]
             
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"logging trap {severity_num}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)

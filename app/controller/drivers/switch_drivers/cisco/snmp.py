@@ -25,6 +25,7 @@ class CiscoSnmpDriver:
             
             # Get SNMP running config
             cmd = "show running-config | include snmp-server"
+            output = self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command(cmd, enable_mode=True)
             
             snmp_info = self._parse_snmp_config(output)
@@ -152,6 +153,7 @@ class CiscoSnmpDriver:
             # Apply configuration
             if config_commands:
                 # Masuk config mode
+                self.base.execute_command("enable")
                 self.base.execute_command("configure terminal")
                 
                 results = []
@@ -225,6 +227,7 @@ class CiscoSnmpDriver:
                 logger("Listing SNMP communities...")
             
             cmd = "show running-config | include snmp-server community"
+            output = self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command(cmd, enable_mode=True)
             
             communities = self._parse_communities(output)
@@ -313,6 +316,7 @@ class CiscoSnmpDriver:
             
             # Apply configuration
             config_commands = [community_cmd]
+            result = self.base.execute_command("enable")
             result = self.base.execute_command(config_commands)
             
             # Add to Prometheus if requested
@@ -346,6 +350,7 @@ class CiscoSnmpDriver:
         """Add community to Prometheus SNMP targets"""
         # Get device info
         try:
+            hostname_output = self.base.execute_command("enable", enable_mode=False)
             hostname_output = self.base.execute_command("show running-config | include hostname", enable_mode=True)
             hostname = 'Cisco-Switch'
             
@@ -392,6 +397,7 @@ class CiscoSnmpDriver:
             if result_add.get('status') == 'success':
                 # Apply delete command if adding was successful
                 config_commands = [delete_cmd]
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command(config_commands)
                 
                 if logger:
@@ -423,7 +429,8 @@ class CiscoSnmpDriver:
             # Delete community command
             delete_cmd = f"no snmp-server community {p['name']}"
             config_commands = [delete_cmd]
-            
+
+            result = self.base.execute_command("enable", enable_mode=False)
             result = self.base.execute_command(config_commands)
             
             # Also remove from Prometheus if exists
@@ -475,6 +482,7 @@ class CiscoSnmpDriver:
                 # Also enable traps by default
                 try:
                     trap_commands = ["snmp-server enable traps"]
+                    self.base.execute_command("enable", enable_mode=False)
                     self.base.execute_command(trap_commands)
                 except:
                     pass  # Ignore if traps not supported
@@ -514,6 +522,7 @@ class CiscoSnmpDriver:
                 delete_commands.append(f"no snmp-server community {community['name']}")
             
             if delete_commands:
+                result = self.base.execute_command("enable", enable_mode=False)
                 result = self.base.execute_command(delete_commands)
             
             # Remove from Prometheus
@@ -550,6 +559,7 @@ class CiscoSnmpDriver:
             # Try to get system info via SNMP (simulated via CLI)
             # In real implementation, use SNMP library
             cmd = f"show snmp community | include {community}"
+            output = self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command(cmd, enable_mode=True)
             
             if community in output:

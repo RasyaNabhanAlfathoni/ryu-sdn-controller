@@ -186,6 +186,7 @@ class CiscoLLDPDriver:
             
             if interface:
                 # Enable LLDP on specific interface
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command("configure terminal", enable_mode=True)
                 self.base.execute_command(f"interface {interface}", enable_mode=True)
                 self.base.execute_command("lldp transmit", enable_mode=True)
@@ -194,6 +195,7 @@ class CiscoLLDPDriver:
                 self.base.execute_command("end", enable_mode=True)
             else:
                 # Enable LLDP globally
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command("configure terminal", enable_mode=True)
                 self.base.execute_command("lldp run", enable_mode=True)
                 self.base.execute_command("exit", enable_mode=True)
@@ -233,7 +235,8 @@ class CiscoLLDPDriver:
                     logger("Disabling LLDP globally...")
             
             if interface:
-                # Enable LLDP on specific interface
+                # disable LLDP on specific interface
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command("configure terminal", enable_mode=True)
                 self.base.execute_command(f"interface {interface}", enable_mode=True)
                 self.base.execute_command("no lldp transmit", enable_mode=True)
@@ -241,7 +244,8 @@ class CiscoLLDPDriver:
                 self.base.execute_command("exit", enable_mode=True)
                 self.base.execute_command("end", enable_mode=True)
             else:
-                # Enable LLDP globally
+                # disable LLDP globally
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command("configure terminal", enable_mode=True)
                 self.base.execute_command("no lldp run", enable_mode=True)
                 self.base.execute_command("exit", enable_mode=True)

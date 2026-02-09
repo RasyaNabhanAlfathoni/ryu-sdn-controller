@@ -36,6 +36,7 @@ class CiscoQoSDriver:
             # Convert kbps to Mbps jika perlu
             rate_bps = rate_kbps * 1000
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"policy-map {policy}", enable_mode=True)
             self.base.execute_command("class class-default", enable_mode=True)
@@ -79,7 +80,8 @@ class CiscoQoSDriver:
         
         # Convert to bps untuk police command
         rate_bps = rate_kbps * 1000
-
+        
+        self.base.execute_command("enable", enable_mode=False)
         self.base.execute_command("configure terminal", enable_mode=True)
         self.base.execute_command(f"interface {interface}", enable_mode=True)
         self.base.execute_command(f"service-policy input limit-{interface}", enable_mode=True)
@@ -105,7 +107,8 @@ class CiscoQoSDriver:
 
         limits = []
 
-        # 1. Ambil policy yang ter-apply ke interface
+        # Ambil policy yang ter-apply ke interface
+        out_intf = self.base.execute_command("enable", enable_mode=False)
         out_intf = self.base.execute_command(
             "show policy-map interface", enable_mode=True
         )
@@ -122,7 +125,8 @@ class CiscoQoSDriver:
         if not policy_map:
             return {"status": "success", "rate_limits": []}
 
-        # 2. Ambil detail policy-map
+        # Ambil detail policy-map
+        out_policy = self.base.execute_command("enable", enable_mode=False)
         out_policy = self.base.execute_command(
             f"show policy-map {policy_map}", enable_mode=True
         )
@@ -151,6 +155,7 @@ class CiscoQoSDriver:
             if logger:
                 logger(f"Creating QoS policy {policy_name}...")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"policy-map {policy_name}", enable_mode=True)
             
@@ -188,6 +193,7 @@ class CiscoQoSDriver:
             if logger:
                 logger(f"Applying QoS policy {policy_name} to {interface}...")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface}", enable_mode=True)
             self.base.execute_command(f"service-policy {direction} {policy_name}", enable_mode=True)
@@ -223,10 +229,12 @@ class CiscoQoSDriver:
             
             # Get policy maps
             cmd_policy = "show policy-map"
+            output_policy = self.base.execute_command("enable", enable_mode=False)
             output_policy = self.base.execute_command(cmd_policy, enable_mode=True)
             
             # Get interface QoS
             cmd_intf = "show policy-map interface"
+            output_intf = self.base.execute_command("enable", enable_mode=False)
             output_intf = self.base.execute_command(cmd_intf, enable_mode=True)
             
             policies = self._parse_policy_maps(output_policy)

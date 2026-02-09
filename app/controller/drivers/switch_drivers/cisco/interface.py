@@ -12,6 +12,7 @@ class CiscoInterfaceDriver:
                 logger("Getting interfaces...")
             
             # Dapatkan output dari switch
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("terminal length 0", enable_mode=True)
             output = self.base.execute_command("show interfaces", enable_mode=True)
             
@@ -154,6 +155,7 @@ class CiscoInterfaceDriver:
                 if logger:
                     logger("Getting interface descriptions...")
 
+                desc_output = self.base.execute_command("enable", enable_mode=False)
                 desc_output = self.base.execute_command(
                     "show interface description",
                     enable_mode=True
@@ -211,6 +213,8 @@ class CiscoInterfaceDriver:
             if logger:
                 logger(f"Configuring interface {interface_name}...")
 
+            self.base.execute_command("enable", enable_mode=False)    
+
             # Masuk global config
             self.base.execute_command("configure terminal", enable_mode=True)
 
@@ -265,6 +269,7 @@ class CiscoInterfaceDriver:
             if logger:
                 logger(f"Enabling interface {interface_name}...")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface_name}")
             self.base.execute_command("no shutdown")
@@ -289,6 +294,7 @@ class CiscoInterfaceDriver:
             if logger:
                 logger(f"Disabling interface {interface_name}...")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface_name}")
             self.base.execute_command("shutdown")

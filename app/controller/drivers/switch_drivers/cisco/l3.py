@@ -66,6 +66,8 @@ class CiscoL3Management:
     def is_ip_routing_enabled(self, logger=None):
         """Check if IP routing is enabled"""
         try:
+            self.base.execute_command("enable", enable_mode=False)
+
             output = self.base.execute_command("show run | include ip routing", enable_mode=True)
             
             if "ip routing" in output.lower():
@@ -113,6 +115,8 @@ class CiscoL3Management:
                 'connected_routes': [],
                 'svi_interfaces': []
             }
+
+            self.base.execute_command("enable", enable_mode=False)
             
             # Get routing table summary
             if result['ip_routing_enabled']:
@@ -163,6 +167,7 @@ class CiscoL3Management:
                 }
             
             # Enter config mode and enable IP routing
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command("ip routing", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -208,6 +213,7 @@ class CiscoL3Management:
                 }
             
             # Enter config mode and disable IP routing
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command("no ip routing", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -255,6 +261,7 @@ class CiscoL3Management:
                 }
             
             # Enter config mode and configure SVI
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface vlan {vlan_id}", enable_mode=True)
             
@@ -329,6 +336,7 @@ class CiscoL3Management:
                 }
             
             # Enter config mode and delete SVI
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface vlan {vlan_id}", enable_mode=True)
             self.base.execute_command("no ip address", enable_mode=True)
@@ -369,6 +377,7 @@ class CiscoL3Management:
                 logger(f"Configuring SVI Vlan{vlan_id}...")
             
             # Enter config mode
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface vlan {vlan_id}", enable_mode=True)
             
@@ -413,6 +422,7 @@ class CiscoL3Management:
     def get_svi_interfaces(self, logger=None):
         """Get all SVI interfaces"""
         try:
+            self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command("show ip interface brief", enable_mode=True)
             svis = []
             
@@ -473,6 +483,7 @@ class CiscoL3Management:
                 logger(f"Adding static route {network}/{mask} via {next_hop}...")
             
             # Enter config mode and add route
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             
             if description is not None and description != '':
@@ -519,6 +530,7 @@ class CiscoL3Management:
                 logger(f"Removing static route {network}/{mask} via {next_hop}...")
             
             # Enter config mode and remove route
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"no ip route {network} {mask} {next_hop}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -549,6 +561,7 @@ class CiscoL3Management:
     def get_static_routes(self, logger=None):
         """Get all static routes"""
         try:
+            self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command("show ip route static", enable_mode=True)
             
             routes = []
@@ -603,6 +616,7 @@ class CiscoL3Management:
             intf_name = self._parse_interface_name(interface)
             
             # Enter config mode and configure interface
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {intf_name}", enable_mode=True)
             
@@ -673,6 +687,7 @@ class CiscoL3Management:
                 }
             
             # Enter config mode and convert to routed port
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {intf_name}", enable_mode=True)
             self.base.execute_command("no switchport", enable_mode=True)
@@ -725,6 +740,7 @@ class CiscoL3Management:
                 }
             
             # Enter config mode and convert to switch port
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {intf_name}", enable_mode=True)
             self.base.execute_command("switchport", enable_mode=True)
@@ -790,6 +806,7 @@ class CiscoL3Management:
                 }
             
             # Create ACL with deny any as default first rule
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"access-list {acl_number} deny any", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -840,6 +857,7 @@ class CiscoL3Management:
                 }
             
             # Check if ACL exists
+            self.base.execute_command("enable", enable_mode=False)
             acl_check = self.base.execute_command(f"show access-list {acl_number}", enable_mode=True)
             acl_check_lower = acl_check.lower()
             acl_exists = (
@@ -864,6 +882,7 @@ class CiscoL3Management:
                 }
             
             # Add rule
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"access-list {acl_number} {action} {source}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -913,6 +932,7 @@ class CiscoL3Management:
                 }
             
             # Check if ACL already exists
+            self.base.execute_command("enable", enable_mode=False)
             acl_check = self.base.execute_command(f"show access-list {acl_number}", enable_mode=True)
             if "access-list" in acl_check.lower():
                 if logger:
@@ -924,6 +944,7 @@ class CiscoL3Management:
                 }
             
             # Create ACL with deny any any as default first rule
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"access-list {acl_number} deny ip any any", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -992,6 +1013,7 @@ class CiscoL3Management:
             rule_cmd = " ".join(rule_parts)
             
             # Check if ACL exists
+            self.base.execute_command("enable", enable_mode=False)
             acl_check = self.base.execute_command(f"show access-list {acl_number}", enable_mode=True)
             acl_check_lower = acl_check.lower()
             acl_exists = (
@@ -1016,6 +1038,7 @@ class CiscoL3Management:
                 }
             
             # Add rule
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(rule_cmd, enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -1065,7 +1088,7 @@ class CiscoL3Management:
             intf_name = self._parse_interface_name(interface)
             
             # Check if ACL exists
-            # Check if ACL exists
+            self.base.execute_command("enable", enable_mode=False)
             acl_check = self.base.execute_command(f"show access-list {acl_number}", enable_mode=True)
             acl_check_lower = acl_check.lower()
             acl_exists = (
@@ -1092,6 +1115,7 @@ class CiscoL3Management:
                 }
             
             # Apply ACL to interface
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {intf_name}", enable_mode=True)
             
@@ -1135,6 +1159,7 @@ class CiscoL3Management:
             
             if sequence:
                 # Remove specific rule by sequence number
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command("configure terminal", enable_mode=True)
                 self.base.execute_command(f"no access-list {acl_number} {sequence}", enable_mode=True)
                 self.base.execute_command("end", enable_mode=True)
@@ -1151,19 +1176,22 @@ class CiscoL3Management:
             else:
                 # Remove entire ACL
                 # First, remove from any interfaces
+                self.base.execute_command("enable", enable_mode=False)
                 interfaces_output = self.base.execute_command("show ip interface", enable_mode=True)
                 for line in interfaces_output.split('\n'):
                     if acl_number in line and 'access list' in line.lower():
                         parts = line.split()
                         intf_name = parts[0]
                         direction = 'in' if 'inbound' in line.lower() else 'out'
-                        
+
+                        self.base.execute_command("enable", enable_mode=False)
                         self.base.execute_command("configure terminal", enable_mode=True)
                         self.base.execute_command(f"interface {intf_name}", enable_mode=True)
                         self.base.execute_command(f"no ip access-group {acl_number} {direction}", enable_mode=True)
                         self.base.execute_command("end", enable_mode=True)
                 
                 # Then remove ACL
+                self.base.execute_command("enable", enable_mode=False)
                 self.base.execute_command("configure terminal", enable_mode=True)
                 self.base.execute_command(f"no access-list {acl_number}", enable_mode=True)
                 self.base.execute_command("end", enable_mode=True)
@@ -1192,7 +1220,8 @@ class CiscoL3Management:
         try:
             if logger:
                 logger("Getting ACL information...")
-            
+
+            self.base.execute_command("enable", enable_mode=False)
             output = self.base.execute_command("show ip access-lists", enable_mode=True)
             
             acls = []
@@ -1269,6 +1298,7 @@ class CiscoL3Management:
             
             # Get ACL interfaces
             try:
+                self.base.execute_command("enable", enable_mode=False)
                 interface_output = self.base.execute_command("show ip interface", enable_mode=True)
                 for line in interface_output.split('\n'):
                     if 'access list' in line.lower():
@@ -1317,6 +1347,7 @@ class CiscoL3Management:
                 }
             
             # Configure NTP
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"ntp server {ntp_server}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -1327,6 +1358,7 @@ class CiscoL3Management:
             self.base.save_configuration()
             
             # Verify NTP status
+            self.base.execute_command("enable", enable_mode=False)
             ntp_status = self.base.execute_command("show ntp status", enable_mode=True)
             ntp_associations = self.base.execute_command("show ntp associations", enable_mode=True)
             
@@ -1390,6 +1422,7 @@ class CiscoL3Management:
         """Get NTP configuration status"""
         try:
             # Get configured servers
+            self.base.execute_command("enable", enable_mode=False)
             config_output = self.base.execute_command("show running-config | include ntp server", enable_mode=True)
             ntp_servers = []
             
@@ -1440,6 +1473,7 @@ class CiscoL3Management:
             
             # Test SVI support
             try:
+                self.base.execute_command("enable", enable_mode=False)
                 output = self.base.execute_command("show interface vlan 1", enable_mode=True)
                 if "Invalid input" not in output:
                     tests['svi_support'] = True
@@ -1448,6 +1482,7 @@ class CiscoL3Management:
             
             # Test static routing
             try:
+                self.base.execute_command("enable", enable_mode=False)
                 output = self.base.execute_command("show ip route static", enable_mode=True)
                 if "Invalid input" not in output:
                     tests['static_routing'] = True
@@ -1456,6 +1491,7 @@ class CiscoL3Management:
             
             # Test ACL support
             try:
+                self.base.execute_command("enable", enable_mode=False)
                 output = self.base.execute_command("show access-lists", enable_mode=True)
                 if "Invalid input" not in output:
                     tests['acl_support'] = True

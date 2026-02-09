@@ -11,13 +11,23 @@ class CiscoVlanDriver:
             if logger:
                 logger("Getting VLANs...")
             
+            # Pertama, masuk ke enable mode jika belum
+            output = self.base.execute_command("enable", enable_mode=False)
+            
+            # Kemudian execute show vlan brief
             output = self.base.execute_command("show vlan brief", enable_mode=True)
             
+            # Coba dengan menambahkan newline di akhir
+            output = self.base.execute_command("show vlan brief\n", enable_mode=True)
+            
+            # Atau coba tanpa enable_mode
+            output = self.base.execute_command("show vlan brief", enable_mode=False)
+
             vlans = []
             lines = output.split('\n')
             
             for line in lines:
-                if line.strip() and line[0].isdigit():
+                if line.strip() and line.strip()[0].isdigit():
                     parts = line.split()
                     if len(parts) >= 2:
                         vlan_info = {
@@ -49,6 +59,8 @@ class CiscoVlanDriver:
         try:
             if logger:
                 logger(f"Creating VLAN {vlan_id}...")
+
+            self.base.execute_command("enable", enable_mode=False)
 
             self.base.execute_command("configure terminal", enable_mode=True)
 
@@ -92,7 +104,8 @@ class CiscoVlanDriver:
         try:
             if logger:
                 logger(f"Deleting VLAN {vlan_id}...")
-
+                
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"no vlan {vlan_id}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -122,6 +135,7 @@ class CiscoVlanDriver:
             if logger:
                 logger(f"Assigning {interface_name} to VLAN {vlan_id}")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"interface {interface_name}", enable_mode=True)
             self.base.execute_command("switchport mode access", enable_mode=True)
@@ -170,6 +184,7 @@ class CiscoVlanDriver:
             
             for cmd in reset_commands:
                 try:
+                    self.base.execute_command("enable", enable_mode=False)
                     self.base.execute_command(cmd, enable_mode=True)
                 except Exception as e:
                     if logger:
@@ -196,6 +211,7 @@ class CiscoVlanDriver:
             ]
             
             for cmd in trunk_commands:
+                result = self.base.execute_command("enable", enable_mode=False)
                 result = self.base.execute_command(cmd, enable_mode=True)
                 if result and logger:
                     logger(f"Output: {result}")
@@ -244,6 +260,7 @@ class CiscoVlanDriver:
                     ]
                     
                     for cmd in alt_commands:
+                        self.base.execute_command("enable", enable_mode=False)
                         self.base.execute_command(cmd, enable_mode=True)
                     
                     time.sleep(1)

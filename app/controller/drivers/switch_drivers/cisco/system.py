@@ -77,6 +77,7 @@ class CiscoSystemDriver:
     def get_running_config(self, logger=None):
         """Get Cisco switch running config"""
         try:
+            raw = self.base.execute_command("enable", enable_mode=False)
             raw = self.base.execute_command("show running-config", enable_mode=True)
 
             # HIDE SECRET
@@ -114,6 +115,7 @@ class CiscoSystemDriver:
             if logger:
                 logger(f"Setting switch identity to '{hostname}'")
 
+            self.base.execute_command("enable", enable_mode=False)
             self.base.execute_command("configure terminal", enable_mode=True)
             self.base.execute_command(f"hostname {hostname}", enable_mode=True)
             self.base.execute_command("end", enable_mode=True)
@@ -122,6 +124,7 @@ class CiscoSystemDriver:
             self.save_config(logger)
 
             # Verify hostname
+            verify = self.base.execute_command("enable", enable_mode=False)
             verify = self.base.execute_command(
                 "show running-config | include hostname",
                 enable_mode=True
