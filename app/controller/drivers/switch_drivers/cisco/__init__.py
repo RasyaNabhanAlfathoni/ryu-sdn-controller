@@ -171,7 +171,21 @@ class CiscoSSHDriver:
             try:
                 host_output = self.base.execute_command("show running-config | include hostname", enable_mode=True)
                 if host_output and "ERROR" not in host_output:
-                    host_match = re.search(r'hostname\s+(\S+)', host_output)
+                    host_output = host_output.replace('\r', '')
+                    host_match = re.search(r'r^\s*hostname\s+(\S+)', host_output, re.MULTILINE)
+                    if host_match:
+                        hostname = host_match.group(1)
+                        info['hostname'] = hostname
+                        info['identity'] = hostname
+                        print(f"[DEBUG] Hostname from config: {hostname}")
+            except Exception as e:
+                print(f"[CiscoSSHDriver] Error getting hostname: {e}")
+
+            # Get Hostname
+            try:
+                host_output = self.base.execute_command("show version | include uptime", enable_mode=True)
+                if host_output and "ERROR" not in host_output:
+                    host_match = re.search(r'^(\S+)\s+uptime', host_output, re.MULTILINE)
                     if host_match:
                         hostname = host_match.group(1)
                         info['hostname'] = hostname
@@ -297,6 +311,7 @@ class CiscoSSHDriver:
                     
                     # Cari VLAN interface yang memiliki IP sama dengan device IP
                     vlan_interface = None
+                    vlan_id = None
                     lines = ip_brief.split('\n')
                     
                     for line in lines:
@@ -313,7 +328,122 @@ class CiscoSSHDriver:
                             if ip_addr == self.config['ip']:
                                 vlan_interface = interface
                                 print(f"[DEBUG] Found management VLAN interface: {interface} with IP {ip_addr}")
+                                if 'vlan' in interface.lower():
+                                    vlan_match = re.search(r'vlan\s*(\d+)', interface, re.IGNORECASE)
+                                    if vlan_match:
+                                        vlan_id = vlan_match.group(1)
+                                        print(f"[DEBUG] VLAN ID extracted: {vlan_id}") 
                                 break
+
+                    physical_interface_found = None
+
+                    if vlan_id:
+                        print(f"[DEBUG] Looking for physical interface in VLAN {vlan_id}...")
+                        
+                        # Method 1: Gunakan show vlan id
+                        try:
+                            vlan_detail = self.base.execute_command(f"show vlan id {vlan_id}", enable_mode=True)
+                            print(f"[DEBUG] VLAN {vlan_id} detail output:")
+                            print(vlan_detail[:500])
+                            
+                            if vlan_detail and "ERROR" not in vlan_detail:
+                                # Parse output untuk mencari port
+                                for line in vlan_detail.split('\n'):
+                                    if vlan_id in line:
+                                        print(f"[DEBUG] Found VLAN line: {line}")
+                                        
+                                        # Cari interface fisik
+                                        interface_patterns = [
+                                            r'(Fa\d+/\d+)',
+                                            r'(Gi\d+/\d+)',
+                                            r'(Et\d+/\d+)',
+                                            r'(Te\d+/\d+)',
+                                            r'(FastEthernet\d+/\d+)',
+                                            r'(GigabitEthernet\d+/\d+)',
+                                            r'(Ethernet\d+/\d+)'
+                                        ]
+                                        
+                                        for pattern in interface_patterns:
+                                            interface_matches = re.findall(pattern, line, re.IGNORECASE)
+                                            if interface_matches:
+                                                physical_interface_found = interface_matches[0]
+                                                print(f"[DEBUG] Found physical interface via VLAN detail: {physical_interface_found}")
+                                                break
+                                        
+                                        if physical_interface_found:
+                                            break
+                        except Exception as e:
+                            print(f"[DEBUG] Error with show vlan id: {e}")
+                        
+                        # Method 2: Gunakan show vlan brief
+                        if not physical_interface_found:
+                            try:
+                                vlan_brief = self.base.execute_command("show vlan brief", enable_mode=True)
+                                print(f"[DEBUG] VLAN brief output:")
+                                print(vlan_brief[:500])
+                                
+                                if vlan_brief:
+                                    lines = vlan_brief.split('\n')
+                                    for line in lines:
+                                        line = line.strip()
+                                        if line.startswith(f"{vlan_id} ") or f" {vlan_id} " in line:
+                                            print(f"[DEBUG] Found VLAN {vlan_id} in brief: {line}")
+                                            
+                                            # Cari interface dalam line
+                                            interface_patterns = [
+                                                r'(Fa\d+/\d+)',
+                                                r'(Gi\d+/\d+)',
+                                                r'(Et\d+/\d+)'
+                                            ]
+                                            
+                                            for pattern in interface_patterns:
+                                                interface_matches = re.findall(pattern, line, re.IGNORECASE)
+                                                if interface_matches:
+                                                    physical_interface_found = interface_matches[0]
+                                                    print(f"[DEBUG] Found via vlan brief: {physical_interface_found}")
+                                                    break
+                                            
+                                            if physical_interface_found:
+                                                break
+                            except Exception as e:
+                                print(f"[DEBUG] Error with vlan brief: {e}")
+                    
+                    # SET FINAL MAIN INTERFACE
+                    if physical_interface_found:
+                        info['main_interface'] = physical_interface_found
+                        print(f"[DEBUG] Setting main_interface to physical: {physical_interface_found}")
+                    elif vlan_interface:
+                        # Fallback: jika tidak ada physical interface, gunakan VLAN
+                        info['main_interface'] = vlan_interface
+                        print(f"[DEBUG] Setting main_interface to VLAN: {vlan_interface}")
+                    else:
+                        # Ultimate fallback: cari interface UP pertama
+                        print(f"[DEBUG] No interface found, looking for any UP interface...")
+                        try:
+                            int_status = self.base.execute_command("show interface status", enable_mode=True)
+                            if int_status:
+                                lines = int_status.split('\n')
+                                for line in lines:
+                                    line = line.strip()
+                                    if not line or 'Port' in line or '---' in line:
+                                        continue
+                                    
+                                    parts = line.split()
+                                    if len(parts) >= 2:
+                                        interface = parts[0]
+                                        status = parts[1].lower() if len(parts) > 1 else ''
+                                        
+                                        if status == 'up' or status == 'connected':
+                                            if any(x in interface.lower() for x in ['fa', 'gi', 'et']):
+                                                info['main_interface'] = interface
+                                                print(f"[DEBUG] Found UP interface: {interface}")
+                                                break
+                        except Exception as e:
+                            print(f"[DEBUG] Error finding UP interface: {e}")
+                            
+                        if not info['main_interface']:
+                            info['main_interface'] = 'FastEthernet0/1'
+                            print(f"[DEBUG] Using default interface: FastEthernet0/1")
                     
                     # Jika ada VLAN interface, cari physical interface yang membawa VLAN tersebut
                     if vlan_interface and 'vlan' in vlan_interface.lower():
