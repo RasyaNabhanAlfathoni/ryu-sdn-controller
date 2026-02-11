@@ -744,6 +744,66 @@ class DeviceRepository:
                 cursor.close()
 
     # ============================
+    # UPDATE SWITCH PARTIAL (Untuk update field yg diperlukan aja)
+    # ============================
+    @staticmethod
+    def update_switch_partial(device_id, update_data):
+        """Update switch dengan partial data"""
+        with DBConnection.get_conn() as conn:
+            cursor = conn.cursor()
+            try:
+                # Build dynamic SQL query berdasarkan field yang ada
+                fields = []
+                values = []
+                
+                # Field yang diperbolehkan untuk diupdate
+                allowed_fields = [
+                    "username", "password", "identity", 
+                    "os_version", "model", "serial_number", "vendor",
+                    "main_ip_address", "main_mac_address", "main_interface",
+                    "southbound", "status"
+                ]
+                
+                # Filter hanya field yang ada di update_data dan di allowed_fields
+                for field in allowed_fields:
+                    if field in update_data and update_data[field] is not None:
+                        fields.append(f"{field}=%s")
+                        values.append(update_data[field])
+                
+                # Tambahkan timestamp
+                fields.append("updated_at=NOW()")
+                fields.append("last_seen=NOW()")
+                
+                # Jika ada field yang akan diupdate
+                if fields:
+                    sql = f"""
+                        UPDATE switchs 
+                        SET {', '.join(fields)}
+                        WHERE device_id=%s
+                    """
+                    
+                    # Tambahkan device_id ke values
+                    values.append(device_id)
+                    
+                    cursor.execute(sql, values)
+                    conn.commit()
+                    
+                    print(f"[DB-PARTIAL-UPDATE] Updated {len(fields)-1} fields for switch {device_id}")
+                    return True
+                else:
+                    print(f"[DB-PARTIAL-UPDATE] No fields to update for switch {device_id}")
+                    return False
+                    
+            except Exception as e:
+                print(f"[DB-PARTIAL-UPDATE-ERROR] Failed to update switch {device_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+    # ============================
     # GET ALL SWITCHES
     # ============================
     @staticmethod

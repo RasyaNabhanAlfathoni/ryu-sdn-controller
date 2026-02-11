@@ -1,5 +1,6 @@
 from drivers.switch_drivers.cisco import CiscoSSHDriver  # Ganti dari CiscoNetconfDriver
 from drivers.snmp_file_manager import SNMPFileManager
+from database.device_repository import DeviceRepository
 import json
 import datetime
 
@@ -200,9 +201,10 @@ class CiscoSwitchActions:
             
             # === System Configuration ===
             "switch.cisco.system.config.get": lambda p, logger: driver.system.get_running_config(logger),
-            "switch.cisco.system.identity.set": lambda p, logger: driver.system.set_identity(
-                p['hostname'],
-                logger
+            "switch.cisco.system.identity.set": lambda p, logger: CiscoSwitchActions._identity_auto_update(
+                driver, "set_hostname", p, logger,
+                lambda: driver.system.set_identity(p['hostname'], logger),
+                "hostname"
             ),
             "switch.cisco.system.reboot": lambda p, logger: driver.system.reboot(logger=logger,
                 confirm=p.get("confirm", False),
@@ -327,3 +329,48 @@ class CiscoSwitchActions:
                 'status': 'error',
                 'error': str(e)
             }
+        
+    @staticmethod
+    def _identity_auto_update(driver, action_name, params, logger, action_func, update_type):
+        """Auto-update khusus untuk identity/hostname"""
+        # Execute action dulu
+        result = action_func()
+        
+        # Coba update database
+        try:
+            device_id = params.get("device_id") or getattr(driver, 'device_id', None)
+            
+            if not device_id and hasattr(driver, 'device_id'):
+                device_id = driver.device_id
+            
+            if not device_id and hasattr(driver, 'config') and driver.config:
+                device_id = driver.config.get('device_id')
+
+            if not device_id:
+                if logger:
+                    logger(f"[AUTO-UPDATE] No device_id, skipping update")
+                return result
+            
+            if action_name == "set_hostname" or action_name == "set_identity":
+                hostname = params.get("identity", params.get("hostname", ""))
+                
+                if hostname:
+                    if logger:
+                        logger(f"[AUTO-UPDATE] Hostname changed to: {hostname}")
+                    
+                    # Update ke database
+                    update_data = {
+                        "identity": hostname,
+                        "status": "active",
+                        "last_seen": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    
+                    DeviceRepository.update_switch_partial(device_id, update_data)
+                    if logger:
+                        logger(f"[AUTO-UPDATE] Hostname updated in DB: {hostname}")
+        
+        except Exception as e:
+            if logger:
+                logger(f"[AUTO-UPDATE-WARNING] {e}")
+        
+        return result
